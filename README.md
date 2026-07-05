@@ -104,6 +104,35 @@ PYTHONPATH=src:.deps python3 -m aiops.training.train_mstcn \
   --device cuda
 ```
 
+Build a larger multi-step procedural dataset and train dense temporal segmentation:
+
+```bash
+PYTHONPATH=src:.deps python3 -m aiops.data.tinyvirat \
+  --max-classes 8 \
+  --max-per-class 20 \
+  --archive data/raw/TinyVIRAT.zip \
+  --output-dir data/processed/tinyvirat_action_subset_v2
+
+PYTHONPATH=src:.deps python3 -m aiops.data.procedural_sequences \
+  --source-manifest data/processed/tinyvirat_action_subset_v2/manifest.jsonl \
+  --output-dir data/processed/procedural_tinyvirat_v2 \
+  --num-sequences 72 \
+  --steps-per-sequence 7
+
+module load cuda-11.6
+PYTHONPATH=src:.deps python3 -m aiops.training.train_mstcn \
+  --manifest data/processed/procedural_tinyvirat_v2/manifest.jsonl \
+  --manifest-type temporal \
+  --output-dir runs/models/mstcn_procedural_v2_best \
+  --epochs 60 \
+  --hidden-dim 64 \
+  --num-stages 3 \
+  --num-layers 6 \
+  --dropout 0.35 \
+  --smoothing-weight 0.1 \
+  --device cuda
+```
+
 Run learned checkpoint inference:
 
 ```bash

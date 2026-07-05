@@ -18,7 +18,7 @@ st.title("AIOps")
 procedure_path = st.text_input("Procedure JSON", value="configs/example_procedure.json")
 mode = st.radio("Mode", options=["Temporal", "Baseline"], horizontal=True)
 architecture_path = st.text_input("Architecture JSON", value="configs/temporal_architecture.json")
-checkpoint_path = st.text_input("MS-TCN checkpoint", value="runs/models/mstcn_tinyvirat/checkpoint.pt")
+checkpoint_path = st.text_input("MS-TCN checkpoint", value="runs/models/mstcn_procedural_v2_best/best_checkpoint.pt")
 uploaded_video = st.file_uploader("Video", type=["mp4", "mov", "avi", "mkv"])
 
 if uploaded_video and st.button("Analyze", type="primary"):
