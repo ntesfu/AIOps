@@ -92,6 +92,33 @@ python -m aiops.training.simple_video_classifier \
   --learning-rate 0.15
 ```
 
+Train the GPU-backed MS-TCN temporal head:
+
+```bash
+module load cuda-11.6
+PYTHONPATH=src:.deps python3 -m aiops.training.train_mstcn \
+  --manifest data/processed/tinyvirat_action_subset/manifest.jsonl \
+  --output-dir runs/models/mstcn_tinyvirat \
+  --epochs 80 \
+  --learning-rate 0.0005 \
+  --device cuda
+```
+
+Run learned checkpoint inference:
+
+```bash
+module load cuda-11.6
+PYTHONPATH=src:.deps python3 -m aiops.inference.cli \
+  --mode temporal \
+  --video data/processed/tinyvirat_action_subset/videos/activity_walking/VIRAT_S_000203_07_001341_001458__1.mp4 \
+  --procedure configs/example_procedure.json \
+  --architecture configs/temporal_architecture.json \
+  --checkpoint runs/models/mstcn_tinyvirat/checkpoint.pt \
+  --output runs/mstcn_inference.json
+```
+
+The Streamlit UI supports baseline inference, temporal inference, learned MS-TCN checkpoint inference, clip-level labels, decoded segments, validation events, and JSON download.
+
 ## Compute Notes
 
 This workspace currently sees an NVIDIA RTX 5000 Ada on PCI, but `nvidia-smi` cannot communicate with the driver and PyTorch is not installed. Treat local development as CPU-only until `/dev/nvidia*`, CUDA, and PyTorch are available.

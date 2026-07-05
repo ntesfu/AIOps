@@ -5,6 +5,7 @@ from typing import Protocol
 import numpy as np
 
 from aiops.features import ClipFeature
+from aiops.models.mstcn import build_ms_tcn_plus_plus
 from aiops.procedure import Procedure
 
 
@@ -46,3 +47,37 @@ def _softmax(logits: np.ndarray) -> np.ndarray:
     exp = np.exp(shifted)
     return exp / exp.sum(axis=1, keepdims=True)
 
+
+class MSTCNCheckpointHead:
+    def __init__(self, checkpoint_path: str, device: str | None = None) -> None:
+        import torch
+
+        self.torch = torch
+        self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
+        checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
+        self.classes: list[str] = list(checkpoint["classes"])
+        self.feature_mean = np.asarray(checkpoint["feature_mean"], dtype=np.float32)
+        self.feature_std = np.asarray(checkpoint["feature_std"], dtype=np.float32)
+        self.model_config = dict(checkpoint["model_config"])
+        self.model = build_ms_tcn_plus_plus(
+            input_dim=int(self.model_config["input_dim"]),
+            num_classes=len(self.classes),
+            hidden_dim=int(self.model_config["hidden_dim"]),
+            num_stages=int(self.model_config["num_stages"]),
+            num_layers=int(self.model_config["num_layers"]),
+            dropout=float(self.model_config["dropout"]),
+        ).to(self.device)
+        self.model.load_state_dict(checkpoint["model_state"])
+        self.model.eval()
+
+    def predict_proba(self, clips: list[ClipFeature], procedure: Procedure) -> np.ndarray:
+        if not clips:
+            return np.zeros((0, len(self.classes)), dtype=np.float32)
+
+        feature_matrix = np.stack([clip.vector for clip in clips]).astype(np.float32)
+        feature_matrix = (feature_matrix - self.feature_mean) / self.feature_std
+        tensor = self.torch.from_numpy(feature_matrix.T[None, :, :]).to(self.device)
+        with self.torch.no_grad():
+            logits = self.model(tensor)[-1][0].transpose(0, 1)
+            probabilities = self.torch.softmax(logits, dim=1).detach().cpu().numpy()
+        return probabilities.astype(np.float32)

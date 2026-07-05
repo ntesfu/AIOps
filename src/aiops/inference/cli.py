@@ -17,6 +17,7 @@ def parse_args() -> argparse.Namespace:
         default="configs/temporal_architecture.json",
         help="Temporal architecture config used when --mode temporal.",
     )
+    parser.add_argument("--checkpoint", default=None, help="Optional MS-TCN checkpoint for learned temporal inference.")
     parser.add_argument("--output", default="runs/predictions.json", help="Where to write predictions JSON.")
     return parser.parse_args()
 
@@ -26,7 +27,7 @@ def main() -> None:
     procedure = Procedure.from_json(args.procedure)
     if args.mode == "temporal":
         architecture = AIOpsArchitectureConfig.from_json(args.architecture)
-        payload = run_temporal_inference(args.video, procedure, architecture)
+        payload = run_temporal_inference(args.video, procedure, architecture, checkpoint_path=args.checkpoint)
     else:
         payload = run_baseline_inference(args.video, procedure)
     write_json(payload, args.output)
