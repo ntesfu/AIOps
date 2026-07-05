@@ -1,0 +1,22 @@
+{
+  "name": "aiops_temporal_v1",
+  "clip_stride_s": 0.5,
+  "clip_duration_s": 1.0,
+  "feature_backend": "statistical_clip",
+  "temporal_head": {
+    "type": "ms_tcn_plus_plus",
+    "input_dim": 14,
+    "hidden_dim": 128,
+    "num_stages": 4,
+    "num_layers": 8,
+    "dropout": 0.3
+  },
+  "decoder": {
+    "min_segment_s": 0.5,
+    "smoothing_window": 3
+  },
+  "validator": {
+    "enabled": true
+  }
+}
+

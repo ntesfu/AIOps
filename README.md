@@ -52,14 +52,27 @@ streamlit run web/app.py
 
 ## Architecture Plan
 
-1. Decode videos into fixed-duration clips.
-2. Generate clip features with a frozen image/video encoder.
-3. Feed features into a lightweight temporal segmentation model.
-4. Smooth predictions in a rolling buffer.
-5. Validate the predicted sequence against a procedure graph.
-6. Render annotated video and export JSON for review.
+Implemented temporal pipeline:
+
+1. Decode videos into overlapping fixed-duration clips.
+2. Generate one feature vector per clip. The current local backend is `statistical_clip`; the interface is shaped so a frozen VideoMAE/EgoVLP encoder can replace it.
+3. Feed the clip feature sequence into a temporal probability head. The current runnable head is a deterministic temporal prior placeholder; `src/aiops/models/mstcn.py` contains the optional PyTorch MS-TCN++ style model builder for the learned version.
+4. Smooth clip probabilities and decode non-overlapping temporal step segments.
+5. Validate the predicted sequence against the procedure graph.
+6. Export JSON for the UI and later annotated video rendering.
 
 The baseline included here creates deterministic pseudo-segments from video metadata so the UI, validator, and output format can be developed before GPU training is available.
+
+Run the temporal pipeline:
+
+```bash
+python -m aiops.inference.cli \
+  --mode temporal \
+  --video sample.mp4 \
+  --procedure configs/example_procedure.json \
+  --architecture configs/temporal_architecture.json \
+  --output runs/temporal_predictions.json
+```
 
 ## Tiny CPU Training Run
 
