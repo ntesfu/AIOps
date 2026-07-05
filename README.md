@@ -61,7 +61,24 @@ streamlit run web/app.py
 
 The baseline included here creates deterministic pseudo-segments from video metadata so the UI, validator, and output format can be developed before GPU training is available.
 
+## Tiny CPU Training Run
+
+TinyVIRAT is used as a small public action-recognition smoke test while Assembly101 access is being prepared. The downloader pulls the official archive, extracts a balanced tiny subset from `tiny_train.json`, and trains a simple CPU softmax classifier over lightweight frame statistics.
+
+```bash
+python -m aiops.data.tinyvirat \
+  --max-classes 3 \
+  --max-per-class 8 \
+  --archive data/raw/TinyVIRAT.zip \
+  --output-dir data/processed/tinyvirat_action_subset
+
+python -m aiops.training.simple_video_classifier \
+  --manifest data/processed/tinyvirat_action_subset/manifest.jsonl \
+  --output-dir runs/models/tinyvirat_simple \
+  --epochs 250 \
+  --learning-rate 0.15
+```
+
 ## Compute Notes
 
 This workspace currently sees an NVIDIA RTX 5000 Ada on PCI, but `nvidia-smi` cannot communicate with the driver and PyTorch is not installed. Treat local development as CPU-only until `/dev/nvidia*`, CUDA, and PyTorch are available.
-

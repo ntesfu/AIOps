@@ -8,13 +8,14 @@ version = "0.1.0"
 description = "Egocentric assembly step detection and procedure validation prototype."
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["numpy>=1.26"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 web = ["streamlit>=1.36"]
 video = ["opencv-python>=4.9"]
-ml = ["torch>=2.3", "numpy>=1.26"]
+train = ["opencv-python>=4.9"]
+ml = ["torch>=2.3"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -22,4 +23,3 @@ where = ["src"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
-
