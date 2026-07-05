@@ -1,0 +1,17 @@
+.venv/
+.git-local/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+runs/
+data/raw/
+data/processed/
+*.mp4
+*.mov
+*.avi
+*.mkv

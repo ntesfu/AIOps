@@ -1,0 +1,11 @@
+{
+  "name": "toy_assembly",
+  "steps": [
+    {"id": "pick_base", "label": "Pick base"},
+    {"id": "attach_panel", "label": "Attach panel"},
+    {"id": "tighten_screw", "label": "Tighten screw"},
+    {"id": "inspect", "label": "Inspect assembly"}
+  ],
+  "min_confidence": 0.55
+}
+
