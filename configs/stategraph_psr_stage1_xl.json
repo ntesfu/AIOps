@@ -10,7 +10,7 @@
     "num_action_refinement_stages": 3,
     "num_refinement_blocks": 5,
     "num_event_blocks": 6,
-    "dropout": 0.2,
+    "dropout": 0.15,
     "causal": true,
     "cross_modal_disagreement": true
   },
@@ -18,9 +18,9 @@
     "precision": "bf16",
     "batch_size": 4,
     "accumulation_steps": 2,
-    "sequence_length": 512,
-    "sequence_stride": 384,
-    "learning_rate": 0.00015,
+    "sequence_length": 384,
+    "sequence_stride": 288,
+    "learning_rate": 0.0002,
     "weight_decay": 0.002,
     "rare_windows_per_batch": 2,
     "event_label_horizon": 2,
@@ -35,10 +35,10 @@
     "--num-action-refinement-stages 3",
     "--num-refinement-blocks 5",
     "--num-event-blocks 6",
-    "--dropout 0.2",
-    "--sequence-length 512",
-    "--sequence-stride 384",
-    "--learning-rate 0.00015",
+    "--dropout 0.15",
+    "--sequence-length 384",
+    "--sequence-stride 288",
+    "--learning-rate 0.0002",
     "--event-label-horizon 2"
   ]
 }

@@ -304,6 +304,25 @@ Both paths use the official 16-frame, interval-2 SSv2 sampling recipe. Feature
 provenance is written to a manifest and can be propagated into cache `index.json`
 with `--motion-backend-name`. See `docs/videomaev2_motion_cache.md`.
 
+### v5 dual-motion XL result
+
+The current strongest Stage-1 action model is the optional dual-motion v5 XL
+preset (`configs/stategraph_psr_stage1_xl.json`). It keeps VideoMAEv2-giant and
+Swin3D-S in separate stems, adds learned four-stream gating, preserves
+cross-stream disagreement for the six-block fault/state branch, uses three
+action-refinement stages, and trains rare outcomes for a causal two-row horizon
+while keeping completion timing exact. The head has 87.5M trainable parameters.
+
+The graph filter is now a vectorized first-order causal prior; this removed the
+main Python/CUDA serialization bottleneck. All 31 desktop tests pass. The
+four-recording timing gate obtained 66.67 incorrect F1 and 100 normality AP. On
+the official split, seed 7 selected epoch 24 with 34.99 frame accuracy, 34.26
+Edit, 19.12 F1@50, 8.82 incorrect AP, 0 incorrect F1, and 90.37 state accuracy.
+This is the best action/step result but is not yet sufficient evidence for a
+production fault alert or a final 80-epoch run. Run seeds 17 and 29 first. Full
+architecture, commands, comparisons, compute telemetry, and the go/no-go gate
+are in `docs/stategraph_psr_v5_dualmotion_report.md`.
+
 ## Known risks and decisions
 
 - The first cache-v2 pilot is a diagnostic baseline, not a final accuracy claim; it used fallback Swin3D-S + ConvNeXt features and failed the incorrect-event gate.

@@ -16,3 +16,5 @@ data/processed/
 *.mov
 *.avi
 *.mkv
+# Local IndustReal download (keep datasets outside Git)
+dataset.zip

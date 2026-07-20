@@ -1,0 +1,43 @@
+{
+  "name": "StateGraph-PSR XXL Stage 1",
+  "inherits": "configs/stategraph_psr_stage1_xl.json",
+  "purpose": "High-capacity temporal head for a 24 GB GPU with cached visual features",
+  "model": {
+    "hidden_dim": 640,
+    "num_temporal_blocks": 20,
+    "attention_every": 2,
+    "num_heads": 10,
+    "num_action_refinement_stages": 4,
+    "num_refinement_blocks": 6,
+    "num_event_blocks": 8,
+    "dropout": 0.12,
+    "max_sequence_length": 4096,
+    "positional_dropout": 0.03
+  },
+  "training": {
+    "precision": "bf16",
+    "batch_size": 2,
+    "accumulation_steps": 4,
+    "sequence_length": 512,
+    "sequence_stride": 384,
+    "learning_rate": 0.00015,
+    "weight_decay": 0.002,
+    "epochs": 80,
+    "patience": 15
+  },
+  "pilot_command_overrides": [
+    "--hidden-dim 640",
+    "--num-temporal-blocks 20",
+    "--attention-every 2",
+    "--num-heads 10",
+    "--num-action-refinement-stages 4",
+    "--num-refinement-blocks 6",
+    "--num-event-blocks 8",
+    "--dropout 0.12",
+    "--max-sequence-length 4096",
+    "--positional-dropout 0.03",
+    "--sequence-length 512",
+    "--sequence-stride 384",
+    "--learning-rate 0.00015"
+  ]
+}

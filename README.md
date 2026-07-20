@@ -44,11 +44,20 @@ python -m aiops.inference.cli \
   --output runs/sample_predictions.json
 ```
 
-Run the web UI:
+Run the Hand Atlas web UI (a browser-local MediaPipe and temporal-step dataset labeler):
 
 ```bash
 streamlit run web/app.py
 ```
+
+The labeler can import individual videos, an extracted folder, or a ZIP archive;
+save and manually correct MediaPipe 21-joint hand keyframes; create verified
+procedure-step intervals; validate overlaps and taxonomy; render an annotated
+WebM; and export a training bundle containing the canonical project JSON,
+temporal JSONL manifest, COCO hand keypoints, CSV tables, dataset YAML, and
+procedure configuration. Large archives are indexed lazily, but extracting a
+selected video from a multi-gigabyte ZIP can take time. Selecting the extracted
+folder is the fastest workflow for repeated annotation sessions.
 
 ## Architecture Plan
 

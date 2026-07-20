@@ -49,6 +49,13 @@ class StateGraphPSRConfig:
     graph_strength_init: float = 0.12
     composition_strength_init: float = 1.0
     max_dilation: int = 16
+    # Explicit order signal for attention layers.  The temporal convolutions are
+    # translation equivariant, so without this signal two windows containing the
+    # same actions at different offsets are indistinguishable to the attention
+    # branch.  A fixed sinusoid keeps the model causal and adds no trainable
+    # parameters (important when using long cached windows on a 24 GB GPU).
+    max_sequence_length: int = 4096
+    positional_dropout: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -128,6 +135,30 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             if not self.available:
                 return None
             return self.net(x)
+
+    class SinusoidalPositionEncoding(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            length = max(1, int(config.max_sequence_length))
+            position = torch.arange(length, dtype=torch.float32).unsqueeze(1)
+            div_term = torch.exp(
+                torch.arange(0, config.hidden_dim, 2, dtype=torch.float32)
+                * (-math.log(10000.0) / config.hidden_dim)
+            )
+            encoding = torch.zeros(length, config.hidden_dim, dtype=torch.float32)
+            encoding[:, 0::2] = torch.sin(position * div_term)
+            # Odd hidden dimensions have one fewer cosine channel.
+            encoding[:, 1::2] = torch.cos(position * div_term[: encoding[:, 1::2].shape[1]])
+            self.register_buffer("encoding", encoding.unsqueeze(0), persistent=False)
+            self.dropout = nn.Dropout(config.positional_dropout)
+
+        def forward(self, x):
+            if x.shape[1] > self.encoding.shape[1]:
+                raise ValueError(
+                    f"Sequence length {x.shape[1]} exceeds max_sequence_length "
+                    f"{self.encoding.shape[1]}"
+                )
+            return x + self.dropout(self.encoding[:, : x.shape[1]].to(dtype=x.dtype, device=x.device))
 
     class CausalDepthwiseBlock(nn.Module):
         def __init__(self, dilation: int) -> None:
@@ -257,6 +288,7 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 nn.Dropout(config.dropout),
             )
             self.fusion_norm = nn.LayerNorm(config.hidden_dim)
+            self.position_encoding = SinusoidalPositionEncoding()
             blocks = []
             for index in range(config.num_temporal_blocks):
                 dilation = min(2 ** (index % 5), config.max_dilation)
@@ -434,7 +466,7 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             fused, modality_gates, modality_disagreement = self._project_modalities(
                 motion, appearance, sensor, modality_mask, motion_aux
             )
-            temporal = fused
+            temporal = self.position_encoding(fused)
             for block in self.temporal_blocks:
                 temporal = block(temporal, valid_mask)
             prototype_residual = self.action_residual_prototypes * self.seen_action_mask.unsqueeze(-1)

@@ -151,6 +151,8 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         num_event_blocks=args.num_event_blocks,
         dropout=args.dropout,
         graph_strength_init=args.graph_strength,
+        max_sequence_length=args.max_sequence_length,
+        positional_dropout=args.positional_dropout,
     )
     loss_config = StateGraphLossConfig(
         step_weight=args.step_weight,
@@ -1055,6 +1057,18 @@ def main() -> None:
     parser.add_argument("--num-refinement-blocks", type=int, default=4)
     parser.add_argument("--num-event-blocks", type=int, default=0)
     parser.add_argument("--dropout", type=float, default=0.2)
+    parser.add_argument(
+        "--max-sequence-length",
+        type=int,
+        default=4096,
+        help="Maximum cached temporal length supported by positional encoding.",
+    )
+    parser.add_argument(
+        "--positional-dropout",
+        type=float,
+        default=0.0,
+        help="Dropout applied to fixed temporal position features.",
+    )
     parser.add_argument("--graph-strength", type=float, default=0.12)
     parser.add_argument("--learning-rate", type=float, default=3e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-3)

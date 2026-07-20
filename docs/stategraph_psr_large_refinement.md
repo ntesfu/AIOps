@@ -79,6 +79,21 @@ not considered successful solely because it consumes more memory. Incorrect
 event precision/recall and normality AP remain hard gates, and the preferred
 VideoMAEv2-SSv2 cache is still the higher-value representation upgrade.
 
+## XXL profile and explicit temporal order
+
+The repository now includes `configs/stategraph_psr_stage1_xxl.json` for systems
+with spare memory. It widens the head to 640 channels, 20 shared temporal
+blocks, four action-refinement stages, and eight event blocks. The recommended
+batch is 2 with four-step gradient accumulation and 512 cached frames; this
+preserves the same effective batch while increasing receptive field.
+
+Both large and XXL profiles add a fixed sinusoidal temporal position signal
+before the causal stack. Previously, order was represented only indirectly by
+causal convolutions; attention could not distinguish identical local patterns
+at different offsets. The encoding is non-trainable, supports up to 4096 cached
+steps (`--max-sequence-length`), and adds negligible VRAM. Position dropout is
+configurable (`--positional-dropout`) and defaults to zero for compatibility.
+
 ## Measured results
 
 The four-recording, 15-epoch overfit gate passed:
