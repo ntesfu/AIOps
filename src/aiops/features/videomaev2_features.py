@@ -56,7 +56,7 @@ class HuggingFaceVideoMAEv2Encoder:
         checkpoint: str | None = None,
         device: str | None = None,
         precision: str = "bf16",
-        pooling: str = "mean",
+        pooling: str = "model",
     ) -> None:
         try:
             import torch
@@ -310,8 +310,8 @@ def main() -> None:
     parser.add_argument(
         "--pooling",
         choices=["mean", "model"],
-        default="mean",
-        help="Mean-pool final patch tokens (recommended) or preserve the model wrapper output.",
+        default="model",
+        help="Preserve the public model output, or mean-pool final patch tokens as an ablation.",
     )
     parser.add_argument("--num-shards", type=int, default=1)
     parser.add_argument("--shard-index", type=int, default=0)
