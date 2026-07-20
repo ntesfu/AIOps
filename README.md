@@ -74,6 +74,7 @@ The default trainable head is approximately four million parameters. Its outputs
 - Feature cache: [`src/aiops/features/industreal_cache.py`](src/aiops/features/industreal_cache.py)
 - Trainer: [`src/aiops/training/train_stategraph_psr.py`](src/aiops/training/train_stategraph_psr.py)
 - Portable label contract: [`docs/procedure_schema_v2.md`](docs/procedure_schema_v2.md)
+- Reference implementation review: [`docs/reference_implementations_review.md`](docs/reference_implementations_review.md)
 
 Audit an extracted release, build a cache, and train:
 
