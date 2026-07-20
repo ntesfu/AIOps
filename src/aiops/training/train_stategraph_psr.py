@@ -353,7 +353,7 @@ def evaluate(model, loader, device, use_amp: bool, amp_dtype, num_components: in
                     batch["component_outcome"][sample_index, :length].detach().cpu().numpy()
                 )
                 predicted_events = _predicted_events(
-                    completion_score[sample_index, :length].detach().cpu().numpy(),
+                    completion_score[sample_index, :length].detach().float().cpu().numpy(),
                     component_outcome_prediction[sample_index, :length].detach().cpu().numpy(),
                 )
                 all_matched = _match_event_counts(truth_events, predicted_events, tolerance=1)
