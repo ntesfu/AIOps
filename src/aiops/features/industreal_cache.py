@@ -318,7 +318,7 @@ def _cache_recording(
         recording_id=recording.recording_id,
         split=recording.split,
         path=destination,
-        num_steps=len(action_to_index),
+        num_steps=len(step),
         motion_dim=int(motion.shape[1]),
         appearance_dim=int(appearance.shape[1]),
         sensor_dim=int(sensor.shape[1]),
