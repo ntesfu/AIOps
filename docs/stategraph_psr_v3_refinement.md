@@ -117,7 +117,7 @@ python -m pip install -e '.[ml,monitor]'
 Launch one dashboard for every run below a common directory:
 
 ```bash
-tensorboard --logdir /home/aiops/AIOps/runs --bind_all --port 6006
+python3 -m tensorboard.main --logdir /home/aiops/AIOps/runs --bind_all --port 6006
 ```
 
 Open `http://192.168.20.148:6006`. The dashboard automatically groups:
@@ -132,6 +132,11 @@ The logger is model-agnostic: import `TrainingMonitor` from
 `aiops.training.monitoring`, call `log_scalars(group, values, step)`, and call
 `log_system(step, device)`. If TensorBoard is unavailable, JSONL logging and
 training continue rather than failing.
+
+Threshold sweeps run at epoch 1 and then every five epochs by default; other
+epochs reuse the latest validation thresholds. This preserves live event metrics
+without making the calibration grid the dominant training cost. Change the
+cadence with `--calibration-interval`.
 
 ## Readiness gate for 80 epochs
 

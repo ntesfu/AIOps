@@ -238,6 +238,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     best_metrics: dict[str, Any] | None = None
     patience_left = args.patience
     global_update = 0
+    event_thresholds: list[float] | None = None
 
     try:
         for epoch in range(1, args.epochs + 1):
@@ -286,7 +287,22 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                         monitor.log_system(global_update, device)
 
             train_loss = {name: float(np.mean(values)) for name, values in running.items()}
-            metrics = evaluate(model, val_loader, device, use_amp, amp_dtype, model_config.num_components)
+            calibrate_events = epoch == 1 or epoch % args.calibration_interval == 0
+            metrics = evaluate(
+                model,
+                val_loader,
+                device,
+                use_amp,
+                amp_dtype,
+                model_config.num_components,
+                event_thresholds=event_thresholds,
+                calibrate_events=calibrate_events,
+            )
+            event_thresholds = [
+                metrics["correct_event_threshold"],
+                metrics["incorrect_event_threshold"],
+                metrics["remove_event_threshold"],
+            ]
             row = {
                 "epoch": epoch,
                 "train_loss": train_loss,
@@ -343,7 +359,15 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     best_path = output_dir / "best_checkpoint.pt"
     best_checkpoint = torch.load(best_path, map_location=device, weights_only=False)
     model.load_state_dict(best_checkpoint["model_state"])
-    final_metrics = evaluate(model, val_loader, device, use_amp, amp_dtype, model_config.num_components)
+    final_metrics = evaluate(
+        model,
+        val_loader,
+        device,
+        use_amp,
+        amp_dtype,
+        model_config.num_components,
+        calibrate_events=True,
+    )
     test_metrics = None
     if test_records and args.evaluate_test:
         test_loader = DataLoader(
@@ -385,7 +409,16 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     return summary
 
 
-def evaluate(model, loader, device, use_amp: bool, amp_dtype, num_components: int) -> dict[str, float]:
+def evaluate(
+    model,
+    loader,
+    device,
+    use_amp: bool,
+    amp_dtype,
+    num_components: int,
+    event_thresholds: list[float] | None = None,
+    calibrate_events: bool = True,
+) -> dict[str, float]:
     import torch
 
     model.eval()
@@ -460,9 +493,13 @@ def evaluate(model, loader, device, use_amp: bool, amp_dtype, num_components: in
                 event_samples.append(
                     (truth_events, event_scores.detach().float().cpu().numpy())
                 )
-    event_thresholds, calibrated_metrics, event_pr_auc = _calibrate_event_thresholds(
-        event_samples, outcomes=3
-    )
+    if calibrate_events or event_thresholds is None:
+        event_thresholds, calibrated_metrics, event_pr_auc = _calibrate_event_thresholds(
+            event_samples, outcomes=3
+        )
+    else:
+        calibrated_metrics = _event_metrics_from_samples(event_samples, event_thresholds)
+        event_pr_auc = [float("nan")] * 3
     fixed_metrics = _event_metrics_from_samples(event_samples, [0.1, 0.1, 0.1])
     all_event_metrics = calibrated_metrics["all"]
     correct_metrics = calibrated_metrics[0]
@@ -884,6 +921,12 @@ def main() -> None:
     parser.add_argument("--normality-error-weight", type=float, default=8.0)
     parser.add_argument("--incorrect-selection-weight", type=float, default=0.75)
     parser.add_argument("--gpu-log-interval", type=int, default=10)
+    parser.add_argument(
+        "--calibration-interval",
+        type=int,
+        default=5,
+        help="Run the expensive validation event-threshold sweep every N epochs.",
+    )
     parser.add_argument("--disable-dashboard", action="store_true")
     args = parser.parse_args()
     if args.batch_size <= 0 or args.accumulation_steps <= 0:
@@ -898,6 +941,8 @@ def main() -> None:
         parser.error("rare-windows-per-batch must be between zero and batch-size")
     if args.gpu_log_interval <= 0:
         parser.error("gpu-log-interval must be positive")
+    if args.calibration_interval <= 0:
+        parser.error("calibration-interval must be positive")
     print(json.dumps(train(args), indent=2))
 
 
