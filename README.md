@@ -52,6 +52,29 @@ streamlit run web/app.py
 
 ## Architecture Plan
 
+### StateGraph-PSR Lite (IndustReal Stage 1)
+
+The new research training path uses cached motion and appearance features, IndustReal hand/gaze/pose streams, a compact causal TCN-attention head, action prototypes, a differentiable procedure graph, and joint step/outcome/component-state supervision. It is designed to train on one 24 GB GPU while keeping the path open to stronger precomputed VideoMAEv2 or InternVideo features.
+
+The default trainable head is approximately four million parameters. Its outputs are a causal step timeline, correct/incorrect/remove outcome, eleven component-state predictions, step boundaries, next-step anticipation, and calibrated uncertainty signals. Frozen encoders are run once to create compressed per-recording caches, so ordinary experiments train only the temporal/state head.
+
+- Architecture and training guide: [`docs/stategraph_psr_stage1_implementation.md`](docs/stategraph_psr_stage1_implementation.md)
+- Architecture image: [`docs/assets/stategraph_psr_stage1_architecture.svg`](docs/assets/stategraph_psr_stage1_architecture.svg)
+- Codex desktop handoff: [`CODEX_CONTEXT.md`](CODEX_CONTEXT.md)
+- Model: [`src/aiops/models/stategraph_psr.py`](src/aiops/models/stategraph_psr.py)
+- Feature cache: [`src/aiops/features/industreal_cache.py`](src/aiops/features/industreal_cache.py)
+- Trainer: [`src/aiops/training/train_stategraph_psr.py`](src/aiops/training/train_stategraph_psr.py)
+
+Audit an extracted release, build a cache, and train:
+
+```bash
+python -m aiops.data.industreal --data-root "D:/IndustReal"
+python -m aiops.features.industreal_cache --data-root "D:/IndustReal" --output-dir "D:/IndustReal_cache/stategraph" --device cuda
+python -m aiops.training.train_stategraph_psr --cache-index "D:/IndustReal_cache/stategraph/index.json" --output-dir runs/stategraph_psr_v1
+```
+
+The cache builder expects the extracted official `recordings/train|val|test/...` tree and PSR CSV annotations. Video-only bundles cannot supervise the error/state heads. The trainer keeps splits at recording level, uses BF16 and gradient accumulation by default, selects checkpoints using segmentation and incorrect-recall metrics, and evaluates the test split only when explicitly requested.
+
 Implemented temporal pipeline:
 
 1. Decode videos into overlapping fixed-duration clips.

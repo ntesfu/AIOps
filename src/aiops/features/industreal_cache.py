@@ -1,0 +1,361 @@
+from __future__ import annotations
+
+import argparse
+import json
+import re
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from aiops.data.industreal import (
+    OUTCOME_NAMES,
+    IndustRealRecording,
+    audit_industreal_root,
+    dense_labels_from_events,
+    discover_industreal_recordings,
+    read_completion_events,
+    read_numeric_timeseries,
+    read_raw_states,
+)
+from aiops.data.stategraph_cache import StateGraphCacheRecord, save_cache_record, write_cache_index
+
+
+class FrozenVisualFeatureExtractor:
+    """Sequential frozen encoders for low-VRAM cache creation.
+
+    The video and image encoders are never used together in a differentiable
+    graph. This keeps extraction practical on a 24 GB card and makes later head
+    training much cheaper.
+    """
+
+    def __init__(self, device: str | None = None, mixed_precision: str = "bf16") -> None:
+        try:
+            import torch
+            import torch.nn as nn
+            from torchvision.models import ConvNeXt_Tiny_Weights, convnext_tiny
+            from torchvision.models.video import Swin3D_S_Weights, swin3d_s
+        except ImportError as exc:  # pragma: no cover - training environment only
+            raise RuntimeError("Install the 'vision' extra to extract visual features.") from exc
+        self.torch = torch
+        self.nn = nn
+        self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
+        self.mixed_precision = mixed_precision
+        self.motion_model = swin3d_s(weights=Swin3D_S_Weights.DEFAULT)
+        self.motion_model.head = nn.Identity()
+        self.motion_model.eval().to(self.device)
+        self.appearance_model = convnext_tiny(weights=ConvNeXt_Tiny_Weights.DEFAULT)
+        self.appearance_model.classifier[-1] = nn.Identity()
+        self.appearance_model.eval().to(self.device)
+        self.motion_dim = 768
+        self.appearance_dim = 768
+
+    def _autocast(self):
+        if self.device.type != "cuda":
+            from contextlib import nullcontext
+
+            return nullcontext()
+        dtype = self.torch.bfloat16 if self.mixed_precision == "bf16" else self.torch.float16
+        return self.torch.autocast(device_type="cuda", dtype=dtype)
+
+    def extract_motion(self, frames: list[np.ndarray]) -> np.ndarray:
+        torch = self.torch
+        array = np.stack([_normalize_video_frame(frame) for frame in frames], axis=1)
+        tensor = torch.from_numpy(array[None]).to(self.device)
+        with torch.inference_mode(), self._autocast():
+            feature = self.motion_model(tensor)
+        return feature.float().cpu().numpy()[0]
+
+    def extract_appearance(self, frame: np.ndarray) -> np.ndarray:
+        torch = self.torch
+        tensor = torch.from_numpy(_normalize_image_frame(frame)[None]).to(self.device)
+        with torch.inference_mode(), self._autocast():
+            feature = self.appearance_model(tensor)
+        return feature.float().cpu().numpy()[0]
+
+
+def build_industreal_cache(args: argparse.Namespace) -> dict[str, Any]:
+    recordings = discover_industreal_recordings(args.data_root)
+    official = [recording for recording in recordings if recording.rgb_dir and recording.psr_labels]
+    if not official:
+        audit = audit_industreal_root(args.data_root)
+        raise RuntimeError("No labeled official IndustReal recordings found.\n" + json.dumps(audit.to_dict(), indent=2))
+
+    step_ids = sorted(
+        {
+            event.step_id
+            for recording in official
+            for event in read_completion_events(recording.psr_labels)  # type: ignore[arg-type]
+        },
+        key=_natural_key,
+    )
+    step_to_index = {step_id: index for index, step_id in enumerate(step_ids)}
+
+    extractor = None
+    if not args.motion_features_dir or not args.appearance_features_dir:
+        extractor = FrozenVisualFeatureExtractor(args.device, args.mixed_precision)
+
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    records: list[StateGraphCacheRecord] = []
+    for recording_index, recording in enumerate(official, start=1):
+        print(f"[{recording_index}/{len(official)}] {recording.split}/{recording.recording_id}", flush=True)
+        record = _cache_recording(recording, step_to_index, extractor, args, output_dir)
+        records.append(record)
+
+    metadata = {
+        "dataset": "IndustReal",
+        "step_ids": step_ids,
+        "outcome_names": list(OUTCOME_NAMES),
+        "state_names": ["incorrect", "not_completed", "correct"],
+        "fps": args.fps,
+        "stride_frames": args.stride_frames,
+        "clip_frames": args.clip_frames,
+        "completion_label_mode": args.completion_label_mode,
+        "feature_backends": {
+            "motion": "precomputed" if args.motion_features_dir else "torchvision_swin3d_s",
+            "appearance": "precomputed" if args.appearance_features_dir else "torchvision_convnext_tiny",
+        },
+    }
+    index_path = output_dir / "index.json"
+    write_cache_index(index_path, records, metadata)
+    return {"index": str(index_path), "recordings": len(records), "steps": step_ids}
+
+
+def _cache_recording(
+    recording: IndustRealRecording,
+    step_to_index: dict[str, int],
+    extractor: FrozenVisualFeatureExtractor | None,
+    args: argparse.Namespace,
+    output_dir: Path,
+) -> StateGraphCacheRecord:
+    frame_paths = sorted(recording.rgb_dir.glob("*"), key=lambda path: _frame_index(path.name))  # type: ignore[union-attr]
+    frame_paths = [path for path in frame_paths if path.suffix.lower() in {".jpg", ".jpeg", ".png"}]
+    if not frame_paths:
+        raise RuntimeError(f"No RGB frames found in {recording.rgb_dir}")
+    all_frame_indices = np.asarray([_frame_index(path.name) for path in frame_paths], dtype=np.int64)
+    centers = np.arange(0, len(frame_paths), args.stride_frames, dtype=np.int64)
+    sampled_frame_indices = all_frame_indices[centers]
+    events = read_completion_events(recording.psr_labels)  # type: ignore[arg-type]
+    step, outcome, boundary = dense_labels_from_events(
+        sampled_frame_indices,
+        events,
+        step_to_index,
+        mode=args.completion_label_mode,
+    )
+    valid_rows = step >= 0
+    if not valid_rows.any():
+        raise RuntimeError(f"No dense PSR labels could be derived for {recording.recording_id}")
+
+    motion = _load_precomputed(args.motion_features_dir, recording.recording_id, len(centers))
+    appearance = _load_precomputed(args.appearance_features_dir, recording.recording_id, len(centers))
+    if motion is None or appearance is None:
+        if extractor is None:
+            raise RuntimeError("A visual extractor is required when either cached modality is missing.")
+        import cv2
+
+        motion_rows = [] if motion is None else None
+        appearance_rows = [] if appearance is None else None
+        for center in centers:
+            if motion_rows is not None:
+                clip_indices = _clip_indices(int(center), len(frame_paths), args.clip_frames, args.clip_span_frames)
+                clip_frames = [cv2.imread(str(frame_paths[index])) for index in clip_indices]
+                if any(frame is None for frame in clip_frames):
+                    raise RuntimeError(f"Failed to decode RGB frames for {recording.recording_id}")
+                motion_rows.append(extractor.extract_motion(clip_frames))  # type: ignore[arg-type]
+            if appearance_rows is not None:
+                frame = cv2.imread(str(frame_paths[int(center)]))
+                if frame is None:
+                    raise RuntimeError(f"Failed to decode {frame_paths[int(center)]}")
+                appearance_rows.append(extractor.extract_appearance(frame))
+        if motion_rows is not None:
+            motion = np.stack(motion_rows).astype(np.float32)
+        if appearance_rows is not None:
+            appearance = np.stack(appearance_rows).astype(np.float32)
+
+    sensor, sensor_present = _sample_sensors(recording, sampled_frame_indices, args.sensor_dim)
+    modality_mask = np.ones((len(centers), 3), dtype=np.bool_)
+    modality_mask[:, 2] = sensor_present
+
+    state = np.ones((len(centers), args.num_components), dtype=np.int64)
+    state_mask = np.zeros_like(state, dtype=np.bool_)
+    if recording.psr_raw_labels:
+        raw_states = read_raw_states(recording.psr_raw_labels, args.num_components)
+        state, state_mask = _sample_carry_forward(raw_states, sampled_frame_indices, args.num_components)
+
+    # Filenames carry the dataset frame index; array positions do not when
+    # frames are missing or the sequence starts at a non-zero frame.
+    timestamps = sampled_frame_indices.astype(np.float32) / float(args.fps)
+    destination = output_dir / recording.split / f"{recording.recording_id}.npz"
+    save_cache_record(
+        destination,
+        motion=motion,
+        appearance=appearance,
+        sensor=sensor,
+        modality_mask=modality_mask,
+        step=step,
+        outcome=outcome,
+        state=state,
+        state_mask=state_mask,
+        boundary=boundary,
+        timestamps=timestamps,
+    )
+    return StateGraphCacheRecord(
+        recording_id=recording.recording_id,
+        split=recording.split,
+        path=destination,
+        num_steps=len(step_to_index),
+        motion_dim=int(motion.shape[1]),
+        appearance_dim=int(appearance.shape[1]),
+        sensor_dim=int(sensor.shape[1]),
+        num_components=args.num_components,
+    )
+
+
+def _sample_sensors(
+    recording: IndustRealRecording, frame_indices: np.ndarray, sensor_dim: int
+) -> tuple[np.ndarray, np.ndarray]:
+    maps = [
+        read_numeric_timeseries(path)
+        for path in (recording.hands, recording.gaze, recording.pose)
+        if path is not None
+    ]
+    rows = np.zeros((len(frame_indices), sensor_dim), dtype=np.float32)
+    present = np.zeros(len(frame_indices), dtype=np.bool_)
+    for row_index, frame_index in enumerate(frame_indices):
+        values = []
+        for mapping in maps:
+            item = _nearest_item(mapping, int(frame_index))
+            if item is not None:
+                values.extend(item.tolist())
+        if values:
+            array = np.asarray(values[:sensor_dim], dtype=np.float32)
+            rows[row_index, : len(array)] = array
+            present[row_index] = True
+    return rows, present
+
+
+def _sample_carry_forward(
+    mapping: dict[int, np.ndarray], frame_indices: np.ndarray, num_components: int
+) -> tuple[np.ndarray, np.ndarray]:
+    values = np.ones((len(frame_indices), num_components), dtype=np.int64)
+    mask = np.zeros_like(values, dtype=np.bool_)
+    keys = np.asarray(sorted(mapping), dtype=np.int64)
+    if keys.size == 0:
+        return values, mask
+    for index, frame in enumerate(frame_indices):
+        position = int(np.searchsorted(keys, frame, side="right") - 1)
+        if position >= 0:
+            values[index] = mapping[int(keys[position])]
+            mask[index] = True
+    return values, mask
+
+
+def _nearest_item(mapping: dict[int, np.ndarray], frame_index: int) -> np.ndarray | None:
+    if not mapping:
+        return None
+    if frame_index in mapping:
+        return mapping[frame_index]
+    key = min(mapping, key=lambda value: abs(value - frame_index))
+    return mapping[key]
+
+
+def _load_precomputed(directory: str | None, recording_id: str, length: int) -> np.ndarray | None:
+    if not directory:
+        return None
+    root = Path(directory)
+    candidates = [root / f"{recording_id}.npy", root / f"{recording_id}.npz"]
+    path = next((candidate for candidate in candidates if candidate.is_file()), None)
+    if path is None:
+        return None
+    if path.suffix == ".npy":
+        array = np.load(path, allow_pickle=False)
+    else:
+        with np.load(path, allow_pickle=False) as payload:
+            key = "features" if "features" in payload.files else payload.files[0]
+            array = payload[key]
+    array = np.asarray(array, dtype=np.float32)
+    if array.ndim != 2:
+        raise ValueError(f"Expected [time, dim] features in {path}, got {array.shape}")
+    if len(array) != length:
+        positions = np.linspace(0, len(array) - 1, length).round().astype(np.int64)
+        array = array[positions]
+    return array
+
+
+def _clip_indices(center: int, length: int, clip_frames: int, span_frames: int) -> list[int]:
+    start = center - span_frames // 2
+    positions = np.linspace(start, start + span_frames - 1, clip_frames).round().astype(np.int64)
+    return np.clip(positions, 0, length - 1).tolist()
+
+
+def _normalize_video_frame(frame: np.ndarray) -> np.ndarray:
+    import cv2
+
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    rgb = _resize_center_crop(rgb, 224)
+    array = rgb.astype(np.float32).transpose(2, 0, 1) / 255.0
+    mean = np.asarray([0.43216, 0.394666, 0.37645], dtype=np.float32)[:, None, None]
+    std = np.asarray([0.22803, 0.22145, 0.216989], dtype=np.float32)[:, None, None]
+    return (array - mean) / std
+
+
+def _normalize_image_frame(frame: np.ndarray) -> np.ndarray:
+    import cv2
+
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    rgb = _resize_center_crop(rgb, 224)
+    array = rgb.astype(np.float32).transpose(2, 0, 1) / 255.0
+    mean = np.asarray([0.485, 0.456, 0.406], dtype=np.float32)[:, None, None]
+    std = np.asarray([0.229, 0.224, 0.225], dtype=np.float32)[:, None, None]
+    return (array - mean) / std
+
+
+def _resize_center_crop(image: np.ndarray, size: int) -> np.ndarray:
+    import cv2
+
+    height, width = image.shape[:2]
+    scale = size / min(height, width)
+    resized = cv2.resize(image, (int(round(width * scale)), int(round(height * scale))))
+    top = max(0, (resized.shape[0] - size) // 2)
+    left = max(0, (resized.shape[1] - size) // 2)
+    return resized[top : top + size, left : left + size]
+
+
+def _frame_index(name: str) -> int:
+    matches = re.findall(r"\d+", Path(name).stem)
+    return int(matches[-1]) if matches else 0
+
+
+def _natural_key(value: str) -> tuple[Any, ...]:
+    return tuple(int(token) if token.isdigit() else token.lower() for token in re.split(r"(\d+)", value))
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Create a low-VRAM StateGraph feature cache from IndustReal.")
+    parser.add_argument("--data-root", required=True)
+    parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--motion-features-dir", default=None)
+    parser.add_argument("--appearance-features-dir", default=None)
+    parser.add_argument("--device", default=None)
+    parser.add_argument("--mixed-precision", choices=["bf16", "fp16"], default="bf16")
+    parser.add_argument("--fps", type=float, default=10.0)
+    parser.add_argument("--stride-frames", type=int, default=5)
+    parser.add_argument("--clip-frames", type=int, default=16)
+    parser.add_argument("--clip-span-frames", type=int, default=32)
+    parser.add_argument("--sensor-dim", type=int, default=128)
+    parser.add_argument("--num-components", type=int, default=11)
+    parser.add_argument(
+        "--completion-label-mode",
+        choices=["active_until_next", "state_after_completion"],
+        default="active_until_next",
+    )
+    args = parser.parse_args()
+    if args.stride_frames <= 0 or args.clip_frames <= 0 or args.clip_span_frames <= 0:
+        parser.error("frame sampling parameters must be positive")
+    result = build_industreal_cache(args)
+    print(json.dumps(result, indent=2))
+
+
+if __name__ == "__main__":
+    main()
