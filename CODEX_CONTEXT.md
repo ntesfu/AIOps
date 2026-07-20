@@ -18,7 +18,7 @@ The current candidate is **StateGraph-PSR Lite**:
 - sparse causal attention every second block;
 - one learnable action prototype per procedure step;
 - a differentiable sparse transition-graph filter;
-- joint heads for step, outcome, eleven component states, boundary, and next step;
+- joint heads for AR action segmentation, multi-label component completion, per-component event outcome, eleven component states, boundary, and next action;
 - entropy and energy scores for later alert calibration.
 
 The trainable head is roughly four million parameters. The large encoders remain outside the training graph, making the default configuration suitable for a 24 GB GPU.
@@ -129,7 +129,7 @@ Build the default Swin3D-S + ConvNeXt cache:
 ```powershell
 python -m aiops.features.industreal_cache `
   --data-root "D:\IndustReal" `
-  --output-dir "D:\IndustReal_cache\stategraph_swin_convnext" `
+  --output-dir "D:\IndustReal_cache\stategraph_v2_swin_convnext" `
   --device cuda --mixed-precision bf16
 ```
 
@@ -138,16 +138,16 @@ Preferred path when `RECORDING_ID.npy` or `.npz` VideoMAEv2 features already exi
 ```powershell
 python -m aiops.features.industreal_cache `
   --data-root "D:\IndustReal" `
-  --output-dir "D:\IndustReal_cache\stategraph_vmae_convnext" `
+  --output-dir "D:\IndustReal_cache\stategraph_v2_vmae_convnext" `
   --motion-features-dir "D:\features\videomaev2_giant_ssv2" `
   --device cuda --mixed-precision bf16
 ```
 
-Train without touching the test split:
+Train without touching the test split (after the cache-v2 smoke checks below):
 
 ```powershell
 python -m aiops.training.train_stategraph_psr `
-  --cache-index "D:\IndustReal_cache\stategraph_vmae_convnext\index.json" `
+  --cache-index "D:\IndustReal_cache\stategraph_v2_vmae_convnext\index.json" `
   --output-dir runs\stategraph_psr_v1 `
   --precision bf16 --batch-size 2 --accumulation-steps 8 `
   --sequence-length 256 --sequence-stride 192 `
@@ -188,15 +188,36 @@ and 20 rare-fault windows. A five-epoch end-to-end training smoke test completed
 in 46 seconds with 3,284,122 trainable parameters and reduced total training
 loss from 18.18 to 4.51. All 14 desktop tests passed.
 
-Do not interpret the smoke validation numbers as a benchmark. The raw 24 PSR
-event IDs include outcome variants and simultaneous multi-component completion
-events; five IDs have no mutually exclusive dense interval at stride 5. The
-final comparison must define the group's canonical 10-part + background mapping
-or move co-completed components to a multi-label completion/state objective.
-The 80-epoch benchmark run is intentionally blocked until that taxonomy is
-resolved. Checkpoint selection was also changed from incorrect recall to
-incorrect F1 after the smoke run showed that near-100% recall could result from
-overpredicting the incorrect class.
+Do not interpret the original smoke validation numbers as a benchmark. They
+were produced by obsolete cache schema v1, where the raw 24 PSR event IDs were
+treated as mutually exclusive dense steps. Those IDs include outcome variants
+and simultaneous multi-component events; five IDs consequently had zero dense
+frames at stride 5.
+
+Cache schema v2 resolves this blocker. AR annotations now supervise the true
+action timeline. The 24 observed PSR IDs map to ten semantic components, with a
+multi-label completion matrix and separate correct/incorrect/remove outcome per
+component. Same-frame completions are preserved. The mapping lives in
+`configs/procedure_schemas/industreal_v1.json`; the model itself only consumes
+the portable contract documented in `docs/procedure_schema_v2.md`.
+
+The completed 128 MB desktop cache is v1 and must be regenerated. The trainer
+now rejects it explicitly. Its frozen feature arrays can be reused, so a fast
+relabel-only desktop rebuild is:
+
+```bash
+python -m aiops.features.industreal_cache \
+  --data-root /home/aiops/AIOps/data/raw/industreal \
+  --output-dir /home/aiops/AIOps/data/processed/stategraph_v2_swin_convnext \
+  --motion-features-dir /home/aiops/AIOps/data/processed/stategraph_swin_convnext \
+  --appearance-features-dir /home/aiops/AIOps/data/processed/stategraph_swin_convnext
+```
+
+After rebuilding, overfit two to four recordings,
+then run a 20–30 epoch pilot. An 80-epoch run is recommended only as an
+early-stopped maximum (`--patience 15`) after those checks. Checkpoint selection
+uses incorrect-event F1 rather than recall, because the first smoke run showed
+that near-100% recall could result from overpredicting the incorrect class.
 
 ## Known risks and decisions
 
@@ -210,7 +231,7 @@ overpredicting the incorrect class.
 
 ## Next architectural milestone
 
-Stage 2 should add a hierarchical fault taxonomy using step belief, outcome, component-state delta, detected tool/object, and graph edge. Stage 3 should roll component-state belief forward and search a recovery graph for a safe return path. A VLM can verbalize and visually ground the selected correction, while the state/procedure graph constrains the recommendation.
+Stage 2 should add a hierarchical fault taxonomy using action belief, per-component event outcome, component-state delta, detected tool/object, and graph edge. Stage 3 should roll component-state belief forward and search a recovery graph for a safe return path. A VLM can verbalize and visually ground the selected correction, while the state/procedure graph constrains the recommendation.
 
 ## Workspace hygiene
 

@@ -43,6 +43,14 @@ class CompletionEvent:
 
 
 @dataclass(frozen=True)
+class ActionSegment:
+    start_frame: int
+    end_frame: int
+    action_id: str
+    description: str
+
+
+@dataclass(frozen=True)
 class IndustRealAudit:
     root: Path
     official_layout: bool
@@ -176,6 +184,57 @@ def read_completion_events(path: str | Path) -> list[CompletionEvent]:
     return sorted(events, key=lambda event: event.frame_index)
 
 
+def read_action_segments(path: str | Path) -> list[ActionSegment]:
+    """Read dense, point-wise, or start/end action annotations.
+
+    Point-wise annotations are returned as one-frame segments. The densifier
+    below carries each label forward until the next annotated frame, which is
+    also correct for datasets that export one row per video frame.
+    """
+    rows = _read_csv(Path(path))
+    segments: list[ActionSegment] = []
+    for ordinal, row in enumerate(rows):
+        start_value = _first_value(
+            row,
+            (
+                "start_frame",
+                "start frame",
+                "start",
+                "frame_start",
+                "column_3",
+                "image",
+                "image_name",
+                "frame",
+                "frame_id",
+                "column_0",
+            ),
+        )
+        end_value = _first_value(
+            row, ("end_frame", "end frame", "end", "stop_frame", "frame_end", "column_4")
+        )
+        action_value = _first_value(
+            row,
+            ("action_id", "activity_id", "class_id", "step_id", "label", "action", "column_1"),
+        )
+        description = str(
+            _first_value(
+                row,
+                ("description", "action_description", "activity", "name", "label", "column_2"),
+            )
+            or action_value
+            or ""
+        ).strip()
+        action_id = str(action_value if action_value not in (None, "") else description).strip()
+        if not action_id:
+            continue
+        start = _parse_frame_index(start_value, fallback=ordinal)
+        end = _parse_frame_index(end_value, fallback=start) if end_value not in (None, "") else start
+        if end < start:
+            start, end = end, start
+        segments.append(ActionSegment(start, end, action_id, description))
+    return sorted(segments, key=lambda item: (item.start_frame, item.end_frame, item.action_id))
+
+
 def read_raw_states(path: str | Path, num_components: int = 11) -> dict[int, np.ndarray]:
     rows = _read_csv(Path(path))
     states: dict[int, np.ndarray] = {}
@@ -268,6 +327,66 @@ def dense_labels_from_events(
     return step, outcome, boundary
 
 
+def dense_action_labels(
+    frame_indices: Iterable[int],
+    segments: list[ActionSegment],
+    action_to_index: dict[str, int],
+    background_index: int | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Convert action annotations into a mutually-exclusive segmentation target."""
+    frames = np.asarray(list(frame_indices), dtype=np.int64)
+    fill_value = -100 if background_index is None else int(background_index)
+    action = np.full(frames.shape, fill_value, dtype=np.int64)
+    if not segments or frames.size == 0:
+        return action, np.zeros(frames.shape, dtype=np.float32)
+    point_annotations = all(segment.start_frame == segment.end_frame for segment in segments)
+    if point_annotations:
+        for index, segment in enumerate(segments):
+            end = segments[index + 1].start_frame if index + 1 < len(segments) else int(frames.max()) + 1
+            selected = (frames >= segment.start_frame) & (frames < end)
+            if segment.action_id in action_to_index:
+                action[selected] = action_to_index[segment.action_id]
+    else:
+        for segment in segments:
+            if segment.action_id in action_to_index:
+                action[(frames >= segment.start_frame) & (frames <= segment.end_frame)] = action_to_index[
+                    segment.action_id
+                ]
+    boundary = np.zeros(frames.shape, dtype=np.float32)
+    valid = action >= 0
+    changes = np.flatnonzero(valid & np.r_[True, action[1:] != action[:-1]])
+    boundary[changes] = 1.0
+    return action, boundary
+
+
+def multi_component_targets_from_events(
+    frame_indices: Iterable[int],
+    events: list[CompletionEvent],
+    resolve_component,
+    num_components: int,
+    event_outcomes: tuple[str, ...] = ("correct", "incorrect", "remove"),
+) -> tuple[np.ndarray, np.ndarray]:
+    """Create collision-safe multi-label completion and per-part outcome targets."""
+    frames = np.asarray(list(frame_indices), dtype=np.int64)
+    completion = np.zeros((len(frames), num_components), dtype=np.float32)
+    component_outcome = np.full((len(frames), num_components), -100, dtype=np.int64)
+    outcome_to_index = {name: index for index, name in enumerate(event_outcomes)}
+    severity = {"correct": 0, "remove": 1, "incorrect": 2}
+    for event in events:
+        if frames.size == 0:
+            break
+        component = int(resolve_component(event.step_id, event.description))
+        if not 0 <= component < num_components:
+            raise ValueError(f"Resolved completion component {component} is outside [0, {num_components}).")
+        row = int(np.argmin(np.abs(frames - event.frame_index)))
+        outcome = outcome_to_index[event.outcome]
+        previous = int(component_outcome[row, component])
+        if previous < 0 or severity[event.outcome] > severity[event_outcomes[previous]]:
+            component_outcome[row, component] = outcome
+        completion[row, component] = 1.0
+    return completion, component_outcome
+
+
 def infer_outcome(description: str) -> str:
     text = description.lower()
     if any(token in text for token in ("incorrect", "wrong", "error", "fault", "missing")):
@@ -354,6 +473,12 @@ def _read_csv(path: Path) -> list[dict[str, str]]:
             "completed_step_id",
             "step_id",
             "action_id",
+            "activity_id",
+            "class_id",
+            "start",
+            "start_frame",
+            "end",
+            "end_frame",
             "description",
             "step_description",
             "recording",

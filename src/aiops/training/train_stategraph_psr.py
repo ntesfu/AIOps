@@ -24,6 +24,7 @@ from aiops.models.stategraph_psr import (
     build_stategraph_loss,
     build_stategraph_psr,
 )
+from aiops.data.procedure_schema import CACHE_SCHEMA_VERSION
 
 
 def set_seed(seed: int) -> None:
@@ -42,6 +43,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
 
     set_seed(args.seed)
     metadata, records = read_cache_index(args.cache_index)
+    _validate_cache_schema(metadata, records)
     _validate_records(records)
     train_records = [record for record in records if record.split.lower() == "train"]
     val_records = [record for record in records if record.split.lower() in {"val", "validation"}]
@@ -58,7 +60,8 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         appearance_dim=train_records[0].appearance_dim,
         sensor_dim=train_records[0].sensor_dim,
         num_steps=num_steps,
-        num_outcomes=len(metadata.get("outcome_names", ["background", "correct", "incorrect", "remove"])),
+        num_completion_components=train_records[0].num_completion_components,
+        num_event_outcomes=len(metadata["event_outcomes"]),
         num_components=train_records[0].num_components,
         hidden_dim=args.hidden_dim,
         num_temporal_blocks=args.num_temporal_blocks,
@@ -69,7 +72,8 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     )
     loss_config = StateGraphLossConfig(
         step_weight=args.step_weight,
-        outcome_weight=args.outcome_weight,
+        completion_weight=args.completion_weight,
+        component_outcome_weight=args.component_outcome_weight,
         state_weight=args.state_weight,
         boundary_weight=args.boundary_weight,
         next_step_weight=args.next_step_weight,
@@ -82,8 +86,11 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     model = build_stategraph_psr(model_config, transition_matrix).to(device)
     criterion = build_stategraph_loss(loss_config).to(device)
     step_weights = torch.from_numpy(_class_weights(train_records, "step", num_steps)).to(device)
-    outcome_weights = torch.from_numpy(
-        _class_weights(train_records, "outcome", model_config.num_outcomes)
+    completion_pos_weights = torch.from_numpy(
+        _completion_pos_weights(train_records, model_config.num_completion_components)
+    ).to(device)
+    component_outcome_weights = torch.from_numpy(
+        _class_weights(train_records, "component_outcome", model_config.num_event_outcomes)
     ).to(device)
 
     train_dataset = StateGraphCacheDataset(
@@ -94,7 +101,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         seed=args.seed,
     )
     sampling_weights = train_dataset.window_sampling_weights(
-        incorrect_outcome_index=2,
+        incorrect_outcome_index=1,
         rare_window_boost=args.rare_window_boost,
     )
     sampler = WeightedRandomSampler(
@@ -169,7 +176,8 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                     batch,
                     transition_matrix=model.transition_matrix,
                     step_class_weights=step_weights,
-                    outcome_class_weights=outcome_weights,
+                    completion_pos_weights=completion_pos_weights,
+                    component_outcome_class_weights=component_outcome_weights,
                 )
                 scaled_loss = losses["total"] / args.accumulation_steps
             scaler.scale(scaled_loss).backward()
@@ -196,7 +204,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
             handle.write(json.dumps(row) + "\n")
         print(json.dumps(row), flush=True)
 
-        score = metrics["f1@50"] + 0.25 * metrics["edit"] + 0.25 * metrics["incorrect_f1"]
+        score = metrics["f1@50"] + 0.25 * metrics["edit"] + 0.25 * metrics["incorrect_event_f1"]
         if score > best_score:
             best_score = score
             best_metrics = metrics
@@ -270,10 +278,12 @@ def evaluate(model, loader, device, use_amp: bool, amp_dtype, num_components: in
     frame_total = 0
     edits: list[float] = []
     f1_scores = {0.1: [], 0.25: [], 0.5: []}
-    outcome_stats = {
+    event_stats = {
+        0: {"true": 0, "predicted": 0, "tp": 0},
+        1: {"true": 0, "predicted": 0, "tp": 0},
         2: {"true": 0, "predicted": 0, "tp": 0},
-        3: {"true": 0, "predicted": 0, "tp": 0},
     }
+    all_event_stats = {"true": 0, "predicted": 0, "tp": 0}
     state_correct = 0
     state_total = 0
     with torch.inference_mode():
@@ -288,17 +298,12 @@ def evaluate(model, loader, device, use_amp: bool, amp_dtype, num_components: in
                     modality_mask=batch["modality_mask"],
                 )
             step_prediction = outputs["step_logits"].argmax(dim=-1)
-            outcome_prediction = outputs["outcome_logits"].argmax(dim=-1)
+            completion_score = torch.sigmoid(outputs["completion_logits"])
+            component_outcome_prediction = outputs["component_outcome_logits"].argmax(dim=-1)
             state_prediction = outputs["state_logits"].argmax(dim=-1)
             valid = batch["valid_mask"] & (batch["step"] >= 0)
             frame_correct += int((step_prediction[valid] == batch["step"][valid]).sum().item())
             frame_total += int(valid.sum().item())
-            for outcome_index, counters in outcome_stats.items():
-                truth_mask = valid & (batch["outcome"] == outcome_index)
-                prediction_mask = valid & (outcome_prediction == outcome_index)
-                counters["true"] += int(truth_mask.sum().item())
-                counters["predicted"] += int(prediction_mask.sum().item())
-                counters["tp"] += int((truth_mask & prediction_mask).sum().item())
             state_valid = batch["state_mask"] & batch["valid_mask"].unsqueeze(-1)
             state_correct += int((state_prediction[state_valid] == batch["state"][state_valid]).sum().item())
             state_total += int(state_valid.sum().item())
@@ -309,22 +314,91 @@ def evaluate(model, loader, device, use_amp: bool, amp_dtype, num_components: in
                 edits.append(edit_score(pred, truth))
                 for overlap in f1_scores:
                     f1_scores[overlap].append(segmental_f1(pred, truth, overlap))
-    incorrect_metrics = _precision_recall_f1(outcome_stats[2])
-    remove_metrics = _precision_recall_f1(outcome_stats[3])
+                truth_events = _target_events(
+                    batch["component_outcome"][sample_index, :length].detach().cpu().numpy()
+                )
+                predicted_events = _predicted_events(
+                    completion_score[sample_index, :length].detach().cpu().numpy(),
+                    component_outcome_prediction[sample_index, :length].detach().cpu().numpy(),
+                )
+                all_matched = _match_event_counts(truth_events, predicted_events, tolerance=1)
+                for key in all_event_stats:
+                    all_event_stats[key] += all_matched[key]
+                for outcome_index, counters in event_stats.items():
+                    matched = _match_event_counts(
+                        [event for event in truth_events if event[2] == outcome_index],
+                        [event for event in predicted_events if event[2] == outcome_index],
+                        tolerance=1,
+                    )
+                    for key in counters:
+                        counters[key] += matched[key]
+    all_event_metrics = _precision_recall_f1(all_event_stats)
+    correct_metrics = _precision_recall_f1(event_stats[0])
+    incorrect_metrics = _precision_recall_f1(event_stats[1])
+    remove_metrics = _precision_recall_f1(event_stats[2])
     return {
         "frame_accuracy": 100.0 * frame_correct / max(frame_total, 1),
         "edit": float(np.mean(edits)) if edits else 0.0,
         "f1@10": float(np.mean(f1_scores[0.1])) if f1_scores[0.1] else 0.0,
         "f1@25": float(np.mean(f1_scores[0.25])) if f1_scores[0.25] else 0.0,
         "f1@50": float(np.mean(f1_scores[0.5])) if f1_scores[0.5] else 0.0,
-        "incorrect_precision": incorrect_metrics["precision"],
-        "incorrect_recall": incorrect_metrics["recall"],
-        "incorrect_f1": incorrect_metrics["f1"],
-        "remove_precision": remove_metrics["precision"],
-        "remove_recall": remove_metrics["recall"],
-        "remove_f1": remove_metrics["f1"],
+        "completion_event_precision": all_event_metrics["precision"],
+        "completion_event_recall": all_event_metrics["recall"],
+        "completion_event_f1": all_event_metrics["f1"],
+        "correct_event_precision": correct_metrics["precision"],
+        "correct_event_recall": correct_metrics["recall"],
+        "correct_event_f1": correct_metrics["f1"],
+        "incorrect_event_precision": incorrect_metrics["precision"],
+        "incorrect_event_recall": incorrect_metrics["recall"],
+        "incorrect_event_f1": incorrect_metrics["f1"],
+        "remove_event_precision": remove_metrics["precision"],
+        "remove_event_recall": remove_metrics["recall"],
+        "remove_event_f1": remove_metrics["f1"],
         "state_accuracy": 100.0 * state_correct / max(state_total, 1),
     }
+
+
+def _target_events(component_outcome: np.ndarray) -> list[tuple[int, int, int]]:
+    rows, components = np.where(component_outcome >= 0)
+    return [(int(row), int(component), int(component_outcome[row, component])) for row, component in zip(rows, components)]
+
+
+def _predicted_events(
+    completion_score: np.ndarray,
+    component_outcome: np.ndarray,
+    threshold: float = 0.5,
+) -> list[tuple[int, int, int]]:
+    events: list[tuple[int, int, int]] = []
+    for component in range(completion_score.shape[1]):
+        scores = completion_score[:, component]
+        for row, score in enumerate(scores):
+            previous = scores[row - 1] if row > 0 else -np.inf
+            following = scores[row + 1] if row + 1 < len(scores) else -np.inf
+            if score >= threshold and score >= previous and score > following:
+                events.append((row, component, int(component_outcome[row, component])))
+    return events
+
+
+def _match_event_counts(
+    truth: list[tuple[int, int, int]],
+    predicted: list[tuple[int, int, int]],
+    tolerance: int,
+) -> dict[str, int]:
+    unmatched = set(range(len(predicted)))
+    true_positives = 0
+    for true_event in truth:
+        candidates = [
+            index
+            for index in unmatched
+            if predicted[index][1] == true_event[1]
+            and predicted[index][2] == true_event[2]
+            and abs(predicted[index][0] - true_event[0]) <= tolerance
+        ]
+        if candidates:
+            best = min(candidates, key=lambda index: abs(predicted[index][0] - true_event[0]))
+            unmatched.remove(best)
+            true_positives += 1
+    return {"true": len(truth), "predicted": len(predicted), "tp": true_positives}
 
 
 def _precision_recall_f1(counters: dict[str, int]) -> dict[str, float]:
@@ -349,6 +423,20 @@ def _class_weights(records: list[StateGraphCacheRecord], field: str, classes: in
     return np.clip(weights, 0.25, 12.0).astype(np.float32)
 
 
+def _completion_pos_weights(
+    records: list[StateGraphCacheRecord], components: int
+) -> np.ndarray:
+    positive = np.ones(components, dtype=np.float64)
+    total_rows = 0
+    for record in records:
+        with np.load(record.path, allow_pickle=False) as arrays:
+            completion = arrays["completion"].astype(np.float64)
+        positive += completion.sum(axis=0)
+        total_rows += len(completion)
+    negative = np.maximum(float(total_rows) - positive, 1.0)
+    return np.clip(negative / positive, 1.0, 30.0).astype(np.float32)
+
+
 def _move_batch(batch: dict[str, Any], device) -> dict[str, Any]:
     return {key: value.to(device, non_blocking=True) if hasattr(value, "to") else value for key, value in batch.items()}
 
@@ -362,6 +450,7 @@ def _validate_records(records: list[StateGraphCacheRecord]) -> None:
         records[0].appearance_dim,
         records[0].sensor_dim,
         records[0].num_components,
+        records[0].num_completion_components,
     )
     for record in records[1:]:
         current = (
@@ -370,9 +459,34 @@ def _validate_records(records: list[StateGraphCacheRecord]) -> None:
             record.appearance_dim,
             record.sensor_dim,
             record.num_components,
+            record.num_completion_components,
         )
         if current != signature:
             raise ValueError(f"Inconsistent cache dimensions: {record.recording_id} has {current}, expected {signature}")
+
+
+def _validate_cache_schema(metadata: dict[str, Any], records: list[StateGraphCacheRecord]) -> None:
+    version = int(metadata.get("schema_version", 1))
+    if version != CACHE_SCHEMA_VERSION:
+        raise ValueError(
+            f"Cache schema v{version} cannot train the corrected Stage-1 objective. "
+            f"Regenerate the cache with schema v{CACHE_SCHEMA_VERSION}; the old cache treats PSR completion IDs "
+            "as mutually-exclusive steps and loses simultaneous events."
+        )
+    if metadata.get("label_contract") != "action_segmentation_plus_multicomponent_completion":
+        raise ValueError("Cache is missing the corrected action/completion label contract.")
+    if not records or records[0].num_completion_components <= 0:
+        raise ValueError("Cache does not declare completion components.")
+    if len(metadata.get("completion_components", [])) != records[0].num_completion_components:
+        raise ValueError("Cache completion-component names do not match its tensor dimension.")
+    if len(metadata.get("action_ids", [])) != records[0].num_steps:
+        raise ValueError("Cache action IDs do not match its action-logit dimension.")
+    required = {"motion", "appearance", "sensor", "step", "completion", "component_outcome"}
+    for record in records:
+        with np.load(record.path, allow_pickle=False) as arrays:
+            missing = required - set(arrays.files)
+        if missing:
+            raise ValueError(f"{record.recording_id} is missing corrected cache arrays: {sorted(missing)}")
 
 
 def _recording_level_split(
@@ -461,7 +575,8 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--evaluate-test", action="store_true")
     parser.add_argument("--step-weight", type=float, default=1.0)
-    parser.add_argument("--outcome-weight", type=float, default=0.7)
+    parser.add_argument("--completion-weight", type=float, default=0.45)
+    parser.add_argument("--component-outcome-weight", type=float, default=0.7)
     parser.add_argument("--state-weight", type=float, default=0.8)
     parser.add_argument("--boundary-weight", type=float, default=0.25)
     parser.add_argument("--next-step-weight", type=float, default=0.3)

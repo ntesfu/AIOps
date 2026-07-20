@@ -27,7 +27,8 @@ class StateGraphPSRConfig:
     appearance_dim: int
     sensor_dim: int
     num_steps: int
-    num_outcomes: int = 4
+    num_completion_components: int = 1
+    num_event_outcomes: int = 3
     num_components: int = 11
     hidden_dim: int = 192
     num_temporal_blocks: int = 8
@@ -44,7 +45,8 @@ class StateGraphPSRConfig:
 @dataclass(frozen=True)
 class StateGraphLossConfig:
     step_weight: float = 1.0
-    outcome_weight: float = 0.7
+    completion_weight: float = 0.45
+    component_outcome_weight: float = 0.7
     state_weight: float = 0.8
     boundary_weight: float = 0.25
     next_step_weight: float = 0.3
@@ -60,6 +62,13 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
     Inputs are cached per-window features with shape ``[batch, time, dim]``.
     The visual backbones are deliberately outside this trainable graph.
     """
+
+    if config.num_steps <= 0 or config.num_completion_components <= 0 or config.num_components <= 0:
+        raise ValueError("Action, completion-component, and state-component counts must be positive.")
+    if config.num_event_outcomes != 3:
+        raise ValueError("Stage 1 expects three event outcomes: correct, incorrect, remove.")
+    if config.hidden_dim % config.num_heads:
+        raise ValueError("hidden_dim must be divisible by num_heads.")
 
     torch, nn, functional = _load_torch()
 
@@ -184,7 +193,10 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             )
             self.prototype_norm = nn.LayerNorm(config.hidden_dim)
             self.step_classifier = nn.Linear(config.hidden_dim, config.num_steps)
-            self.outcome_head = nn.Linear(config.hidden_dim, config.num_outcomes)
+            self.completion_head = nn.Linear(config.hidden_dim, config.num_completion_components)
+            self.component_outcome_head = nn.Linear(
+                config.hidden_dim, config.num_completion_components * config.num_event_outcomes
+            )
             self.state_head = nn.Linear(config.hidden_dim, config.num_components * 3)
             self.boundary_head = nn.Linear(config.hidden_dim, 1)
             self.next_step_head = nn.Linear(config.hidden_dim, config.num_steps)
@@ -262,6 +274,12 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             state_logits = self.state_head(temporal).view(
                 temporal.shape[0], temporal.shape[1], config.num_components, 3
             )
+            component_outcome_logits = self.component_outcome_head(temporal).view(
+                temporal.shape[0],
+                temporal.shape[1],
+                config.num_completion_components,
+                config.num_event_outcomes,
+            )
             entropy = -(step_probabilities.clamp_min(1e-7).log() * step_probabilities).sum(dim=-1)
             # Entropy is bounded by log(K); this keeps uncertainty in [0, 1].
             normalized_entropy = entropy / math.log(max(config.num_steps, 2))
@@ -271,7 +289,8 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 "raw_step_logits": raw_step_logits,
                 "step_logits": graph_step_logits,
                 "step_probabilities": step_probabilities,
-                "outcome_logits": self.outcome_head(temporal),
+                "completion_logits": self.completion_head(temporal),
+                "component_outcome_logits": component_outcome_logits,
                 "state_logits": state_logits,
                 "boundary_logits": self.boundary_head(temporal).squeeze(-1),
                 "next_step_logits": self.next_step_head(temporal),
@@ -305,16 +324,46 @@ def build_stategraph_loss(config: StateGraphLossConfig):
             probability = torch.softmax(selected_logits, dim=-1).gather(1, selected_targets[:, None]).squeeze(1)
             return (((1.0 - probability).clamp_min(0.0) ** gamma) * ce).mean()
 
-        def forward(self, outputs, targets, transition_matrix=None, step_class_weights=None, outcome_class_weights=None):
+        @staticmethod
+        def _focal_bce(logits, targets, valid_mask, gamma: float, pos_weight=None):
+            if not valid_mask.any():
+                return logits.sum() * 0.0
+            selected_logits = logits[valid_mask]
+            selected_targets = targets[valid_mask]
+            bce = functional.binary_cross_entropy_with_logits(
+                selected_logits, selected_targets, pos_weight=pos_weight, reduction="none"
+            )
+            probabilities = torch.sigmoid(selected_logits)
+            pt = torch.where(selected_targets > 0.5, probabilities, 1.0 - probabilities)
+            return (((1.0 - pt).clamp_min(0.0) ** gamma) * bce).mean()
+
+        def forward(
+            self,
+            outputs,
+            targets,
+            transition_matrix=None,
+            step_class_weights=None,
+            completion_pos_weights=None,
+            component_outcome_class_weights=None,
+        ):
             valid_mask = targets["valid_mask"].bool()
             step_targets = targets["step"]
-            outcome_targets = targets["outcome"]
             losses = {}
             losses["step"] = self._focal_ce(
                 outputs["step_logits"], step_targets, config.focal_gamma, step_class_weights
             )
-            losses["outcome"] = self._focal_ce(
-                outputs["outcome_logits"], outcome_targets, config.focal_gamma, outcome_class_weights
+            losses["completion"] = self._focal_bce(
+                outputs["completion_logits"],
+                targets["completion"].float(),
+                valid_mask,
+                config.focal_gamma,
+                completion_pos_weights,
+            )
+            losses["component_outcome"] = self._focal_ce(
+                outputs["component_outcome_logits"],
+                targets["component_outcome"],
+                config.focal_gamma,
+                component_outcome_class_weights,
             )
 
             state_targets = targets["state"]
@@ -365,21 +414,33 @@ def build_stategraph_loss(config: StateGraphLossConfig):
             else:
                 losses["graph"] = allowed_mass.sum() * 0.0
 
-            incorrect_index = 2 if outputs["outcome_logits"].shape[-1] > 2 else 1
-            outcome_incorrect = torch.softmax(outputs["outcome_logits"], dim=-1)[..., incorrect_index]
+            incorrect_index = 1
+            completion_probability = torch.sigmoid(outputs["completion_logits"])
+            outcome_incorrect = torch.softmax(outputs["component_outcome_logits"], dim=-1)[
+                ..., incorrect_index
+            ]
+            event_incorrect = 1.0 - torch.prod(
+                1.0 - completion_probability * outcome_incorrect, dim=-1
+            )
             component_incorrect = torch.softmax(outputs["state_logits"], dim=-1)[..., 0]
             any_component_incorrect = 1.0 - torch.prod(1.0 - component_incorrect, dim=-1)
-            consistency_mask = valid_mask & state_mask.any(dim=-1)
+            consistency_mask = (
+                valid_mask
+                & state_mask.any(dim=-1)
+                & targets["completion"].bool().any(dim=-1)
+                & (targets["component_outcome"] == incorrect_index).any(dim=-1)
+            )
             if consistency_mask.any():
                 losses["consistency"] = functional.mse_loss(
-                    outcome_incorrect[consistency_mask], any_component_incorrect[consistency_mask]
+                    event_incorrect[consistency_mask], any_component_incorrect[consistency_mask]
                 )
             else:
-                losses["consistency"] = outcome_incorrect.sum() * 0.0
+                losses["consistency"] = event_incorrect.sum() * 0.0
 
             total = (
                 config.step_weight * losses["step"]
-                + config.outcome_weight * losses["outcome"]
+                + config.completion_weight * losses["completion"]
+                + config.component_outcome_weight * losses["component_outcome"]
                 + config.state_weight * losses["state"]
                 + config.boundary_weight * losses["boundary"]
                 + config.next_step_weight * losses["next_step"]

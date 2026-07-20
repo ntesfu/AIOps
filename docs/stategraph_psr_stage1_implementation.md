@@ -8,10 +8,11 @@ StateGraph-PSR Lite is a causal, multi-task temporal model for IndustReal proced
 
 This repository now contains:
 
-- `src/aiops/features/industreal_cache.py`: official IndustReal discovery, frozen feature extraction, sensor alignment, dense-label construction, and compressed per-recording caches.
-- `src/aiops/models/stategraph_psr.py`: modality-gated causal temporal encoder, action prototypes, differentiable procedure graph, six prediction/diagnostic outputs, and the joint loss.
+- `src/aiops/features/industreal_cache.py`: official IndustReal discovery, frozen feature extraction, AR action alignment, multi-component PSR targets, sensor alignment, and compressed per-recording caches.
+- `src/aiops/models/stategraph_psr.py`: modality-gated causal temporal encoder, action prototypes, differentiable procedure graph, multi-component event/outcome heads, and the joint loss.
 - `src/aiops/training/train_stategraph_psr.py`: recording-level splits, balanced losses, mixed precision, gradient accumulation, early stopping, checkpoint selection, and temporal/fault metrics.
-- `src/aiops/data/industreal.py`: tolerant readers for PSR completion events, raw component states, gaze, hands, and pose.
+- `src/aiops/data/industreal.py`: tolerant readers for AR action segments, PSR completion events, raw component states, gaze, hands, and pose.
+- `src/aiops/data/procedure_schema.py`: dataset-independent schema validation and raw-to-canonical completion mapping.
 - `src/aiops/data/stategraph_cache.py`: cache format, windowing, padding, and sparse transition-graph estimation.
 - `src/aiops/evaluation/temporal_metrics.py`: frame accuracy support plus normalized Edit and segmental F1@10/25/50.
 - `configs/stategraph_psr_stage1.json`: the recommended starting configuration.
@@ -24,7 +25,7 @@ The SSv2-giant + DiffAct result has strong segmentation boundaries but cannot id
 
 1. **Motion and appearance are complementary.** Cached VideoMAEv2 features represent hand/object dynamics; a lightweight center-frame ConvNeXt feature emphasizes tools, parts, and connection state. Hands, gaze, and headset pose are a third modality. A learned gate changes their importance at every time step and supports missing sensors.
 2. **Local motion and long procedure context are both causal.** Gated depthwise temporal convolutions cover multiple time scales. Sparse causal self-attention supplies long context without the memory cost of full attention at every block. The model never sees future frames, so offline evaluation matches the future live-feed constraint.
-3. **A mistake is a state inconsistency, not merely an action label.** The network jointly predicts step, four-way outcome, eleven component states, boundary, and next step. A consistency loss links `incorrect` outcome probability to the probability that any component is in an incorrect state.
+3. **Actions, completion events, and persistent state are different variables.** AR labels supervise the action timeline. PSR rows supervise a multi-label component-completion head plus a separate per-component outcome head. The network also predicts eleven persistent component states, boundary, and next action. Same-frame component completions no longer overwrite one another.
 4. **Procedure knowledge participates in learning.** A sparse graph is estimated only from training recordings. Its differentiable causal belief filter biases the step posterior toward legal transitions while retaining the ability for visual evidence to override the graph. Unlike a hard Viterbi-only decoder, it permits branches and repair loops.
 5. **Action prototypes stabilize scarce classes.** One learned token per step lets every time feature attend to a class prototype, following the feature-alignment motivation behind FACT. Class-balanced focal losses further reduce domination by correct/common frames.
 
@@ -38,19 +39,21 @@ At each sampled time index, the cache stores:
 | appearance | frozen ConvNeXt-Tiny keyframe | `T × 768` |
 | sensor | hands + gaze + headset pose | `T × 128` |
 | modality mask | available motion/appearance/sensor flags | `T × 3` |
-| step/outcome/boundary | dense labels from PSR completion events | `T`, `T`, `T` |
+| action (`step` tensor key) / boundary | dense labels from AR annotations | `T`, `T` |
+| completion | collision-safe multi-label PSR events | `T × 10` |
+| component outcome | correct/incorrect/remove at positive events | `T × 10` |
 | state/state mask | carried-forward PSR raw state | `T × 11` |
 
 Each modality is projected to 192 dimensions. The gated sum enters eight causal temporal blocks with dilation cycle `1, 2, 4, 8, 16`; every second block includes causal multi-head attention. Action-prototype attention refines the feature. Raw step logits are recursively combined with the transition prior to produce the graph-aware posterior. The default head is approximately four million trainable parameters; exact size is printed in `summary.json` because input dimensions and class count affect it.
 
 The objective is:
 
-`L = Lstep + 0.7 Loutcome + 0.8 Lstate + 0.25 Lboundary + 0.3 Lnext + 0.12 Lsmooth + 0.15 Lgraph + 0.15 Lconsistency`
+`L = Laction + 0.45 Lcompletion + 0.7 Levent-outcome + 0.8 Lstate + 0.25 Lboundary + 0.3 Lnext + 0.12 Lsmooth + 0.15 Lgraph + 0.15 Lconsistency`
 
-Step and outcome use class-balanced focal cross-entropy. State uses masked cross-entropy. Boundary uses dynamically weighted BCE. The graph term penalizes posterior mass on unseen training transitions, and smoothing reduces frame-level oscillation. Labels equal to `-100` are ignored by losses and temporal metrics.
+Action and event outcome use class-balanced focal cross-entropy. Completion uses per-component positive-weighted focal BCE, so several components may fire together. State uses masked cross-entropy. Boundary uses dynamically weighted BCE. The graph term penalizes posterior mass on unseen training transitions, and smoothing reduces frame-level oscillation. Labels equal to `-100` are ignored by losses and temporal metrics.
 
 Because incorrect events are rare, training also uses a weighted window sampler:
-windows containing an incorrect outcome or any supervised incorrect component
+windows containing an incorrect component event or any supervised incorrect component
 state receive a default 4× sampling weight. Validation and test windows remain
 unweighted. The trainer reports the number of rare windows in `summary.json`.
 
@@ -64,11 +67,12 @@ INDUSTREAL_ROOT/
     train|val|test/
       RECORDING_ID/
         rgb/*.jpg
+        AR_labels.csv
         PSR_labels_with_errors.csv
         PSR_labels_raw.csv       # optional but strongly recommended
         hands.csv                # optional
         gaze.csv                 # optional
-      pose.csv                 # optional
+        pose.csv                 # optional
 ```
 
 It also supports the layout verified on the GPU desktop, where annotations are
@@ -80,13 +84,14 @@ INDUSTREAL_ROOT/
   recordings/
     train|val/
       RECORDING_ID/
+        AR_labels.csv
         PSR_labels_with_errors.csv
         PSR_labels_raw.csv
 ```
 
-Official headerless PSR CSV rows (`frame, step_id, description`) and headered
-exports are both recognized. Video frame indices are used directly for label
-alignment.
+Official headerless AR/PSR CSV rows (`frame, class_id, description`) and
+headered point-wise or start/end action exports are recognized. Video frame
+indices are used directly for label alignment.
 
 Audit before extraction or training:
 
@@ -110,7 +115,7 @@ Low-risk fallback cache (both encoders included here):
 ```bash
 python -m aiops.features.industreal_cache \
   --data-root "D:/IndustReal" \
-  --output-dir "D:/IndustReal_cache/stategraph_swin_convnext" \
+  --output-dir "D:/IndustReal_cache/stategraph_v2_swin_convnext" \
   --device cuda --mixed-precision bf16
 ```
 
@@ -119,7 +124,7 @@ Recommended cache when the group's 1408-dimensional VideoMAEv2 features already 
 ```bash
 python -m aiops.features.industreal_cache \
   --data-root "D:/IndustReal" \
-  --output-dir "D:/IndustReal_cache/stategraph_vmae_convnext" \
+  --output-dir "D:/IndustReal_cache/stategraph_v2_vmae_convnext" \
   --motion-features-dir "D:/features/videomaev2_giant_ssv2" \
   --device cuda --mixed-precision bf16
 ```
@@ -130,14 +135,16 @@ Feature files must be `[time, feature_dim]`. If their temporal length differs, t
 
 ```bash
 python -m aiops.training.train_stategraph_psr \
-  --cache-index "D:/IndustReal_cache/stategraph_vmae_convnext/index.json" \
+  --cache-index "D:/IndustReal_cache/stategraph_v2_vmae_convnext/index.json" \
   --output-dir runs/stategraph_psr_v1 \
   --precision bf16 --batch-size 2 --accumulation-steps 8 \
   --sequence-length 256 --sequence-stride 192 \
   --epochs 80 --patience 15
 ```
 
-The script writes `history.jsonl`, `best_checkpoint.pt`, and identical `metrics.json`/`summary.json` handoff files. Validation selection uses `F1@50 + 0.25 Edit + 0.25 incorrect-F1`; recall alone is not used because predicting every frame as incorrect can otherwise win checkpoint selection. Test evaluation is deliberately disabled during model selection. After all choices are frozen, run once with `--evaluate-test`.
+The script writes `history.jsonl`, `best_checkpoint.pt`, and identical `metrics.json`/`summary.json` handoff files. Validation selection uses `action F1@50 + 0.25 Edit + 0.25 incorrect-event F1`; recall alone is not used because overpredicting faults can otherwise win checkpoint selection. Event metrics use component/outcome matching with a ±1 cache-step tolerance. Test evaluation is deliberately disabled during model selection. After all choices are frozen, run once with `--evaluate-test`.
+
+Do not begin with the 80-epoch command on a newly regenerated cache. First overfit two to four recordings, then run a 20–30 epoch pilot. Use 80 epochs only as an early-stopped maximum (`--patience 15`) after label distributions and validation metrics look sane. See `procedure_schema_v2.md` for the portable cache contract and migration checklist.
 
 For lower memory, reduce sequence length to 160, then batch size to 1 and increase accumulation. For more compute, retain cached encoders first and compare hidden dimension 256, 12 temporal blocks, and an InternVideo2/VideoMAE appearance cache. Fine-tuning the giant backbone should be a later controlled experiment with LoRA or the final blocks only.
 
@@ -168,7 +175,7 @@ Use at least three seeds for B–E and bootstrap confidence intervals by recordi
 
 Stage 1 intentionally exposes representations required by later stages:
 
-- **Mistake type:** combine predicted step, outcome, component-state delta, detected tool/object, and graph edge in a hierarchical fault head (`wrong tool`, `wrong part`, `wrong connection`, `wrong order`, `omission`, `removal`).
+- **Mistake type:** combine predicted action, per-component event outcome, component-state delta, detected tool/object, and graph edge in a hierarchical fault head (`wrong tool`, `wrong part`, `wrong connection`, `wrong order`, `omission`, `removal`).
 - **Future state:** roll the learned state graph forward from the current component-state belief and train a horizon-conditioned next-state decoder.
 - **Recovery:** search the procedure/recovery graph for the lowest-cost sequence from current belief to a valid state. A VLM may explain the selected recovery in natural language, but the graph supplies the safety-constrained recommendation and evidence.
 

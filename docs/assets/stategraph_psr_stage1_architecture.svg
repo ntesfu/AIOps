@@ -1,106 +1,105 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="980" viewBox="0 0 1600 980">
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
   <defs>
     <style>
       .title{font:700 34px Arial,sans-serif;fill:#172033}.sub{font:16px Arial,sans-serif;fill:#5b6b82}
       .h{font:700 19px Arial,sans-serif;fill:#172033}.t{font:15px Arial,sans-serif;fill:#334155}
-      .loss{font:700 16px Arial,sans-serif;fill:#172033}
-      .tiny{font:13px Arial,sans-serif;fill:#53657d}.box{stroke-width:2.5;rx:16;ry:16}
-      .frozen{fill:#e8f2ff;stroke:#397bbf}.train{fill:#fff0dc;stroke:#d17a17}
-      .graph{fill:#eee8ff;stroke:#7655c7}.output{fill:#e8f7e9;stroke:#3d9652}
-      .data{fill:#f1f5f9;stroke:#94a3b8}.arrow{stroke:#60758c;stroke-width:3;fill:none;marker-end:url(#a)}
+      .loss{font:700 16px Arial,sans-serif;fill:#172033}.tiny{font:13px Arial,sans-serif;fill:#53657d}
+      .box{stroke-width:2.5;rx:16;ry:16}.frozen{fill:#e8f2ff;stroke:#397bbf}
+      .train{fill:#fff0dc;stroke:#d17a17}.graph{fill:#eee8ff;stroke:#7655c7}
+      .output{fill:#e8f7e9;stroke:#3d9652}.data{fill:#f1f5f9;stroke:#94a3b8}
+      .schema{fill:#fff8d9;stroke:#b38b16}.arrow{stroke:#60758c;stroke-width:3;fill:none;marker-end:url(#a)}
       .dash{stroke:#8da0b6;stroke-width:2;stroke-dasharray:7 6;fill:none;marker-end:url(#a)}
     </style>
     <marker id="a" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#60758c"/></marker>
   </defs>
-  <rect width="1600" height="980" fill="#fff"/>
-  <text x="70" y="62" class="title">StateGraph-PSR Lite — Stage 1</text>
-  <text x="70" y="91" class="sub">Causal step segmentation + error-aware assembly state reasoning • frozen visual cache • trainable head ≈ 4M parameters</text>
+  <rect width="1600" height="1000" fill="#fff"/>
+  <text x="70" y="62" class="title">StateGraph-PSR Lite &#8212; Stage 1 (cache schema v2)</text>
+  <text x="70" y="91" class="sub">Causal action segmentation + collision-safe component events + persistent assembly state &#8226; trainable head about 4M parameters</text>
 
   <text x="70" y="137" class="h">OFFLINE FEATURE CACHE (run once)</text>
   <rect x="70" y="158" width="260" height="104" class="box data"/>
-  <text x="200" y="193" text-anchor="middle" class="h">IndustReal stream</text>
-  <text x="200" y="220" text-anchor="middle" class="t">egocentric RGB frames</text>
-  <text x="200" y="244" text-anchor="middle" class="tiny">hands • gaze • headset pose</text>
+  <text x="200" y="193" text-anchor="middle" class="h">Dataset streams</text>
+  <text x="200" y="220" text-anchor="middle" class="t">egocentric RGB</text>
+  <text x="200" y="244" text-anchor="middle" class="tiny">hands &#8226; gaze &#8226; headset pose</text>
   <rect x="395" y="145" width="300" height="130" class="box frozen"/>
   <text x="545" y="182" text-anchor="middle" class="h">Motion encoder</text>
   <text x="545" y="210" text-anchor="middle" class="t">preferred: VideoMAEv2-giant</text>
-  <text x="545" y="234" text-anchor="middle" class="tiny">fallback: Swin3D-S • 16-frame clip</text>
+  <text x="545" y="234" text-anchor="middle" class="tiny">fallback: Swin3D-S &#8226; 16-frame clip</text>
   <text x="545" y="256" text-anchor="middle" class="tiny">frozen / precomputed</text>
   <rect x="750" y="145" width="300" height="130" class="box frozen"/>
   <text x="900" y="182" text-anchor="middle" class="h">Appearance encoder</text>
   <text x="900" y="210" text-anchor="middle" class="t">ConvNeXt-Tiny keyframe</text>
-  <text x="900" y="234" text-anchor="middle" class="tiny">tools • parts • connections</text>
+  <text x="900" y="234" text-anchor="middle" class="tiny">tools &#8226; parts &#8226; connections</text>
   <text x="900" y="256" text-anchor="middle" class="tiny">frozen / sequential extraction</text>
-  <rect x="1105" y="158" width="300" height="104" class="box frozen"/>
-  <text x="1255" y="193" text-anchor="middle" class="h">Sensor encoder</text>
-  <text x="1255" y="220" text-anchor="middle" class="t">hands + gaze + pose</text>
-  <text x="1255" y="244" text-anchor="middle" class="tiny">normalized numeric vector</text>
+  <rect x="1105" y="158" width="300" height="104" class="box schema"/>
+  <text x="1255" y="193" text-anchor="middle" class="h">Portable label adapter</text>
+  <text x="1255" y="220" text-anchor="middle" class="t">AR timeline + PSR events/state</text>
+  <text x="1255" y="244" text-anchor="middle" class="tiny">dataset schema maps raw IDs only here</text>
   <path d="M330 210 L395 210" class="arrow"/><path d="M330 220 C520 320 680 320 750 224" class="arrow"/>
-  <path d="M330 232 C640 340 1000 340 1105 222" class="arrow"/>
 
   <text x="70" y="337" class="h">TRAINABLE CAUSAL CORE (single 24 GB GPU)</text>
   <rect x="110" y="365" width="300" height="116" class="box train"/>
   <text x="260" y="400" text-anchor="middle" class="h">Modality projection + gate</text>
-  <text x="260" y="428" text-anchor="middle" class="t">LayerNorm → 192-d</text>
+  <text x="260" y="428" text-anchor="middle" class="t">LayerNorm &#8594; 192-d</text>
   <text x="260" y="452" text-anchor="middle" class="tiny">learns motion / appearance / sensor trust</text>
-  <path d="M545 275 C545 325 260 320 260 365" class="arrow"/><path d="M900 275 C900 330 260 320 260 365" class="arrow"/><path d="M1255 262 C1255 340 260 315 260 365" class="arrow"/>
+  <path d="M545 275 C545 325 260 320 260 365" class="arrow"/><path d="M900 275 C900 330 260 320 260 365" class="arrow"/>
   <rect x="490" y="350" width="350" height="146" class="box train"/>
-  <text x="665" y="387" text-anchor="middle" class="h">Causal multi-scale temporal encoder</text>
+  <text x="665" y="387" text-anchor="middle" class="h">Causal multi-scale encoder</text>
   <text x="665" y="418" text-anchor="middle" class="t">8 gated depthwise TCN blocks</text>
-  <text x="665" y="444" text-anchor="middle" class="t">dilations 1–16 + sparse causal attention</text>
+  <text x="665" y="444" text-anchor="middle" class="t">dilations 1&#8211;16 + sparse causal attention</text>
   <text x="665" y="470" text-anchor="middle" class="tiny">short hand motion + long procedure context</text>
   <path d="M410 423 L490 423" class="arrow"/>
   <rect x="920" y="365" width="300" height="116" class="box train"/>
   <text x="1070" y="400" text-anchor="middle" class="h">Action prototypes</text>
-  <text x="1070" y="428" text-anchor="middle" class="t">one learnable token per step</text>
-  <text x="1070" y="452" text-anchor="middle" class="tiny">FACT-inspired feature alignment</text>
+  <text x="1070" y="428" text-anchor="middle" class="t">one learnable token per action</text>
+  <text x="1070" y="452" text-anchor="middle" class="tiny">dataset-independent class alignment</text>
   <path d="M840 423 L920 423" class="arrow"/>
   <rect x="1300" y="350" width="230" height="146" class="box graph"/>
   <text x="1415" y="387" text-anchor="middle" class="h">StateGraph filter</text>
-  <text x="1415" y="418" text-anchor="middle" class="t">learned transition prior</text>
+  <text x="1415" y="418" text-anchor="middle" class="t">training-only transition graph</text>
   <text x="1415" y="444" text-anchor="middle" class="t">differentiable causal belief</text>
-  <text x="1415" y="470" text-anchor="middle" class="tiny">allows branches / repair loops</text>
+  <text x="1415" y="470" text-anchor="middle" class="tiny">branches and repair loops allowed</text>
   <path d="M1220 423 L1300 423" class="arrow"/>
 
-  <text x="70" y="560" class="h">JOINT SUPERVISION</text>
-  <rect x="70" y="588" width="280" height="112" class="box output"/>
-  <text x="210" y="624" text-anchor="middle" class="h">Step timeline</text>
-  <text x="210" y="651" text-anchor="middle" class="t">frame-wise class + boundary</text>
-  <text x="210" y="676" text-anchor="middle" class="tiny">Acc • Edit • F1@10/25/50</text>
-  <rect x="390" y="588" width="280" height="112" class="box output"/>
-  <text x="530" y="624" text-anchor="middle" class="h">Outcome</text>
-  <text x="530" y="651" text-anchor="middle" class="t">correct / incorrect / remove</text>
-  <text x="530" y="676" text-anchor="middle" class="tiny">class-balanced focal loss</text>
-  <rect x="710" y="588" width="280" height="112" class="box output"/>
-  <text x="850" y="624" text-anchor="middle" class="h">Component state</text>
-  <text x="850" y="651" text-anchor="middle" class="t">11 × incorrect / pending / correct</text>
-  <text x="850" y="676" text-anchor="middle" class="tiny">anchors mistakes to assembly state</text>
-  <rect x="1030" y="588" width="230" height="112" class="box output"/>
-  <text x="1145" y="624" text-anchor="middle" class="h">Next step</text>
-  <text x="1145" y="651" text-anchor="middle" class="t">anticipation auxiliary head</text>
-  <text x="1145" y="676" text-anchor="middle" class="tiny">future-ready representation</text>
-  <rect x="1300" y="588" width="230" height="112" class="box output"/>
-  <text x="1415" y="624" text-anchor="middle" class="h">Confidence</text>
-  <text x="1415" y="651" text-anchor="middle" class="t">entropy + energy score</text>
-  <text x="1415" y="676" text-anchor="middle" class="tiny">alert only above threshold</text>
+  <text x="70" y="560" class="h">SEPARATED JOINT SUPERVISION</text>
+  <rect x="70" y="588" width="280" height="120" class="box output"/>
+  <text x="210" y="624" text-anchor="middle" class="h">Action timeline (AR)</text>
+  <text x="210" y="651" text-anchor="middle" class="t">frame class + boundary</text>
+  <text x="210" y="678" text-anchor="middle" class="tiny">Acc &#8226; Edit &#8226; F1@10/25/50</text>
+  <rect x="390" y="588" width="300" height="120" class="box output"/>
+  <text x="540" y="624" text-anchor="middle" class="h">Component events (PSR)</text>
+  <text x="540" y="651" text-anchor="middle" class="t">10-way multi-label completion</text>
+  <text x="540" y="678" text-anchor="middle" class="tiny">per-part correct / incorrect / remove</text>
+  <rect x="730" y="588" width="280" height="120" class="box output"/>
+  <text x="870" y="624" text-anchor="middle" class="h">Persistent component state</text>
+  <text x="870" y="651" text-anchor="middle" class="t">11 x incorrect / pending / correct</text>
+  <text x="870" y="678" text-anchor="middle" class="tiny">anchors faults to assembly state</text>
+  <rect x="1050" y="588" width="220" height="120" class="box output"/>
+  <text x="1160" y="624" text-anchor="middle" class="h">Next action</text>
+  <text x="1160" y="651" text-anchor="middle" class="t">next distinct segment</text>
+  <text x="1160" y="678" text-anchor="middle" class="tiny">anticipation auxiliary head</text>
+  <rect x="1310" y="588" width="220" height="120" class="box output"/>
+  <text x="1420" y="624" text-anchor="middle" class="h">Confidence</text>
+  <text x="1420" y="651" text-anchor="middle" class="t">entropy + energy</text>
+  <text x="1420" y="678" text-anchor="middle" class="tiny">calibrated live alerts</text>
   <path d="M1415 496 C1415 540 210 535 210 588" class="arrow"/>
-  <path d="M1415 496 C1415 545 530 535 530 588" class="arrow"/>
-  <path d="M1070 481 C1070 545 850 535 850 588" class="arrow"/>
-  <path d="M1070 481 C1070 545 1145 535 1145 588" class="arrow"/>
-  <path d="M1415 496 L1415 588" class="arrow"/>
+  <path d="M1070 481 C1070 545 540 535 540 588" class="arrow"/>
+  <path d="M1070 481 C1070 545 870 535 870 588" class="arrow"/>
+  <path d="M1415 496 C1415 550 1160 535 1160 588" class="arrow"/>
+  <path d="M1415 496 L1420 588" class="arrow"/>
+  <path d="M1255 262 C1255 535 540 520 540 588" class="dash"/>
 
-  <rect x="230" y="770" width="1140" height="105" class="box graph"/>
-  <text x="800" y="807" text-anchor="middle" class="loss">Loss = step + outcome + component state + boundary + next-step + temporal smoothness + graph validity + state/outcome consistency</text>
-  <text x="800" y="839" text-anchor="middle" class="t">The graph is a soft prior during training—not a brittle Viterbi post-process—so visual evidence can override unusual but valid repairs.</text>
-  <path d="M210 700 C210 745 500 740 500 770" class="dash"/><path d="M530 700 L620 770" class="dash"/>
-  <path d="M850 700 L850 770" class="dash"/><path d="M1145 700 L1030 770" class="dash"/>
+  <rect x="175" y="780" width="1250" height="112" class="box graph"/>
+  <text x="800" y="817" text-anchor="middle" class="loss">Loss = action + multi-label completion + per-component outcome + state + boundary + next action + smoothness + graph + consistency</text>
+  <text x="800" y="849" text-anchor="middle" class="t">Same-frame parts remain independent targets; IndustReal IDs never enter the model core.</text>
+  <text x="800" y="875" text-anchor="middle" class="tiny">Train another dataset by swapping its annotation adapter and procedure-schema JSON, not the architecture.</text>
+  <path d="M210 708 C210 755 400 750 400 780" class="dash"/><path d="M540 708 L650 780" class="dash"/>
+  <path d="M870 708 L900 780" class="dash"/><path d="M1160 708 L1120 780" class="dash"/>
 
-  <!-- Redraw section labels above connectors so routing never harms legibility. -->
-  <rect x="58" y="309" width="435" height="39" fill="#fff"/><text x="70" y="337" class="h">TRAINABLE CAUSAL CORE (single 24 GB GPU)</text>
-  <rect x="58" y="532" width="235" height="39" fill="#fff"/><text x="70" y="560" class="h">JOINT SUPERVISION</text>
-  <rect x="70" y="919" width="20" height="20" class="frozen"/><text x="101" y="935" class="tiny">frozen / cached</text>
-  <rect x="245" y="919" width="20" height="20" class="train"/><text x="276" y="935" class="tiny">trainable</text>
-  <rect x="385" y="919" width="20" height="20" class="graph"/><text x="416" y="935" class="tiny">procedure reasoning</text>
-  <rect x="585" y="919" width="20" height="20" class="output"/><text x="616" y="935" class="tiny">prediction / supervision</text>
-  <text x="1530" y="938" text-anchor="end" class="tiny">AIOps • IndustReal Stage 1</text>
+  <rect x="70" y="940" width="20" height="20" class="frozen"/><text x="101" y="956" class="tiny">frozen / cached</text>
+  <rect x="245" y="940" width="20" height="20" class="train"/><text x="276" y="956" class="tiny">trainable</text>
+  <rect x="385" y="940" width="20" height="20" class="graph"/><text x="416" y="956" class="tiny">procedure reasoning</text>
+  <rect x="585" y="940" width="20" height="20" class="output"/><text x="616" y="956" class="tiny">prediction / supervision</text>
+  <rect x="825" y="940" width="20" height="20" class="schema"/><text x="856" y="956" class="tiny">dataset adapter</text>
+  <text x="1530" y="957" text-anchor="end" class="tiny">AIOps &#8226; portable Stage 1</text>
 </svg>

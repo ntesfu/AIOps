@@ -18,6 +18,7 @@ class StateGraphCacheRecord:
     appearance_dim: int
     sensor_dim: int
     num_components: int
+    num_completion_components: int = 0
 
 
 def read_cache_index(path: str | Path) -> tuple[dict[str, Any], list[StateGraphCacheRecord]]:
@@ -33,6 +34,7 @@ def read_cache_index(path: str | Path) -> tuple[dict[str, Any], list[StateGraphC
             appearance_dim=int(row["appearance_dim"]),
             sensor_dim=int(row["sensor_dim"]),
             num_components=int(row.get("num_components", 11)),
+            num_completion_components=int(row.get("num_completion_components", 0)),
         )
         for row in payload["records"]
     ]
@@ -62,6 +64,7 @@ def write_cache_index(
                 "appearance_dim": record.appearance_dim,
                 "sensor_dim": record.sensor_dim,
                 "num_components": record.num_components,
+                "num_completion_components": record.num_completion_components,
             }
         )
     output_path.write_text(json.dumps({"metadata": metadata, "records": rows}, indent=2) + "\n", encoding="utf-8")
@@ -75,7 +78,8 @@ def save_cache_record(
     sensor: np.ndarray,
     modality_mask: np.ndarray,
     step: np.ndarray,
-    outcome: np.ndarray,
+    completion: np.ndarray,
+    component_outcome: np.ndarray,
     state: np.ndarray,
     state_mask: np.ndarray,
     boundary: np.ndarray,
@@ -88,7 +92,8 @@ def save_cache_record(
         "sensor": np.asarray(sensor, dtype=np.float32),
         "modality_mask": np.asarray(modality_mask, dtype=np.bool_),
         "step": np.asarray(step, dtype=np.int64),
-        "outcome": np.asarray(outcome, dtype=np.int64),
+        "completion": np.asarray(completion, dtype=np.float32),
+        "component_outcome": np.asarray(component_outcome, dtype=np.int64),
         "state": np.asarray(state, dtype=np.int64),
         "state_mask": np.asarray(state_mask, dtype=np.bool_),
         "boundary": np.asarray(boundary, dtype=np.float32),
@@ -97,6 +102,14 @@ def save_cache_record(
     for name, array in arrays.items():
         if array.shape[0] != length:
             raise ValueError(f"{name} has {array.shape[0]} rows, expected {length}")
+    if arrays["step"].ndim != 1:
+        raise ValueError(f"step must have shape [time], got {arrays['step'].shape}")
+    if arrays["completion"].ndim != 2:
+        raise ValueError(f"completion must have shape [time, component], got {arrays['completion'].shape}")
+    if arrays["component_outcome"].shape != arrays["completion"].shape:
+        raise ValueError("component_outcome must have the same shape as completion")
+    if arrays["state"].shape != arrays["state_mask"].shape:
+        raise ValueError("state_mask must have the same shape as state")
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(output_path, **arrays)
@@ -151,7 +164,7 @@ class StateGraphCacheDataset:
 
     def window_sampling_weights(
         self,
-        incorrect_outcome_index: int = 2,
+        incorrect_outcome_index: int = 1,
         rare_window_boost: float = 4.0,
     ) -> np.ndarray:
         """Return deterministic weights that expose scarce fault windows more often."""
@@ -161,15 +174,17 @@ class StateGraphCacheDataset:
         for record_index, record in enumerate(self.records):
             with np.load(record.path, allow_pickle=False) as arrays:
                 labels[record_index] = (
-                    arrays["outcome"].copy(),
+                    arrays["component_outcome"].copy(),
                     arrays["state"].copy(),
                     arrays["state_mask"].copy(),
                 )
         weights = np.ones(len(self.windows), dtype=np.float64)
         for window_index, (record_index, start) in enumerate(self.windows):
-            outcome, state, state_mask = labels[record_index]
-            end = min(len(outcome), start + self.sequence_length)
-            has_incorrect_outcome = bool((outcome[start:end] == incorrect_outcome_index).any())
+            component_outcome, state, state_mask = labels[record_index]
+            end = min(len(component_outcome), start + self.sequence_length)
+            has_incorrect_outcome = bool(
+                (component_outcome[start:end] == incorrect_outcome_index).any()
+            )
             has_incorrect_state = bool(((state[start:end] == 0) & state_mask[start:end]).any())
             if has_incorrect_outcome or has_incorrect_state:
                 weights[window_index] = rare_window_boost
@@ -196,8 +211,7 @@ def pad_stategraph_batch(samples: list[dict[str, Any]]) -> dict[str, Any]:
         [np.arange(max_length) < len(sample["step"]) for sample in samples]
     )
     step = pad_array("step", -100)
-    next_step = np.full_like(step, -100)
-    next_step[:, :-1] = step[:, 1:]
+    next_step = np.stack([_next_distinct_labels(row) for row in step])
     next_step[~valid_mask] = -100
     return {
         "motion": torch.from_numpy(pad_array("motion", 0.0)),
@@ -205,7 +219,8 @@ def pad_stategraph_batch(samples: list[dict[str, Any]]) -> dict[str, Any]:
         "sensor": torch.from_numpy(pad_array("sensor", 0.0)),
         "modality_mask": torch.from_numpy(pad_array("modality_mask", False)),
         "step": torch.from_numpy(step),
-        "outcome": torch.from_numpy(pad_array("outcome", -100)),
+        "completion": torch.from_numpy(pad_array("completion", 0.0)),
+        "component_outcome": torch.from_numpy(pad_array("component_outcome", -100)),
         "state": torch.from_numpy(pad_array("state", 1)),
         "state_mask": torch.from_numpy(pad_array("state_mask", False)),
         "boundary": torch.from_numpy(pad_array("boundary", 0.0)),
@@ -214,6 +229,21 @@ def pad_stategraph_batch(samples: list[dict[str, Any]]) -> dict[str, Any]:
         "recording_id": [sample["recording_id"] for sample in samples],
         "start_index": [sample["start_index"] for sample in samples],
     }
+
+
+def _next_distinct_labels(labels: np.ndarray) -> np.ndarray:
+    result = np.full_like(labels, -100)
+    next_label = -100
+    for index in range(len(labels) - 1, -1, -1):
+        current = int(labels[index])
+        if current < 0:
+            continue
+        if index + 1 < len(labels):
+            following = int(labels[index + 1])
+            if following >= 0 and following != current:
+                next_label = following
+        result[index] = next_label
+    return result
 
 
 def build_transition_matrix(

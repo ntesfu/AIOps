@@ -22,6 +22,7 @@ class StateGraphModelTest(unittest.TestCase):
             appearance_dim=6,
             sensor_dim=4,
             num_steps=3,
+            num_completion_components=2,
             num_components=2,
             hidden_dim=16,
             num_temporal_blocks=2,
@@ -40,6 +41,8 @@ class StateGraphModelTest(unittest.TestCase):
         output = model(motion, appearance, sensor, valid, modalities)
         self.assertEqual(tuple(output["step_logits"].shape), (2, 7, 3))
         self.assertEqual(tuple(output["state_logits"].shape), (2, 7, 2, 3))
+        self.assertEqual(tuple(output["completion_logits"].shape), (2, 7, 2))
+        self.assertEqual(tuple(output["component_outcome_logits"].shape), (2, 7, 2, 3))
         self.assertTrue(bool(((output["uncertainty"] >= 0) & (output["uncertainty"] <= 1.0001)).all()))
 
         changed = motion.clone()
@@ -50,7 +53,8 @@ class StateGraphModelTest(unittest.TestCase):
         targets = {
             "valid_mask": valid,
             "step": torch.randint(0, 3, (2, 7)),
-            "outcome": torch.randint(0, 4, (2, 7)),
+            "completion": torch.randint(0, 2, (2, 7, 2)).float(),
+            "component_outcome": torch.randint(0, 3, (2, 7, 2)),
             "state": torch.randint(0, 3, (2, 7, 2)),
             "state_mask": torch.ones(2, 7, 2, dtype=torch.bool),
             "boundary": torch.randint(0, 2, (2, 7)).float(),

@@ -10,15 +10,17 @@ from typing import Any
 import numpy as np
 
 from aiops.data.industreal import (
-    OUTCOME_NAMES,
     IndustRealRecording,
     audit_industreal_root,
-    dense_labels_from_events,
+    dense_action_labels,
     discover_industreal_recordings,
+    multi_component_targets_from_events,
+    read_action_segments,
     read_completion_events,
     read_numeric_timeseries,
     read_raw_states,
 )
+from aiops.data.procedure_schema import ProcedureSchema
 from aiops.data.stategraph_cache import StateGraphCacheRecord, save_cache_record, write_cache_index
 
 
@@ -80,7 +82,7 @@ def build_industreal_cache(args: argparse.Namespace) -> dict[str, Any]:
     official = [
         recording
         for recording in recordings
-        if (recording.rgb_dir or recording.video_path) and recording.psr_labels
+        if (recording.rgb_dir or recording.video_path) and recording.ar_labels and recording.psr_labels
     ]
     if args.recording_id:
         requested = set(args.recording_id)
@@ -88,22 +90,37 @@ def build_industreal_cache(args: argparse.Namespace) -> dict[str, Any]:
         found = {recording.recording_id for recording in official}
         missing = sorted(requested - found)
         if missing:
-            raise RuntimeError(f"Requested recordings were not found with RGB and PSR labels: {missing}")
+            raise RuntimeError(f"Requested recordings were not found with RGB, AR, and PSR labels: {missing}")
     if args.max_recordings is not None:
         official = official[: args.max_recordings]
     if not official:
         audit = audit_industreal_root(args.data_root)
-        raise RuntimeError("No labeled official IndustReal recordings found.\n" + json.dumps(audit.to_dict(), indent=2))
+        raise RuntimeError(
+            "No official IndustReal recordings with RGB, AR, and PSR annotations found.\n"
+            + json.dumps(audit.to_dict(), indent=2)
+        )
 
-    step_ids = sorted(
-        {
-            event.step_id
-            for recording in official
-            for event in read_completion_events(recording.psr_labels)  # type: ignore[arg-type]
-        },
-        key=_natural_key,
+    schema = ProcedureSchema.load(args.procedure_schema)
+    if schema.state_components and len(schema.state_components) != args.num_components:
+        raise ValueError(
+            f"--num-components={args.num_components} does not match procedure schema "
+            f"state_components={len(schema.state_components)}."
+        )
+    all_actions = [
+        segment
+        for recording in official
+        for segment in read_action_segments(recording.ar_labels)  # type: ignore[arg-type]
+    ]
+    action_ids = sorted({segment.action_id for segment in all_actions}, key=_natural_key)
+    if not action_ids:
+        raise RuntimeError("AR annotation files were found but contained no readable action labels.")
+    background_action_id = next(
+        (segment.action_id for segment in all_actions if _is_background_action(segment)),
+        "__background__",
     )
-    step_to_index = {step_id: index for index, step_id in enumerate(step_ids)}
+    if background_action_id not in action_ids:
+        action_ids.insert(0, background_action_id)
+    action_to_index = {action_id: index for index, action_id in enumerate(action_ids)}
 
     extractor = None
     if not args.motion_features_dir or not args.appearance_features_dir:
@@ -114,18 +131,26 @@ def build_industreal_cache(args: argparse.Namespace) -> dict[str, Any]:
     records: list[StateGraphCacheRecord] = []
     for recording_index, recording in enumerate(official, start=1):
         print(f"[{recording_index}/{len(official)}] {recording.split}/{recording.recording_id}", flush=True)
-        record = _cache_recording(recording, step_to_index, extractor, args, output_dir)
+        record = _cache_recording(
+            recording,
+            action_to_index,
+            background_action_id,
+            schema,
+            extractor,
+            args,
+            output_dir,
+        )
         records.append(record)
 
     metadata = {
-        "dataset": "IndustReal",
-        "step_ids": step_ids,
-        "outcome_names": list(OUTCOME_NAMES),
+        **schema.to_metadata(),
+        "label_contract": "action_segmentation_plus_multicomponent_completion",
+        "action_ids": action_ids,
+        "background_action_id": background_action_id,
         "state_names": ["incorrect", "not_completed", "correct"],
         "fps": args.fps,
         "stride_frames": args.stride_frames,
         "clip_frames": args.clip_frames,
-        "completion_label_mode": args.completion_label_mode,
         "feature_backends": {
             "motion": "precomputed" if args.motion_features_dir else "torchvision_swin3d_s",
             "appearance": "precomputed" if args.appearance_features_dir else "torchvision_convnext_tiny",
@@ -133,12 +158,19 @@ def build_industreal_cache(args: argparse.Namespace) -> dict[str, Any]:
     }
     index_path = output_dir / "index.json"
     write_cache_index(index_path, records, metadata)
-    return {"index": str(index_path), "recordings": len(records), "steps": step_ids}
+    return {
+        "index": str(index_path),
+        "recordings": len(records),
+        "actions": action_ids,
+        "completion_components": list(schema.completion_components),
+    }
 
 
 def _cache_recording(
     recording: IndustRealRecording,
-    step_to_index: dict[str, int],
+    action_to_index: dict[str, int],
+    background_action_id: str,
+    schema: ProcedureSchema,
     extractor: FrozenVisualFeatureExtractor | None,
     args: argparse.Namespace,
     output_dir: Path,
@@ -167,19 +199,34 @@ def _cache_recording(
     if video_capture is not None:
         centers = np.arange(0, source_length, args.stride_frames, dtype=np.int64)
     sampled_frame_indices = all_frame_indices[centers]
+    actions = read_action_segments(recording.ar_labels)  # type: ignore[arg-type]
+    step, boundary = dense_action_labels(
+        sampled_frame_indices,
+        actions,
+        action_to_index,
+        background_index=action_to_index[background_action_id],
+    )
     events = read_completion_events(recording.psr_labels)  # type: ignore[arg-type]
-    step, outcome, boundary = dense_labels_from_events(
+    completion, component_outcome = multi_component_targets_from_events(
         sampled_frame_indices,
         events,
-        step_to_index,
-        mode=args.completion_label_mode,
+        schema.resolve_component,
+        len(schema.completion_components),
+        schema.event_outcomes,
     )
     valid_rows = step >= 0
     if not valid_rows.any():
-        raise RuntimeError(f"No dense PSR labels could be derived for {recording.recording_id}")
+        raise RuntimeError(f"No dense AR action labels could be derived for {recording.recording_id}")
 
-    motion = _load_precomputed(args.motion_features_dir, recording.recording_id, len(centers))
-    appearance = _load_precomputed(args.appearance_features_dir, recording.recording_id, len(centers))
+    motion = _load_precomputed(
+        args.motion_features_dir, recording.recording_id, len(centers), preferred_key="motion"
+    )
+    appearance = _load_precomputed(
+        args.appearance_features_dir,
+        recording.recording_id,
+        len(centers),
+        preferred_key="appearance",
+    )
     if motion is None or appearance is None:
         if extractor is None:
             raise RuntimeError("A visual extractor is required when either cached modality is missing.")
@@ -248,7 +295,8 @@ def _cache_recording(
         sensor=sensor,
         modality_mask=modality_mask,
         step=step,
-        outcome=outcome,
+        completion=completion,
+        component_outcome=component_outcome,
         state=state,
         state_mask=state_mask,
         boundary=boundary,
@@ -258,11 +306,12 @@ def _cache_recording(
         recording_id=recording.recording_id,
         split=recording.split,
         path=destination,
-        num_steps=len(step_to_index),
+        num_steps=len(action_to_index),
         motion_dim=int(motion.shape[1]),
         appearance_dim=int(appearance.shape[1]),
         sensor_dim=int(sensor.shape[1]),
         num_components=args.num_components,
+        num_completion_components=len(schema.completion_components),
     )
 
 
@@ -314,19 +363,39 @@ def _nearest_item(mapping: dict[int, np.ndarray], frame_index: int) -> np.ndarra
     return mapping[key]
 
 
-def _load_precomputed(directory: str | None, recording_id: str, length: int) -> np.ndarray | None:
+def _load_precomputed(
+    directory: str | None,
+    recording_id: str,
+    length: int,
+    preferred_key: str = "features",
+) -> np.ndarray | None:
     if not directory:
         return None
     root = Path(directory)
     candidates = [root / f"{recording_id}.npy", root / f"{recording_id}.npz"]
     path = next((candidate for candidate in candidates if candidate.is_file()), None)
+    if path is None and root.is_dir():
+        path = next(
+            (
+                candidate
+                for suffix in (".npy", ".npz")
+                for candidate in root.rglob(f"{recording_id}{suffix}")
+            ),
+            None,
+        )
     if path is None:
         return None
     if path.suffix == ".npy":
         array = np.load(path, allow_pickle=False)
     else:
         with np.load(path, allow_pickle=False) as payload:
-            key = "features" if "features" in payload.files else payload.files[0]
+            key = (
+                preferred_key
+                if preferred_key in payload.files
+                else "features"
+                if "features" in payload.files
+                else payload.files[0]
+            )
             array = payload[key]
     array = np.asarray(array, dtype=np.float32)
     if array.ndim != 2:
@@ -385,6 +454,14 @@ def _natural_key(value: str) -> tuple[Any, ...]:
     return tuple(int(token) if token.isdigit() else token.lower() for token in re.split(r"(\d+)", value))
 
 
+def _is_background_action(segment) -> bool:
+    candidates = {
+        re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+        for value in (segment.action_id, segment.description)
+    }
+    return bool(candidates & {"background", "idle", "none", "no action"})
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Create a low-VRAM StateGraph feature cache from IndustReal.")
     parser.add_argument("--data-root", required=True)
@@ -412,9 +489,9 @@ def main() -> None:
     parser.add_argument("--sensor-dim", type=int, default=128)
     parser.add_argument("--num-components", type=int, default=11)
     parser.add_argument(
-        "--completion-label-mode",
-        choices=["active_until_next", "state_after_completion"],
-        default="active_until_next",
+        "--procedure-schema",
+        default=str(Path(__file__).resolve().parents[3] / "configs" / "procedure_schemas" / "industreal_v1.json"),
+        help="Dataset adapter mapping raw completion IDs to canonical components.",
     )
     args = parser.parse_args()
     if args.stride_frames <= 0 or args.clip_frames <= 0 or args.clip_span_frames <= 0:

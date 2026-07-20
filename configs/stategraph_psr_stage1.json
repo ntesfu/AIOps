@@ -1,5 +1,8 @@
 {
   "name": "StateGraph-PSR Lite Stage 1",
+  "cache_schema_version": 2,
+  "label_contract": "action_segmentation_plus_multicomponent_completion",
+  "procedure_schema": "configs/procedure_schemas/industreal_v1.json",
   "features": {
     "preferred_motion": "cached VideoMAEv2-giant SSv2, 1408-d",
     "fallback_motion": "frozen torchvision Swin3D-S, 768-d",
@@ -18,7 +21,8 @@
     "dropout": 0.2,
     "graph_strength": 1.5,
     "num_components": 11,
-    "outcomes": ["background", "correct", "incorrect", "remove"]
+    "completion_components": 10,
+    "event_outcomes": ["correct", "incorrect", "remove"]
   },
   "training": {
     "precision": "bf16",

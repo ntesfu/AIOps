@@ -54,9 +54,9 @@ streamlit run web/app.py
 
 ### StateGraph-PSR Lite (IndustReal Stage 1)
 
-The new research training path uses cached motion and appearance features, IndustReal hand/gaze/pose streams, a compact causal TCN-attention head, action prototypes, a differentiable procedure graph, and joint step/outcome/component-state supervision. It is designed to train on one 24 GB GPU while keeping the path open to stronger precomputed VideoMAEv2 or InternVideo features.
+The research training path uses cached motion and appearance features, IndustReal hand/gaze/pose streams, a compact causal TCN-attention head, action prototypes, a differentiable procedure graph, and a corrected two-level label contract. AR annotations supervise the mutually-exclusive action timeline; PSR completion rows supervise multi-label part events and a per-part `correct / incorrect / remove` outcome. It is designed to train on one 24 GB GPU while keeping the path open to stronger precomputed VideoMAEv2 or InternVideo features.
 
-The default trainable head is approximately four million parameters. Its outputs are a causal step timeline, correct/incorrect/remove outcome, eleven component-state predictions, step boundaries, next-step anticipation, and calibrated uncertainty signals. Frozen encoders are run once to create compressed per-recording caches, so ordinary experiments train only the temporal/state head.
+The default trainable head is approximately four million parameters. Its outputs are a causal action timeline, simultaneous component completions, a separate outcome for every completed part, eleven component-state predictions, action boundaries, next-action anticipation, and calibrated uncertainty signals. Frozen encoders are run once to create compressed per-recording caches, so ordinary experiments train only the temporal/state head.
 
 - Architecture and training guide: [`docs/stategraph_psr_stage1_implementation.md`](docs/stategraph_psr_stage1_implementation.md)
 - Architecture image: [`docs/assets/stategraph_psr_stage1_architecture.svg`](docs/assets/stategraph_psr_stage1_architecture.svg)
@@ -64,16 +64,17 @@ The default trainable head is approximately four million parameters. Its outputs
 - Model: [`src/aiops/models/stategraph_psr.py`](src/aiops/models/stategraph_psr.py)
 - Feature cache: [`src/aiops/features/industreal_cache.py`](src/aiops/features/industreal_cache.py)
 - Trainer: [`src/aiops/training/train_stategraph_psr.py`](src/aiops/training/train_stategraph_psr.py)
+- Portable label contract: [`docs/procedure_schema_v2.md`](docs/procedure_schema_v2.md)
 
 Audit an extracted release, build a cache, and train:
 
 ```bash
 python -m aiops.data.industreal --data-root "D:/IndustReal"
-python -m aiops.features.industreal_cache --data-root "D:/IndustReal" --output-dir "D:/IndustReal_cache/stategraph" --device cuda
-python -m aiops.training.train_stategraph_psr --cache-index "D:/IndustReal_cache/stategraph/index.json" --output-dir runs/stategraph_psr_v1
+python -m aiops.features.industreal_cache --data-root "D:/IndustReal" --output-dir "D:/IndustReal_cache/stategraph_v2" --device cuda
+python -m aiops.training.train_stategraph_psr --cache-index "D:/IndustReal_cache/stategraph_v2/index.json" --output-dir runs/stategraph_psr_v2
 ```
 
-The cache builder accepts the official `recordings/train|val|test/...` annotation tree with either per-recording `rgb/` frames or root-level `RECORDING_ID.mp4` videos. Headerless official PSR CSVs and headered exports are supported. Video-only bundles without PSR annotations cannot supervise the error/state heads. The trainer keeps splits at recording level, uses BF16 and gradient accumulation by default, selects checkpoints using segmentation and incorrect-recall metrics, and evaluates the test split only when explicitly requested.
+The cache builder accepts the official `recordings/train|val|test/...` annotation tree with either per-recording `rgb/` frames or root-level `RECORDING_ID.mp4` videos. Headerless official AR/PSR CSVs and headered exports are supported. Video-only bundles cannot supervise the action/error/state heads. Cache schema v2 rejects the old 24-way PSR proxy target, which silently lost simultaneous events. The trainer keeps splits at recording level, uses BF16 and gradient accumulation by default, selects checkpoints using action segmentation and incorrect-event F1, and evaluates the test split only when explicitly requested.
 
 Implemented temporal pipeline:
 
