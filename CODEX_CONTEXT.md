@@ -219,6 +219,17 @@ early-stopped maximum (`--patience 15`) after those checks. Checkpoint selection
 uses incorrect-event F1 rather than recall, because the first smoke run showed
 that near-100% recall could result from overpredicting the incorrect class.
 
+The relabel-only v2 rebuild completed on 2026-07-20 at
+`/home/aiops/AIOps/data/processed/stategraph_v2_swin_convnext`: 52 recordings,
+23,414 rows, ten completion components, 315 train and 148 validation events,
+95/47 multi-component rows, and no invalid/NaN records. The audit found two
+validation-only AR classes: `66 plug_small_screw_pin` and
+`72 pull_small_screw_pin`. Training contains both verbs and the object phrase
+through other actions (`take/put_small_screw_pin`), so the action head now uses
+shared verb/object logits and prototypes plus a seen-class residual. Graph bias
+is disabled only for train-unseen compositions, and evaluation reports their
+accuracy separately.
+
 ## Known risks and decisions
 
 - No accuracy claim has been made because the architecture has not yet been trained on the labeled release.

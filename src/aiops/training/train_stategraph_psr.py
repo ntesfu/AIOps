@@ -4,6 +4,7 @@ import argparse
 import json
 import math
 import random
+import re
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -54,12 +55,18 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         train_records, val_records = _recording_level_split(train_records, args.val_fraction, args.seed)
 
     num_steps = train_records[0].num_steps
+    factorization = _action_factorization(metadata, train_records, num_steps)
     transition_matrix = build_transition_matrix(train_records, num_steps, args.transition_smoothing)
     model_config = StateGraphPSRConfig(
         motion_dim=train_records[0].motion_dim,
         appearance_dim=train_records[0].appearance_dim,
         sensor_dim=train_records[0].sensor_dim,
         num_steps=num_steps,
+        num_action_verbs=len(factorization["verb_names"]),
+        num_action_objects=len(factorization["object_names"]),
+        action_verb_indices=tuple(factorization["verb_indices"]),
+        action_object_indices=tuple(factorization["object_indices"]),
+        seen_action_mask=tuple(factorization["seen_mask"]),
         num_completion_components=train_records[0].num_completion_components,
         num_event_outcomes=len(metadata["event_outcomes"]),
         num_components=train_records[0].num_components,
@@ -258,6 +265,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         "train_recordings": len(train_records),
         "validation_recordings": len(val_records),
         "test_recordings": len(test_records),
+        "action_factorization": factorization,
         "model_config": model_config.to_dict(),
         "loss_config": asdict(loss_config),
         "best_validation": best_metrics,
@@ -276,6 +284,10 @@ def evaluate(model, loader, device, use_amp: bool, amp_dtype, num_components: in
     model.eval()
     frame_correct = 0
     frame_total = 0
+    seen_action_correct = 0
+    seen_action_total = 0
+    unseen_action_correct = 0
+    unseen_action_total = 0
     edits: list[float] = []
     f1_scores = {0.1: [], 0.25: [], 0.5: []}
     event_stats = {
@@ -304,6 +316,18 @@ def evaluate(model, loader, device, use_amp: bool, amp_dtype, num_components: in
             valid = batch["valid_mask"] & (batch["step"] >= 0)
             frame_correct += int((step_prediction[valid] == batch["step"][valid]).sum().item())
             frame_total += int(valid.sum().item())
+            seen_lookup = outputs["seen_action_mask"].bool()
+            target_seen = seen_lookup[batch["step"].clamp_min(0)]
+            seen_mask = valid & target_seen
+            unseen_mask = valid & ~target_seen
+            seen_action_correct += int(
+                (step_prediction[seen_mask] == batch["step"][seen_mask]).sum().item()
+            )
+            seen_action_total += int(seen_mask.sum().item())
+            unseen_action_correct += int(
+                (step_prediction[unseen_mask] == batch["step"][unseen_mask]).sum().item()
+            )
+            unseen_action_total += int(unseen_mask.sum().item())
             state_valid = batch["state_mask"] & batch["valid_mask"].unsqueeze(-1)
             state_correct += int((state_prediction[state_valid] == batch["state"][state_valid]).sum().item())
             state_total += int(state_valid.sum().item())
@@ -338,6 +362,9 @@ def evaluate(model, loader, device, use_amp: bool, amp_dtype, num_components: in
     remove_metrics = _precision_recall_f1(event_stats[2])
     return {
         "frame_accuracy": 100.0 * frame_correct / max(frame_total, 1),
+        "seen_action_accuracy": 100.0 * seen_action_correct / max(seen_action_total, 1),
+        "unseen_composition_accuracy": 100.0 * unseen_action_correct / max(unseen_action_total, 1),
+        "unseen_composition_frames": unseen_action_total,
         "edit": float(np.mean(edits)) if edits else 0.0,
         "f1@10": float(np.mean(f1_scores[0.1])) if f1_scores[0.1] else 0.0,
         "f1@25": float(np.mean(f1_scores[0.25])) if f1_scores[0.25] else 0.0,
@@ -421,6 +448,41 @@ def _class_weights(records: list[StateGraphCacheRecord], field: str, classes: in
         counts += np.bincount(labels, minlength=classes)
     weights = counts.sum() / (classes * counts)
     return np.clip(weights, 0.25, 12.0).astype(np.float32)
+
+
+def _action_factorization(
+    metadata: dict[str, Any], records: list[StateGraphCacheRecord], num_steps: int
+) -> dict[str, Any]:
+    action_ids = list(metadata.get("action_ids", []))
+    descriptions = list(metadata.get("action_descriptions", action_ids))
+    if len(descriptions) != num_steps:
+        descriptions = action_ids
+    factors: list[tuple[str, str]] = []
+    for description in descriptions:
+        tokens = [token for token in re.split(r"[^a-z0-9]+", description.lower()) if token]
+        verb = tokens[0] if tokens else "unknown"
+        object_name = "_".join(tokens[1:]) if len(tokens) > 1 else "none"
+        factors.append((verb, object_name))
+    verb_names = sorted({verb for verb, _ in factors})
+    object_names = sorted({object_name for _, object_name in factors})
+    verb_to_index = {name: index for index, name in enumerate(verb_names)}
+    object_to_index = {name: index for index, name in enumerate(object_names)}
+    counts = np.zeros(num_steps, dtype=np.int64)
+    for record in records:
+        with np.load(record.path, allow_pickle=False) as arrays:
+            labels = arrays["step"].astype(np.int64)
+        labels = labels[(labels >= 0) & (labels < num_steps)]
+        counts += np.bincount(labels, minlength=num_steps)
+    return {
+        "verb_names": verb_names,
+        "object_names": object_names,
+        "verb_indices": [verb_to_index[verb] for verb, _ in factors],
+        "object_indices": [object_to_index[object_name] for _, object_name in factors],
+        "seen_mask": [bool(count) for count in counts],
+        "unseen_train_actions": [
+            action_ids[index] for index, count in enumerate(counts) if count == 0
+        ],
+    }
 
 
 def _completion_pos_weights(

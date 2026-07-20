@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -80,6 +81,8 @@ def audit_stategraph_cache(index_path: str | Path) -> dict[str, Any]:
     train_split = next((name for name in split_names if name.lower() == "train"), None)
     warnings: list[str] = []
     zero_train_actions: list[str] = []
+    composable_zero_train_actions: list[str] = []
+    uncomposable_zero_train_actions: list[str] = []
     zero_train_components: list[str] = []
     if train_split is None:
         warnings.append("No train split is present.")
@@ -89,13 +92,37 @@ def audit_stategraph_cache(index_path: str | Path) -> dict[str, Any]:
             for index, count in enumerate(action_counts[train_split])
             if count == 0
         ]
+        descriptions = list(metadata.get("action_descriptions", action_names))
+        factors = [_action_factors(description) for description in descriptions]
+        seen_verbs = {
+            factors[index][0]
+            for index, count in enumerate(action_counts[train_split])
+            if count > 0
+        }
+        seen_objects = {
+            factors[index][1]
+            for index, count in enumerate(action_counts[train_split])
+            if count > 0
+        }
+        for index, count in enumerate(action_counts[train_split]):
+            if count > 0:
+                continue
+            target = (
+                composable_zero_train_actions
+                if factors[index][0] in seen_verbs and factors[index][1] in seen_objects
+                else uncomposable_zero_train_actions
+            )
+            target.append(action_names[index])
         zero_train_components = [
             completion_names[index]
             for index, count in enumerate(event_counts[train_split].sum(axis=1))
             if count == 0
         ]
-        if zero_train_actions:
-            warnings.append(f"Actions absent from train: {zero_train_actions}")
+        if uncomposable_zero_train_actions:
+            warnings.append(
+                "Actions absent from train and not covered by seen verb/object factors: "
+                f"{uncomposable_zero_train_actions}"
+            )
         if zero_train_components:
             warnings.append(f"Completion components absent from train: {zero_train_components}")
     if invalid_records:
@@ -118,6 +145,8 @@ def audit_stategraph_cache(index_path: str | Path) -> dict[str, Any]:
             for split, counts in action_counts.items()
         },
         "zero_train_actions": zero_train_actions,
+        "composable_zero_train_actions": composable_zero_train_actions,
+        "uncomposable_zero_train_actions": uncomposable_zero_train_actions,
         "event_outcome_names": list(metadata.get("event_outcomes", [])),
         "event_counts": {
             split: counts.sum(axis=0).astype(int).tolist() for split, counts in event_counts.items()
@@ -138,6 +167,13 @@ def audit_stategraph_cache(index_path: str | Path) -> dict[str, Any]:
         "invalid_records": invalid_records,
         "warnings": warnings,
     }
+
+
+def _action_factors(description: str) -> tuple[str, str]:
+    tokens = [token for token in re.split(r"[^a-z0-9]+", description.lower()) if token]
+    verb = tokens[0] if tokens else "unknown"
+    object_name = "_".join(tokens[1:]) if len(tokens) > 1 else "none"
+    return verb, object_name
 
 
 def main() -> None:

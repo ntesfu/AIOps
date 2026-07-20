@@ -27,6 +27,11 @@ class StateGraphPSRConfig:
     appearance_dim: int
     sensor_dim: int
     num_steps: int
+    num_action_verbs: int = 0
+    num_action_objects: int = 0
+    action_verb_indices: tuple[int, ...] = ()
+    action_object_indices: tuple[int, ...] = ()
+    seen_action_mask: tuple[bool, ...] = ()
     num_completion_components: int = 1
     num_event_outcomes: int = 3
     num_components: int = 11
@@ -36,6 +41,7 @@ class StateGraphPSRConfig:
     num_heads: int = 4
     dropout: float = 0.2
     graph_strength_init: float = 1.5
+    composition_strength_init: float = 1.0
     max_dilation: int = 16
 
     def to_dict(self) -> dict[str, Any]:
@@ -69,6 +75,14 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
         raise ValueError("Stage 1 expects three event outcomes: correct, incorrect, remove.")
     if config.hidden_dim % config.num_heads:
         raise ValueError("hidden_dim must be divisible by num_heads.")
+
+    if config.action_verb_indices:
+        if len(config.action_verb_indices) != config.num_steps:
+            raise ValueError("action_verb_indices must contain one entry per action.")
+        if len(config.action_object_indices) != config.num_steps:
+            raise ValueError("action_object_indices must contain one entry per action.")
+        if len(config.seen_action_mask) != config.num_steps:
+            raise ValueError("seen_action_mask must contain one entry per action.")
 
     torch, nn, functional = _load_torch()
 
@@ -183,8 +197,35 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 with_attention = config.attention_every > 0 and (index + 1) % config.attention_every == 0
                 blocks.append(TemporalBlock(dilation, with_attention))
             self.temporal_blocks = nn.ModuleList(blocks)
-            self.action_prototypes = nn.Parameter(torch.empty(config.num_steps, config.hidden_dim))
-            nn.init.trunc_normal_(self.action_prototypes, std=0.02)
+            factorized = bool(config.action_verb_indices)
+            num_verbs = config.num_action_verbs if factorized else config.num_steps
+            num_objects = config.num_action_objects if factorized else 1
+            verb_indices = (
+                torch.as_tensor(config.action_verb_indices, dtype=torch.long)
+                if factorized
+                else torch.arange(config.num_steps, dtype=torch.long)
+            )
+            object_indices = (
+                torch.as_tensor(config.action_object_indices, dtype=torch.long)
+                if factorized
+                else torch.zeros(config.num_steps, dtype=torch.long)
+            )
+            seen_mask = (
+                torch.as_tensor(config.seen_action_mask, dtype=torch.float32)
+                if factorized
+                else torch.ones(config.num_steps, dtype=torch.float32)
+            )
+            self.register_buffer("action_verb_indices", verb_indices)
+            self.register_buffer("action_object_indices", object_indices)
+            self.register_buffer("seen_action_mask", seen_mask)
+            self.action_residual_prototypes = nn.Parameter(
+                torch.empty(config.num_steps, config.hidden_dim)
+            )
+            self.verb_prototypes = nn.Parameter(torch.empty(num_verbs, config.hidden_dim))
+            self.object_prototypes = nn.Parameter(torch.empty(num_objects, config.hidden_dim))
+            nn.init.trunc_normal_(self.action_residual_prototypes, std=0.02)
+            nn.init.trunc_normal_(self.verb_prototypes, std=0.02)
+            nn.init.trunc_normal_(self.object_prototypes, std=0.02)
             self.prototype_attention = nn.MultiheadAttention(
                 config.hidden_dim,
                 config.num_heads,
@@ -193,6 +234,8 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             )
             self.prototype_norm = nn.LayerNorm(config.hidden_dim)
             self.step_classifier = nn.Linear(config.hidden_dim, config.num_steps)
+            self.verb_classifier = nn.Linear(config.hidden_dim, num_verbs)
+            self.object_classifier = nn.Linear(config.hidden_dim, num_objects)
             self.completion_head = nn.Linear(config.hidden_dim, config.num_completion_components)
             self.component_outcome_head = nn.Linear(
                 config.hidden_dim, config.num_completion_components * config.num_event_outcomes
@@ -201,6 +244,9 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             self.boundary_head = nn.Linear(config.hidden_dim, 1)
             self.next_step_head = nn.Linear(config.hidden_dim, config.num_steps)
             self.graph_strength_raw = nn.Parameter(torch.tensor(float(config.graph_strength_init)))
+            self.composition_strength_raw = nn.Parameter(
+                torch.tensor(float(config.composition_strength_init))
+            )
 
             if transition_matrix is None:
                 matrix = torch.ones(config.num_steps, config.num_steps, dtype=torch.float32)
@@ -240,7 +286,9 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             strength = functional.softplus(self.graph_strength_raw)
             for index in range(length):
                 prior = previous @ self.transition_matrix
-                adjusted = raw_logits[:, index] + strength * torch.log(prior.clamp_min(1e-6))
+                graph_bias = strength * torch.log(prior.clamp_min(1e-6))
+                graph_bias = graph_bias * self.seen_action_mask.unsqueeze(0)
+                adjusted = raw_logits[:, index] + graph_bias
                 posterior = torch.softmax(adjusted, dim=-1)
                 if valid_mask is not None:
                     active = valid_mask[:, index].unsqueeze(-1)
@@ -264,12 +312,27 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             temporal = fused
             for block in self.temporal_blocks:
                 temporal = block(temporal, valid_mask)
-            prototypes = self.action_prototypes.unsqueeze(0).expand(temporal.shape[0], -1, -1)
+            prototype_residual = self.action_residual_prototypes * self.seen_action_mask.unsqueeze(-1)
+            prototype_total = (
+                prototype_residual
+                + self.verb_prototypes[self.action_verb_indices]
+                + self.object_prototypes[self.action_object_indices]
+            )
+            prototypes = prototype_total / (2.0 + self.seen_action_mask.unsqueeze(-1))
+            prototypes = prototypes.unsqueeze(0).expand(temporal.shape[0], -1, -1)
             proto_context, proto_weights = self.prototype_attention(
                 self.prototype_norm(temporal), prototypes, prototypes, need_weights=True
             )
             temporal = temporal + proto_context
-            raw_step_logits = self.step_classifier(temporal)
+            atomic_logits = self.step_classifier(temporal) * self.seen_action_mask
+            verb_logits = self.verb_classifier(temporal)
+            object_logits = self.object_classifier(temporal)
+            composed_logits = (
+                verb_logits[..., self.action_verb_indices]
+                + object_logits[..., self.action_object_indices]
+            ) / 2.0
+            composition_strength = functional.softplus(self.composition_strength_raw)
+            raw_step_logits = atomic_logits + composition_strength * composed_logits
             graph_step_logits, step_probabilities = self._apply_graph_filter(raw_step_logits, valid_mask)
             state_logits = self.state_head(temporal).view(
                 temporal.shape[0], temporal.shape[1], config.num_components, 3
@@ -287,6 +350,9 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             return {
                 "features": temporal,
                 "raw_step_logits": raw_step_logits,
+                "atomic_step_logits": atomic_logits,
+                "verb_logits": verb_logits,
+                "object_logits": object_logits,
                 "step_logits": graph_step_logits,
                 "step_probabilities": step_probabilities,
                 "completion_logits": self.completion_head(temporal),
@@ -298,6 +364,7 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 "energy": energy,
                 "modality_gates": modality_gates,
                 "prototype_weights": proto_weights,
+                "seen_action_mask": self.seen_action_mask,
             }
 
     return StateGraphPSRLite()
@@ -406,6 +473,11 @@ def build_stategraph_loss(config: StateGraphLossConfig):
                     outputs["step_probabilities"].shape[-1], outputs["step_probabilities"].shape[-1]
                 )
             allowed = (matrix > 0).to(outputs["step_probabilities"].dtype)
+            unseen = outputs.get("seen_action_mask")
+            if unseen is not None:
+                unseen = unseen < 0.5
+                allowed[:, unseen] = 1.0
+                allowed[unseen, :] = 1.0
             previous = outputs["step_probabilities"][:, :-1]
             current = outputs["step_probabilities"][:, 1:]
             allowed_mass = torch.einsum("bti,ij,btj->bt", previous, allowed, current)

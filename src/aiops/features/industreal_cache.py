@@ -121,6 +121,11 @@ def build_industreal_cache(args: argparse.Namespace) -> dict[str, Any]:
     if background_action_id not in action_ids:
         action_ids.insert(0, background_action_id)
     action_to_index = {action_id: index for index, action_id in enumerate(action_ids)}
+    action_description_by_id: dict[str, str] = {}
+    for segment in all_actions:
+        action_description_by_id.setdefault(segment.action_id, segment.description)
+    action_description_by_id.setdefault(background_action_id, "background")
+    action_descriptions = [action_description_by_id[action_id] for action_id in action_ids]
 
     extractor = None
     if not args.motion_features_dir or not args.appearance_features_dir:
@@ -146,6 +151,7 @@ def build_industreal_cache(args: argparse.Namespace) -> dict[str, Any]:
         **schema.to_metadata(),
         "label_contract": "action_segmentation_plus_multicomponent_completion",
         "action_ids": action_ids,
+        "action_descriptions": action_descriptions,
         "background_action_id": background_action_id,
         "state_names": ["incorrect", "not_completed", "correct"],
         "fps": args.fps,

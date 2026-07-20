@@ -17,6 +17,8 @@ The historical tensor name `step` remains in the cache/API for compatibility, bu
 
 Unannotated gaps in interval-style action files are assigned to an existing idle/background action when one is present; otherwise the adapter adds `__background__`. This gives live inference explicit negative supervision instead of silently ignoring idle video.
 
+Action descriptions are stored alongside raw IDs. The default head factorizes names into a first-token verb and remaining object phrase, then combines shared verb/object logits with an atomic residual for classes actually seen in training. This supports a dataset split containing a novel verb-object composition while retaining the ordinary closed-set classifier for seen actions.
+
 ## Dataset-independent boundary
 
 The model and trainer only consume the tensor contract and dimensions stored in `index.json`. Dataset-specific interpretation happens before the cache is written:

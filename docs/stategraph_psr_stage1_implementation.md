@@ -27,7 +27,7 @@ The SSv2-giant + DiffAct result has strong segmentation boundaries but cannot id
 2. **Local motion and long procedure context are both causal.** Gated depthwise temporal convolutions cover multiple time scales. Sparse causal self-attention supplies long context without the memory cost of full attention at every block. The model never sees future frames, so offline evaluation matches the future live-feed constraint.
 3. **Actions, completion events, and persistent state are different variables.** AR labels supervise the action timeline. PSR rows supervise a multi-label component-completion head plus a separate per-component outcome head. The network also predicts eleven persistent component states, boundary, and next action. Same-frame component completions no longer overwrite one another.
 4. **Procedure knowledge participates in learning.** A sparse graph is estimated only from training recordings. Its differentiable causal belief filter biases the step posterior toward legal transitions while retaining the ability for visual evidence to override the graph. Unlike a hard Viterbi-only decoder, it permits branches and repair loops.
-5. **Action prototypes stabilize scarce classes.** One learned token per step lets every time feature attend to a class prototype, following the feature-alignment motivation behind FACT. Class-balanced focal losses further reduce domination by correct/common frames.
+5. **Actions are compositional.** Each action description is factorized into a verb and object (for example, `plug` + `small_screw_pin`). The classifier and prototype bank combine shared verb/object parameters with a seen-class residual. A validation-only composition can therefore reuse factors learned from other training actions; the transition-graph bias is disabled only for train-unseen compositions so it cannot suppress them. Class-balanced focal loss still handles scarce seen classes.
 
 ## Architecture and tensors
 
@@ -44,7 +44,7 @@ At each sampled time index, the cache stores:
 | component outcome | correct/incorrect/remove at positive events | `T × 10` |
 | state/state mask | carried-forward PSR raw state | `T × 11` |
 
-Each modality is projected to 192 dimensions. The gated sum enters eight causal temporal blocks with dilation cycle `1, 2, 4, 8, 16`; every second block includes causal multi-head attention. Action-prototype attention refines the feature. Raw step logits are recursively combined with the transition prior to produce the graph-aware posterior. The default head is approximately four million trainable parameters; exact size is printed in `summary.json` because input dimensions and class count affect it.
+Each modality is projected to 192 dimensions. The gated sum enters eight causal temporal blocks with dilation cycle `1, 2, 4, 8, 16`; every second block includes causal multi-head attention. Compositional action-prototype attention refines the feature. Atomic residual, verb, and object logits form the raw action score, which is recursively combined with the transition prior for classes observed during training. The default head is approximately four million trainable parameters; exact size is printed in `summary.json` because input dimensions and class count affect it.
 
 The objective is:
 

@@ -242,6 +242,7 @@ class IndustRealAdapterTest(unittest.TestCase):
             metadata, records = read_cache_index(result["index"])
             self.assertEqual(metadata["schema_version"], 2)
             self.assertEqual(metadata["action_ids"], ["attach", "idle"])
+            self.assertEqual(metadata["action_descriptions"], ["attach", "idle"])
             self.assertEqual(records[0].num_completion_components, 2)
             with np.load(records[0].path, allow_pickle=False) as arrays:
                 np.testing.assert_array_equal(arrays["step"], [1, 1, 0, 0])

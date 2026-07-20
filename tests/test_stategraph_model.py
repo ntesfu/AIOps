@@ -22,6 +22,11 @@ class StateGraphModelTest(unittest.TestCase):
             appearance_dim=6,
             sensor_dim=4,
             num_steps=3,
+            num_action_verbs=2,
+            num_action_objects=2,
+            action_verb_indices=(0, 0, 1),
+            action_object_indices=(0, 1, 1),
+            seen_action_mask=(True, True, False),
             num_completion_components=2,
             num_components=2,
             hidden_dim=16,
@@ -43,6 +48,8 @@ class StateGraphModelTest(unittest.TestCase):
         self.assertEqual(tuple(output["state_logits"].shape), (2, 7, 2, 3))
         self.assertEqual(tuple(output["completion_logits"].shape), (2, 7, 2))
         self.assertEqual(tuple(output["component_outcome_logits"].shape), (2, 7, 2, 3))
+        self.assertTrue(bool((output["atomic_step_logits"][..., 2] == 0).all()))
+        self.assertTrue(bool((output["raw_step_logits"][..., 2] != 0).any()))
         self.assertTrue(bool(((output["uncertainty"] >= 0) & (output["uncertainty"] <= 1.0001)).all()))
 
         changed = motion.clone()

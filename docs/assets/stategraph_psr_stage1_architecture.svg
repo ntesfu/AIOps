@@ -50,13 +50,13 @@
   <text x="665" y="470" text-anchor="middle" class="tiny">short hand motion + long procedure context</text>
   <path d="M410 423 L490 423" class="arrow"/>
   <rect x="920" y="365" width="300" height="116" class="box train"/>
-  <text x="1070" y="400" text-anchor="middle" class="h">Action prototypes</text>
-  <text x="1070" y="428" text-anchor="middle" class="t">one learnable token per action</text>
-  <text x="1070" y="452" text-anchor="middle" class="tiny">dataset-independent class alignment</text>
+  <text x="1070" y="400" text-anchor="middle" class="h">Compositional action tokens</text>
+  <text x="1070" y="428" text-anchor="middle" class="t">verb + object + seen-class residual</text>
+  <text x="1070" y="452" text-anchor="middle" class="tiny">supports train-unseen compositions</text>
   <path d="M840 423 L920 423" class="arrow"/>
   <rect x="1300" y="350" width="230" height="146" class="box graph"/>
   <text x="1415" y="387" text-anchor="middle" class="h">StateGraph filter</text>
-  <text x="1415" y="418" text-anchor="middle" class="t">training-only transition graph</text>
+  <text x="1415" y="418" text-anchor="middle" class="t">seen-action transition graph</text>
   <text x="1415" y="444" text-anchor="middle" class="t">differentiable causal belief</text>
   <text x="1415" y="470" text-anchor="middle" class="tiny">branches and repair loops allowed</text>
   <path d="M1220 423 L1300 423" class="arrow"/>
