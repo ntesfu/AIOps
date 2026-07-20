@@ -566,6 +566,7 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 "component_outcome_logits": component_outcome_logits,
                 "normality_logits": normality_logits,
                 "state_outcome_probabilities": state_outcome_probabilities,
+                "event_state_indices": self.event_state_indices,
                 "state_logits": state_logits,
                 "boundary_logits": self.boundary_head(temporal).squeeze(-1),
                 "progress_logits": self.progress_head(temporal).squeeze(-1),
@@ -697,19 +698,41 @@ def build_stategraph_loss(config: StateGraphLossConfig):
             else:
                 losses["state"] = outputs["state_logits"].sum() * 0.0
 
-            normality_targets = outcome_targets
-            normality_mask = (normality_targets == 0) | (normality_targets == 1)
+            # IndustReal provides dense component states in addition to sparse
+            # completion events. Use every observed installed state to train the
+            # normality prototypes: state classes are [incorrect, pending,
+            # correct]. Pending is deliberately excluded because it says
+            # nothing about installation correctness.
+            event_state_indices = outputs["event_state_indices"]
+            mapped_states = state_targets[..., event_state_indices]
+            mapped_state_mask = state_mask[..., event_state_indices]
+            dense_normality_mask = mapped_state_mask & (
+                (mapped_states == 0) | (mapped_states == 2)
+            )
+            dense_normality_binary = (mapped_states == 2).float()
+
+            event_normality_mask = (outcome_targets == 0) | (outcome_targets == 1)
+            event_normality_binary = (outcome_targets == 0).float()
+            # Exact completion labels take precedence at the same component and
+            # row, avoiding double-counting contradictory annotations.
+            dense_normality_mask = dense_normality_mask & ~event_normality_mask
+            normality_mask = dense_normality_mask | event_normality_mask
+            normality_binary = torch.where(
+                event_normality_mask,
+                event_normality_binary,
+                dense_normality_binary,
+            )
             if normality_mask.any():
-                normality_binary = (normality_targets[normality_mask] == 0).float()
                 normality_loss = functional.binary_cross_entropy_with_logits(
                     outputs["normality_logits"][normality_mask],
-                    normality_binary,
+                    normality_binary[normality_mask],
                     reduction="none",
                 )
+                selected_normality = normality_binary[normality_mask]
                 normality_weights = torch.where(
-                    normality_binary > 0.5,
-                    torch.ones_like(normality_binary),
-                    torch.full_like(normality_binary, config.normality_error_weight),
+                    selected_normality > 0.5,
+                    torch.ones_like(selected_normality),
+                    torch.full_like(selected_normality, config.normality_error_weight),
                 )
                 losses["normality"] = (normality_loss * normality_weights).mean()
             else:

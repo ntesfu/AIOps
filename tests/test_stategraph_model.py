@@ -64,6 +64,7 @@ class StateGraphModelTest(unittest.TestCase):
         self.assertEqual(tuple(output["component_outcome_logits"].shape), (2, 7, 2, 3))
         self.assertEqual(tuple(output["normality_logits"].shape), (2, 7, 2))
         self.assertEqual(tuple(output["state_outcome_probabilities"].shape), (2, 7, 2, 3))
+        self.assertEqual(output["event_state_indices"].tolist(), [0, 1])
         self.assertEqual(tuple(output["progress_logits"].shape), (2, 7))
         self.assertEqual(tuple(output["modality_gates"].shape), (2, 7, 4))
         self.assertEqual(tuple(output["modality_disagreement"].shape), (2, 7, 16))
@@ -107,6 +108,48 @@ class StateGraphModelTest(unittest.TestCase):
         self.assertGreater(float(loss["refinement"]), 0.0)
         loss["total"].backward()
         self.assertTrue(any(parameter.grad is not None for parameter in model.parameters()))
+
+    def test_dense_incorrect_states_supervise_normality_without_events(self) -> None:
+        import torch
+
+        config = StateGraphPSRConfig(
+            motion_dim=4,
+            appearance_dim=3,
+            sensor_dim=2,
+            num_steps=2,
+            event_state_indices=(1,),
+            num_completion_components=1,
+            num_components=2,
+            hidden_dim=8,
+            num_temporal_blocks=1,
+            attention_every=0,
+            num_heads=2,
+            dropout=0.0,
+        )
+        model = build_stategraph_psr(config)
+        valid = torch.ones(1, 4, dtype=torch.bool)
+        output = model(
+            torch.randn(1, 4, 4),
+            torch.randn(1, 4, 3),
+            torch.randn(1, 4, 2),
+            valid,
+            torch.ones(1, 4, 3, dtype=torch.bool),
+        )
+        targets = {
+            "valid_mask": valid,
+            "step": torch.zeros(1, 4, dtype=torch.long),
+            "completion": torch.zeros(1, 4, 1),
+            "component_outcome": torch.full((1, 4, 1), -100, dtype=torch.long),
+            "state": torch.ones(1, 4, 2, dtype=torch.long),
+            "state_mask": torch.zeros(1, 4, 2, dtype=torch.bool),
+            "boundary": torch.zeros(1, 4),
+            "next_step": torch.full((1, 4), -100, dtype=torch.long),
+        }
+        targets["state"][:, :, 1] = 0
+        targets["state_mask"][:, :, 1] = True
+        losses = build_stategraph_loss(StateGraphLossConfig())(output, targets)
+        self.assertTrue(bool(torch.isfinite(losses["normality"])))
+        self.assertGreater(float(losses["normality"]), 0.0)
 
     def test_event_targets_expand_forward_without_overwriting_events(self) -> None:
         import torch

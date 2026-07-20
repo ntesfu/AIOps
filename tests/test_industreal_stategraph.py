@@ -35,6 +35,10 @@ from aiops.features.industreal_cache import _load_precomputed_group, build_indus
 
 
 class IndustRealAdapterTest(unittest.TestCase):
+    def test_schema_covers_every_official_non_base_psr_id(self) -> None:
+        schema = ProcedureSchema.load("configs/procedure_schemas/industreal_v1.json")
+        self.assertEqual(set(schema.raw_completion_map), {str(value) for value in range(3, 33)})
+
     def test_aligned_precomputed_feature_groups_concatenate(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

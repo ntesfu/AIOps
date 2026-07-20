@@ -142,7 +142,16 @@ python -m aiops.training.train_stategraph_psr \
   --epochs 80 --patience 15
 ```
 
-The script writes `history.jsonl`, `best_checkpoint.pt`, and identical `metrics.json`/`summary.json` handoff files. Validation selection uses `action F1@50 + 0.25 Edit + 0.25 incorrect-event F1`; recall alone is not used because overpredicting faults can otherwise win checkpoint selection. Event metrics use component/outcome matching with a ±1 cache-step tolerance. Test evaluation is deliberately disabled during model selection. After all choices are frozen, run once with `--evaluate-test`.
+The script writes `history.jsonl`, `best_checkpoint.pt`, an every-epoch
+`last_checkpoint.pt`, and identical `metrics.json`/`summary.json` handoff files.
+`last_checkpoint.pt` includes optimizer, scheduler, early-stopping, threshold,
+sampler, and Python/NumPy/PyTorch RNG state. Resume an interrupted run with the
+same arguments plus `--resume OUTPUT_DIR/last_checkpoint.pt`. Validation
+selection uses `action F1@50 + 0.25 Edit + 0.75 incorrect-event F1`; recall alone
+is not used because overpredicting faults can otherwise win checkpoint
+selection. Event metrics use component/outcome matching with a ±1 cache-step
+tolerance. Test evaluation is deliberately disabled during model selection.
+After all choices are frozen, run once with `--evaluate-test`.
 
 Do not begin with the 80-epoch command on a newly regenerated cache. First overfit two to four recordings, then run a 20–30 epoch pilot. Use 80 epochs only as an early-stopped maximum (`--patience 15`) after label distributions and validation metrics look sane. See `procedure_schema_v2.md` for the portable cache contract and migration checklist.
 

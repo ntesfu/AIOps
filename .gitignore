@@ -10,8 +10,12 @@ build/
 dist/
 *.egg-info/
 runs/
-data/raw/
+data/raw/*
+!data/raw/assembly101/
+data/raw/assembly101/*
+!data/raw/assembly101/subset_manifest.json
 data/processed/
+data/model_cache/
 *.mp4
 *.mov
 *.avi

@@ -38,6 +38,7 @@ class OutcomeAwareBatchSampler:
         batch_size: int,
         rare_indices: list[int],
         rare_per_batch: int = 1,
+        sampling_weights: np.ndarray | None = None,
         seed: int = 7,
     ) -> None:
         if dataset_size <= 0 or batch_size <= 0:
@@ -48,6 +49,17 @@ class OutcomeAwareBatchSampler:
         self.batch_size = batch_size
         self.rare_indices = np.asarray(sorted(set(rare_indices)), dtype=np.int64)
         self.rare_per_batch = rare_per_batch if len(self.rare_indices) else 0
+        if sampling_weights is None:
+            sampling_weights = np.ones(dataset_size, dtype=np.float64)
+        self.sampling_weights = np.asarray(sampling_weights, dtype=np.float64)
+        if self.sampling_weights.shape != (dataset_size,):
+            raise ValueError("sampling_weights must contain one value per dataset item")
+        if not np.isfinite(self.sampling_weights).all() or (self.sampling_weights < 0).any():
+            raise ValueError("sampling_weights must be finite and non-negative")
+        weight_sum = float(self.sampling_weights.sum())
+        if weight_sum <= 0:
+            raise ValueError("sampling_weights must contain at least one positive value")
+        self.sampling_probabilities = self.sampling_weights / weight_sum
         self.seed = seed
         self.epoch = 0
 
@@ -70,7 +82,15 @@ class OutcomeAwareBatchSampler:
                 )
             fill = current_size - rare_count
             if fill:
-                batch.extend(int(value) for value in rng.choice(all_indices, size=fill, replace=True))
+                batch.extend(
+                    int(value)
+                    for value in rng.choice(
+                        all_indices,
+                        size=fill,
+                        replace=True,
+                        p=self.sampling_probabilities,
+                    )
+                )
             rng.shuffle(batch)
             yield batch
             remaining -= current_size
@@ -119,6 +139,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         all_train_records,
         train_records[0].num_completion_components,
         train_records[0].num_components,
+        metadata,
     )
     active_action_mask = (
         _action_presence(train_records, num_steps)
@@ -204,6 +225,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         batch_size=args.batch_size,
         rare_indices=train_dataset.rare_window_indices(),
         rare_per_batch=args.rare_windows_per_batch,
+        sampling_weights=sampling_weights,
         seed=args.seed,
     )
     train_loader = DataLoader(
@@ -246,16 +268,50 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     history_path = output_dir / "history.jsonl"
-    history_path.write_text("", encoding="utf-8")
+    if not args.resume:
+        history_path.write_text("", encoding="utf-8")
     monitor = TrainingMonitor(output_dir, enabled=not args.disable_dashboard)
     best_score = -float("inf")
     best_metrics: dict[str, Any] | None = None
     patience_left = args.patience
     global_update = 0
     event_thresholds: list[float] | None = None
+    fps = float(metadata.get("fps", 10.0))
+    stride_frames = float(metadata.get("stride_frames", 5.0))
+    seconds_per_step = stride_frames / fps if fps > 0 and stride_frames > 0 else 0.5
+    start_epoch = 1
+    if args.resume:
+        resume_path = Path(args.resume)
+        if resume_path.parent.resolve() != output_dir.resolve():
+            raise ValueError("--resume must point to last_checkpoint.pt inside --output-dir.")
+        if not (output_dir / "best_checkpoint.pt").exists():
+            raise ValueError("Resume output directory is missing best_checkpoint.pt.")
+        checkpoint = torch.load(resume_path, map_location=device, weights_only=False)
+        if checkpoint.get("model_config") != model_config.to_dict():
+            raise ValueError("Resume checkpoint model configuration does not match this run.")
+        if checkpoint.get("loss_config") != asdict(loss_config):
+            raise ValueError("Resume checkpoint loss configuration does not match this run.")
+        model.load_state_dict(checkpoint["model_state"])
+        optimizer.load_state_dict(checkpoint["optimizer_state"])
+        scheduler.load_state_dict(checkpoint["scheduler_state"])
+        training_state = checkpoint.get("training_state", {})
+        start_epoch = int(checkpoint["epoch"]) + 1
+        best_score = float(training_state.get("best_score", best_score))
+        best_metrics = training_state.get("best_metrics", best_metrics)
+        patience_left = int(training_state.get("patience_left", patience_left))
+        global_update = int(training_state.get("global_update", global_update))
+        event_thresholds = training_state.get("event_thresholds", event_thresholds)
+        batch_sampler.epoch = int(training_state.get("batch_sampler_epoch", batch_sampler.epoch))
+        _restore_rng_state(checkpoint.get("rng_state"))
+        print(f"Resuming {resume_path} at epoch {start_epoch}", flush=True)
+    if start_epoch > args.epochs:
+        raise ValueError(
+            f"Resume checkpoint already completed epoch {start_epoch - 1}, "
+            f"which is not below --epochs {args.epochs}."
+        )
 
     try:
-        for epoch in range(1, args.epochs + 1):
+        for epoch in range(start_epoch, args.epochs + 1):
             model.train()
             optimizer.zero_grad(set_to_none=True)
             running: dict[str, list[float]] = {}
@@ -310,6 +366,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                 use_amp,
                 amp_dtype,
                 model_config.num_components,
+                seconds_per_step=seconds_per_step,
                 event_thresholds=event_thresholds,
                 calibrate_events=calibrate_events,
             )
@@ -361,11 +418,35 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                     epoch,
                     metrics,
                 )
+                should_stop = False
             else:
                 patience_left -= 1
-                if patience_left <= 0:
-                    print(f"Early stopping at epoch {epoch}", flush=True)
-                    break
+                should_stop = patience_left <= 0
+            training_state = {
+                "best_score": best_score,
+                "best_metrics": best_metrics,
+                "patience_left": patience_left,
+                "global_update": global_update,
+                "event_thresholds": event_thresholds,
+                "batch_sampler_epoch": batch_sampler.epoch,
+            }
+            _save_checkpoint(
+                output_dir / "last_checkpoint.pt",
+                model,
+                optimizer,
+                scheduler,
+                model_config,
+                loss_config,
+                metadata,
+                transition_matrix,
+                epoch,
+                metrics,
+                training_state=training_state,
+                rng_state=_capture_rng_state(),
+            )
+            if should_stop:
+                print(f"Early stopping at epoch {epoch}", flush=True)
+                break
     finally:
         monitor.close()
 
@@ -381,8 +462,14 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         use_amp,
         amp_dtype,
         model_config.num_components,
+        seconds_per_step=seconds_per_step,
         calibrate_events=True,
     )
+    validation_event_thresholds = [
+        final_metrics["correct_event_threshold"],
+        final_metrics["incorrect_event_threshold"],
+        final_metrics["remove_event_threshold"],
+    ]
     test_metrics = None
     if test_records and args.evaluate_test:
         test_loader = DataLoader(
@@ -397,7 +484,32 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
             num_workers=args.num_workers,
             collate_fn=pad_stategraph_batch,
         )
-        test_metrics = evaluate(model, test_loader, device, use_amp, amp_dtype, model_config.num_components)
+        test_metrics = evaluate(
+            model,
+            test_loader,
+            device,
+            use_amp,
+            amp_dtype,
+            model_config.num_components,
+            seconds_per_step=seconds_per_step,
+            event_thresholds=validation_event_thresholds,
+            calibrate_events=False,
+        )
+    export_path = (
+        Path(args.export_checkpoint)
+        if args.export_checkpoint
+        else output_dir / "inference_checkpoint.pt"
+    )
+    _save_inference_checkpoint(
+        export_path,
+        model,
+        model_config,
+        metadata,
+        transition_matrix,
+        validation_event_thresholds,
+        final_metrics,
+        test_metrics,
+    )
     summary = {
         "architecture": "StateGraph-PSR Lite Stage 1",
         "device": str(device),
@@ -415,9 +527,11 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         "event_state_mapping": event_state_mapping,
         "model_config": model_config.to_dict(),
         "loss_config": asdict(loss_config),
+        "best_epoch": int(best_checkpoint["epoch"]),
         "best_validation": best_metrics,
         "final_validation": final_metrics,
         "test": test_metrics,
+        "inference_checkpoint": str(export_path),
     }
     summary_payload = json.dumps(summary, indent=2) + "\n"
     (output_dir / "metrics.json").write_text(summary_payload, encoding="utf-8")
@@ -432,6 +546,7 @@ def evaluate(
     use_amp: bool,
     amp_dtype,
     num_components: int,
+    seconds_per_step: float = 0.5,
     event_thresholds: list[float] | None = None,
     calibrate_events: bool = True,
     calibrate_latency: bool = False,
@@ -454,6 +569,8 @@ def evaluate(
     normality_targets: list[int] = []
     state_correct = 0
     state_total = 0
+    state_confusion = np.zeros((3, 3), dtype=np.int64)
+    evaluated_steps = 0
     with torch.inference_mode():
         for batch in loader:
             batch = _move_batch(batch, device)
@@ -509,8 +626,15 @@ def evaluate(
             state_valid = batch["state_mask"] & batch["valid_mask"].unsqueeze(-1)
             state_correct += int((state_prediction[state_valid] == batch["state"][state_valid]).sum().item())
             state_total += int(state_valid.sum().item())
+            if state_valid.any():
+                state_truth = batch["state"][state_valid].detach().cpu().numpy()
+                state_pred = state_prediction[state_valid].detach().cpu().numpy()
+                state_confusion += np.bincount(
+                    3 * state_truth + state_pred, minlength=9
+                ).reshape(3, 3)
             for sample_index in range(step_prediction.shape[0]):
                 length = int(batch["valid_mask"][sample_index].sum().item())
+                evaluated_steps += length
                 pred = step_prediction[sample_index, :length].detach().cpu().tolist()
                 raw_pred = raw_step_prediction[sample_index, :length].detach().cpu().tolist()
                 truth = batch["step"][sample_index, :length].detach().cpu().tolist()
@@ -574,6 +698,12 @@ def evaluate(
     incorrect_metrics = calibrated_metrics[1]
     remove_metrics = calibrated_metrics[2]
     normality_ap = _binary_average_precision(normality_scores, normality_targets)
+    incorrect_diagnostics = _event_timing_diagnostics(
+        event_samples,
+        event_thresholds,
+        outcome=1,
+        total_duration_seconds=evaluated_steps * seconds_per_step,
+    )
     correct_normality = [
         score for score, target in zip(normality_scores, normality_targets) if target == 0
     ]
@@ -625,12 +755,75 @@ def evaluate(
         if incorrect_normality
         else 0.0,
         "state_accuracy": 100.0 * state_correct / max(state_total, 1),
+        "state_macro_f1": _macro_f1_from_confusion(state_confusion),
+        "state_incorrect_f1": _class_f1_from_confusion(state_confusion, 0),
+        "incorrect_detection_delay_steps": incorrect_diagnostics["mean_delay_steps"],
+        "incorrect_detection_delay_seconds": incorrect_diagnostics["mean_delay_steps"]
+        * seconds_per_step,
+        "incorrect_delayed_detections": incorrect_diagnostics["matched_detections"],
+        "incorrect_false_alerts_per_minute": incorrect_diagnostics[
+            "false_alerts_per_minute"
+        ],
     }
 
 
 def _target_events(component_outcome: np.ndarray) -> list[tuple[int, int, int]]:
     rows, components = np.where(component_outcome >= 0)
     return [(int(row), int(component), int(component_outcome[row, component])) for row, component in zip(rows, components)]
+
+
+def _class_f1_from_confusion(confusion: np.ndarray, class_index: int) -> float:
+    true_positive = int(confusion[class_index, class_index])
+    false_positive = int(confusion[:, class_index].sum()) - true_positive
+    false_negative = int(confusion[class_index, :].sum()) - true_positive
+    denominator = 2 * true_positive + false_positive + false_negative
+    return 100.0 * (2 * true_positive / denominator) if denominator else 0.0
+
+
+def _macro_f1_from_confusion(confusion: np.ndarray) -> float:
+    supported = [index for index in range(confusion.shape[0]) if confusion[index].sum() > 0]
+    if not supported:
+        return 0.0
+    return float(np.mean([_class_f1_from_confusion(confusion, index) for index in supported]))
+
+
+def _event_timing_diagnostics(
+    samples: list[tuple[list[tuple[int, int, int]], np.ndarray]],
+    thresholds: list[float] | tuple[float, ...],
+    outcome: int,
+    total_duration_seconds: float,
+) -> dict[str, float]:
+    """Report causal alert delay and strict false-alert rate for one outcome."""
+
+    delays: list[int] = []
+    predicted_total = 0
+    strict_true_positives = 0
+    for truth_events, event_scores in samples:
+        truth = [event for event in truth_events if event[2] == outcome]
+        predicted = [
+            event
+            for event in _predicted_events_from_scores(event_scores, thresholds)
+            if event[2] == outcome
+        ]
+        predicted_total += len(predicted)
+        strict_true_positives += _match_event_counts(truth, predicted, tolerance=1)["tp"]
+        unmatched = set(range(len(predicted)))
+        for true_row, true_component, _ in sorted(truth):
+            candidates = [
+                index
+                for index in unmatched
+                if predicted[index][1] == true_component and predicted[index][0] >= true_row
+            ]
+            if candidates:
+                best = min(candidates, key=lambda index: predicted[index][0])
+                unmatched.remove(best)
+                delays.append(predicted[best][0] - true_row)
+    false_alerts = max(0, predicted_total - strict_true_positives)
+    return {
+        "mean_delay_steps": float(np.mean(delays)) if delays else -1.0,
+        "matched_detections": float(len(delays)),
+        "false_alerts_per_minute": 60.0 * false_alerts / max(total_duration_seconds, 1e-6),
+    }
 
 
 def _predicted_events(
@@ -874,9 +1067,30 @@ def _completion_pos_weights(
 
 
 def _infer_event_state_mapping(
-    records: list[StateGraphCacheRecord], event_components: int, state_components: int
+    records: list[StateGraphCacheRecord],
+    event_components: int,
+    state_components: int,
+    metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Map each event component to the state column most consistent with its outcomes."""
+
+    # Dataset adapters should declare semantic component names whenever
+    # possible. Exact name alignment is stronger and more stable than inferring
+    # a mapping from correlated assembly states (several parts are often
+    # installed together, making argmax agreement ambiguous).
+    if metadata is not None:
+        event_names = list(metadata.get("completion_components", []))
+        state_names = list(metadata.get("state_components", []))
+        if len(event_names) == event_components and len(state_names) == state_components:
+            state_lookup = {name: index for index, name in enumerate(state_names)}
+            if len(state_lookup) == len(state_names) and all(name in state_lookup for name in event_names):
+                return {
+                    "indices": [state_lookup[name] for name in event_names],
+                    "agreement": [1.0] * event_components,
+                    "observations": [0] * event_components,
+                    "per_outcome_agreement": [[1.0, 1.0, 1.0] for _ in event_names],
+                    "source": "metadata_component_names",
+                }
 
     agreement = np.zeros((event_components, state_components, 3), dtype=np.float64)
     observations = np.zeros((event_components, state_components, 3), dtype=np.float64)
@@ -1017,6 +1231,8 @@ def _save_checkpoint(
     transition_matrix: np.ndarray,
     epoch: int,
     metrics: dict[str, Any],
+    training_state: dict[str, Any] | None = None,
+    rng_state: dict[str, Any] | None = None,
 ) -> None:
     import torch
 
@@ -1032,15 +1248,91 @@ def _save_checkpoint(
             "transition_matrix": transition_matrix,
             "epoch": epoch,
             "metrics": metrics,
+            "training_state": training_state,
+            "rng_state": rng_state,
         },
         path,
     )
+
+
+def _save_inference_checkpoint(
+    path: Path,
+    model,
+    model_config: StateGraphPSRConfig,
+    metadata: dict[str, Any],
+    transition_matrix: np.ndarray,
+    event_thresholds: list[float],
+    validation_metrics: dict[str, float],
+    test_metrics: dict[str, float] | None,
+) -> None:
+    """Export compact optimizer-free BF16 weights for reproducible inference."""
+
+    import torch
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    state = {
+        name: (
+            value.detach().cpu().to(torch.bfloat16)
+            if value.is_floating_point()
+            else value.detach().cpu()
+        )
+        for name, value in model.state_dict().items()
+    }
+    torch.save(
+        {
+            "format_version": 1,
+            "architecture": "stategraph_psr_stage1",
+            "model_state": state,
+            "model_config": model_config.to_dict(),
+            "dataset_metadata": metadata,
+            "transition_matrix": transition_matrix,
+            "event_thresholds": event_thresholds,
+            "validation_metrics": validation_metrics,
+            "test_metrics": test_metrics,
+        },
+        path,
+    )
+
+
+def _capture_rng_state() -> dict[str, Any]:
+    import torch
+
+    state = {
+        "python": random.getstate(),
+        "numpy": np.random.get_state(),
+        "torch": torch.random.get_rng_state(),
+    }
+    if torch.cuda.is_available():
+        state["cuda"] = torch.cuda.get_rng_state_all()
+    return state
+
+
+def _restore_rng_state(state: dict[str, Any] | None) -> None:
+    if not state:
+        return
+    import torch
+
+    random.setstate(state["python"])
+    np.random.set_state(state["numpy"])
+    torch.random.set_rng_state(state["torch"])
+    if torch.cuda.is_available() and "cuda" in state:
+        torch.cuda.set_rng_state_all(state["cuda"])
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train StateGraph-PSR Lite on cached IndustReal features.")
     parser.add_argument("--cache-index", required=True)
     parser.add_argument("--output-dir", default="runs/stategraph_psr_stage1")
+    parser.add_argument(
+        "--export-checkpoint",
+        default=None,
+        help="Optional path for a compact BF16 inference checkpoint without optimizer state.",
+    )
+    parser.add_argument(
+        "--resume",
+        default=None,
+        help="Resume exactly from a last_checkpoint.pt produced by this run.",
+    )
     parser.add_argument("--device", default=None)
     parser.add_argument("--precision", choices=["fp32", "bf16", "fp16"], default="bf16")
     parser.add_argument("--epochs", type=int, default=80)

@@ -1,0 +1,56 @@
+{
+  "name": "StateGraph-PSR Assembly101 Stage 1",
+  "dataset": "Assembly101 part-to-part mistake benchmark",
+  "data": {
+    "selection_manifest": "data/raw/assembly101/subset_manifest.json",
+    "cache_index": "data/processed/assembly101_stategraph/index.json",
+    "split": "actor-disjoint 40 train / 10 validation / 10 test recordings",
+    "camera": "C10095 fixed RGB",
+    "annotation_fps": 30,
+    "mirror_fps": 1,
+    "license": "CC BY-NC 4.0"
+  },
+  "features": {
+    "appearance": "frozen ConvNeXt-Tiny ImageNet-1K, 768-d",
+    "motion": "causal adjacent ConvNeXt feature difference, 768-d",
+    "sensor": "unavailable and masked",
+    "stride_frames": 30
+  },
+  "model": {
+    "hidden_dim": 256,
+    "num_temporal_blocks": 8,
+    "attention_every": 2,
+    "num_heads": 8,
+    "num_action_refinement_stages": 1,
+    "num_refinement_blocks": 4,
+    "num_event_blocks": 4,
+    "dropout": 0.2,
+    "graph_strength": 0.12,
+    "causal": true
+  },
+  "training": {
+    "epochs": 80,
+    "patience": 100,
+    "precision": "bf16",
+    "batch_size": 8,
+    "accumulation_steps": 2,
+    "sequence_length": 256,
+    "sequence_stride": 192,
+    "learning_rate": 0.0002,
+    "weight_decay": 0.001,
+    "rare_window_boost": 4.0,
+    "rare_windows_per_batch": 2,
+    "normality_error_weight": 8.0,
+    "incorrect_selection_weight": 1.0,
+    "seed": 7
+  },
+  "reporting": {
+    "threshold_selection": "validation-only; frozen for test",
+    "primary_action_metrics": ["frame_accuracy", "edit", "f1@50"],
+    "primary_mistake_metrics": [
+      "incorrect_event_f1",
+      "normality_incorrect_average_precision",
+      "incorrect_false_alerts_per_minute"
+    ]
+  }
+}

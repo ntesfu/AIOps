@@ -2,6 +2,45 @@
 
 Last updated: 2026-07-20
 
+## RTX 5000 continuation update
+
+The current machine exposes an NVIDIA RTX 5000 Ada Generation outside the
+sandbox: 32,760 MiB VRAM, compute capability 8.9, driver 570.195.03. The bundled
+PyTorch 2.7.1+cu118 build sees the device. A representative XXL training
+forward/backward pass (batch 2, 512 rows, 1408+768 motion, 768 appearance, 128
+sensor dimensions) used 3.71 GiB allocated / 3.96 GiB reserved for 199.0M
+parameters. GPU memory is therefore not the current experimental bottleneck.
+
+Two sparse-fault training defects were corrected before the next pilot:
+
+- `rare_window_boost` now actually controls the non-guaranteed draws in the
+  outcome-aware batch sampler; previously it was calculated and reported but
+  ignored;
+- component normality prototypes now learn from all observed dense installed
+  states as well as exact correct/incorrect completion events. Pending states
+  remain excluded and exact event labels take precedence.
+- the IndustReal procedure schema now covers every official non-base PSR ID
+  from 3 through 32. IDs 5, 7, 10, 14, 23, and 26 were absent even though they
+  are valid official remove/incorrect outcomes; this was unsafe for the
+  dataset's validation-only and test-only error types.
+
+Evaluation now also reports macro component-state F1, incorrect-state F1,
+causal incorrect-alert delay, and strict incorrect false alerts per minute, as
+required by the documented long-run gate.
+
+Long runs now write `last_checkpoint.pt` every epoch and can resume exactly with
+optimizer, scheduler, early-stopping, threshold, sampler-epoch, and all RNG
+states via `--resume OUTPUT_DIR/last_checkpoint.pt`.
+
+The local suite passes 38 tests after these changes. The official IndustReal v2
+train/validation archives were requested from 4TU.ResearchData, but on
+2026-07-20 the repository returned its scheduled-maintenance page for every
+file and API endpoint. No maintenance HTML was retained as dataset content.
+The clean-download worker also provisioned and loaded the official torchvision
+Swin3D-S and ConvNeXt-Tiny weights under the ignored local model cache (roughly
+304 MiB total), so fallback feature extraction is ready as soon as recordings
+arrive. The official test split remains untouched.
+
 ## Objective
 
 Build a resource-efficient Stage-1 system for IndustReal egocentric procedure-step recognition that improves on the group's motion-only DiffAct and motion/appearance ASFormer baselines. The longer-term goal is live assembly monitoring with specific fault identification, future-state prediction, and recovery recommendations.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import random
 
 from aiops.evaluation.temporal_metrics import edit_score, segmental_f1
 import numpy as np
@@ -9,7 +10,12 @@ from aiops.training.train_stategraph_psr import (
     OutcomeAwareBatchSampler,
     _binary_average_precision,
     _calibrate_event_thresholds,
+    _capture_rng_state,
+    _class_f1_from_confusion,
+    _event_timing_diagnostics,
     _event_metrics_from_samples,
+    _macro_f1_from_confusion,
+    _restore_rng_state,
     _match_event_counts,
     _precision_recall_f1,
     _predicted_events,
@@ -18,6 +24,23 @@ from aiops.training.train_stategraph_psr import (
 
 
 class StateGraphMetricsTest(unittest.TestCase):
+    def test_training_rng_state_round_trip(self) -> None:
+        try:
+            import torch
+        except ImportError:
+            self.skipTest("PyTorch optional dependency is not installed")
+        random.seed(41)
+        np.random.seed(41)
+        torch.manual_seed(41)
+        state = _capture_rng_state()
+        expected = (random.random(), float(np.random.random()), float(torch.rand(())))
+        random.seed(9)
+        np.random.seed(9)
+        torch.manual_seed(9)
+        _restore_rng_state(state)
+        actual = (random.random(), float(np.random.random()), float(torch.rand(())))
+        self.assertEqual(actual, expected)
+
     def test_metrics_reward_correct_segments_not_repeated_frames(self) -> None:
         truth = [0, 0, 1, 1, 2, 2]
         self.assertEqual(edit_score(truth, truth), 100.0)
@@ -36,6 +59,11 @@ class StateGraphMetricsTest(unittest.TestCase):
         self.assertEqual(metrics["precision"], 25.0)
         self.assertEqual(metrics["recall"], 100.0)
         self.assertEqual(metrics["f1"], 40.0)
+
+    def test_state_macro_f1_uses_all_supported_classes(self) -> None:
+        confusion = np.asarray([[2, 0, 0], [0, 1, 1], [0, 0, 2]])
+        self.assertEqual(_class_f1_from_confusion(confusion, 0), 100.0)
+        self.assertAlmostEqual(_macro_f1_from_confusion(confusion), (100 + 66.6666667 + 80) / 3)
 
     def test_event_metric_uses_component_and_temporal_tolerance(self) -> None:
         truth = [(5, 0, 1), (5, 1, 1)]
@@ -74,6 +102,15 @@ class StateGraphMetricsTest(unittest.TestCase):
             _event_metrics_from_samples(samples, [0.9, 0.5, 0.9], tolerance=4)[1]["f1"],
             100.0,
         )
+        diagnostics = _event_timing_diagnostics(
+            samples,
+            [0.9, 0.5, 0.9],
+            outcome=1,
+            total_duration_seconds=4.0,
+        )
+        self.assertEqual(diagnostics["mean_delay_steps"], 3.0)
+        self.assertEqual(diagnostics["matched_detections"], 1.0)
+        self.assertEqual(diagnostics["false_alerts_per_minute"], 15.0)
 
     def test_outcome_aware_sampler_places_rare_window_in_each_batch(self) -> None:
         sampler = OutcomeAwareBatchSampler(
@@ -82,6 +119,17 @@ class StateGraphMetricsTest(unittest.TestCase):
         batches = list(sampler)
         self.assertEqual(len(batches), 4)
         self.assertTrue(all(3 in batch for batch in batches))
+
+    def test_outcome_aware_sampler_uses_configured_sampling_weights(self) -> None:
+        sampler = OutcomeAwareBatchSampler(
+            dataset_size=3,
+            batch_size=30,
+            rare_indices=[],
+            rare_per_batch=0,
+            sampling_weights=np.asarray([0.0, 0.0, 1.0]),
+            seed=2,
+        )
+        self.assertEqual(list(sampler), [[2] * 3])
 
     def test_joint_decoder_assigns_one_outcome_and_suppresses_nearby_peak(self) -> None:
         scores = np.zeros((8, 1, 3), dtype=np.float32)

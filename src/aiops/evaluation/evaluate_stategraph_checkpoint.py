@@ -36,7 +36,7 @@ def main() -> None:
     config = StateGraphPSRConfig(**checkpoint["model_config"])
     model = build_stategraph_psr(config, checkpoint["transition_matrix"]).to(device)
     model.load_state_dict(checkpoint["model_state"])
-    _, records = read_cache_index(args.cache_index)
+    metadata, records = read_cache_index(args.cache_index)
     split_names = {"val", "validation"} if args.split == "val" else {"test"}
     selected = [record for record in records if record.split.lower() in split_names]
     if not selected:
@@ -56,6 +56,10 @@ def main() -> None:
     )
     use_amp = device.type == "cuda" and args.precision in {"bf16", "fp16"}
     amp_dtype = torch.bfloat16 if args.precision == "bf16" else torch.float16
+    if args.split == "test" and not checkpoint.get("event_thresholds"):
+        raise ValueError(
+            "Test evaluation requires validation-calibrated event_thresholds in the checkpoint."
+        )
     metrics = evaluate(
         model,
         loader,
@@ -63,8 +67,11 @@ def main() -> None:
         use_amp,
         amp_dtype,
         config.num_components,
-        calibrate_events=True,
-        calibrate_latency=True,
+        seconds_per_step=float(metadata.get("stride_frames", 5.0))
+        / max(float(metadata.get("fps", 10.0)), 1e-6),
+        event_thresholds=checkpoint.get("event_thresholds"),
+        calibrate_events=args.split == "val",
+        calibrate_latency=args.split == "val",
     )
     payload = {
         "checkpoint": str(Path(args.checkpoint).resolve()),
