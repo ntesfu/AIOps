@@ -642,14 +642,17 @@ def _predicted_events(
 def _predicted_events_from_scores(
     event_scores: np.ndarray,
     thresholds: list[float] | tuple[float, ...],
-    minimum_distance: int = 4,
+    minimum_distance: int = 8,
+    install_minimum_distance: int = 29,
 ) -> list[tuple[int, int, int]]:
     """Propose outcome-specific peaks, then keep one outcome per nearby event.
 
     A peak in the sum over outcomes can be controlled by the majority ``correct``
     curve and hide a smaller, temporally sharper fault peak.  We therefore form
     candidates per outcome and perform cross-outcome temporal suppression using
-    score relative to that outcome's calibrated threshold.
+    score relative to that outcome's calibrated threshold. Defaults come from
+    the minimum training-only same-component gaps: 8 cache steps for any event
+    and 29 steps between installation outcomes (4.0 s and 14.5 s respectively).
     """
 
     events: list[tuple[int, int, int]] = []
@@ -664,10 +667,19 @@ def _predicted_events_from_scores(
                     continue
                 calibrated_confidence = float(score) / max(float(threshold), 1e-6)
                 candidates.append((calibrated_confidence, float(score), row, outcome))
-        selected_rows: list[int] = []
+        selected: list[tuple[int, int]] = []
         for _, _, row, outcome in sorted(candidates, reverse=True):
-            if all(abs(row - selected) >= minimum_distance for selected in selected_rows):
-                selected_rows.append(row)
+            conflicts = any(
+                abs(row - selected_row)
+                < (
+                    install_minimum_distance
+                    if outcome in (0, 1) and selected_outcome in (0, 1)
+                    else minimum_distance
+                )
+                for selected_row, selected_outcome in selected
+            )
+            if not conflicts:
+                selected.append((row, outcome))
                 events.append((row, component, outcome))
     return sorted(events)
 

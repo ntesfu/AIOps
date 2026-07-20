@@ -89,7 +89,12 @@ class StateGraphMetricsTest(unittest.TestCase):
         scores[4, 0] = [0.1, 0.6, 0.2]
         scores[7, 0] = [0.8, 0.1, 0.1]
         self.assertEqual(
-            _predicted_events_from_scores(scores, [0.5, 0.5, 0.5], minimum_distance=4),
+            _predicted_events_from_scores(
+                scores,
+                [0.5, 0.5, 0.5],
+                minimum_distance=4,
+                install_minimum_distance=4,
+            ),
             [(2, 0, 1), (7, 0, 0)],
         )
 
@@ -100,7 +105,10 @@ class StateGraphMetricsTest(unittest.TestCase):
         scores[:, 0, 0] = [0.1, 0.2, 0.3, 0.5, 0.8, 0.2, 0.1]
         scores[:, 0, 1] = [0.0, 0.1, 0.6, 0.1, 0.0, 0.0, 0.0]
         predictions = _predicted_events_from_scores(
-            scores, [0.5, 0.5, 0.5], minimum_distance=2
+            scores,
+            [0.5, 0.5, 0.5],
+            minimum_distance=2,
+            install_minimum_distance=2,
         )
         self.assertIn((2, 0, 1), predictions)
 
