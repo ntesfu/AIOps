@@ -58,6 +58,11 @@ Before a full run:
 4. Run a 20–30 epoch pilot and inspect action F1/Edit plus incorrect-event precision, recall, and F1.
 5. Only then run with `--epochs 80 --patience 15`; 80 is a maximum controlled by early stopping, not a required stopping point.
 
+The 2026-07-20 seed-7 pilot did **not** pass step 4: its selected checkpoint
+reached 9.70 F1@50 but 0.00 incorrect-event F1. Do not launch the 80-epoch
+configuration unchanged. See `stategraph_psr_v2_pilot_report.md` for the exact
+run, metrics, and the required sampling/calibration experiments.
+
 Final reporting should use at least three seeds and include action F1@10/25/50, Edit, frame accuracy, per-outcome event precision/recall/F1 with the documented ±1 cache-step tolerance, and component-state metrics.
 
 Run the reusable cache gate before any experiment:

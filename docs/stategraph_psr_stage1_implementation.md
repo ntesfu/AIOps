@@ -146,6 +146,13 @@ The script writes `history.jsonl`, `best_checkpoint.pt`, and identical `metrics.
 
 Do not begin with the 80-epoch command on a newly regenerated cache. First overfit two to four recordings, then run a 20–30 epoch pilot. Use 80 epochs only as an early-stopped maximum (`--patience 15`) after label distributions and validation metrics look sane. See `procedure_schema_v2.md` for the portable cache contract and migration checklist.
 
+The first cache-v2 pilot has now been run and did not pass the rare-fault gate:
+the epoch-16 checkpoint reached 9.70 action F1@50 and 81.59 state accuracy, but
+incorrect-event F1 was 0.00. Do not extend that configuration to 80 epochs.
+See `stategraph_psr_v2_pilot_report.md` for reproducible commands, complete
+metrics, and the validation-threshold and outcome-aware sampling experiments
+required next.
+
 Intentional four-recording overfit example (the selected train recordings are also used for validation):
 
 ```bash

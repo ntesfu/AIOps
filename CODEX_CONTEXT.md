@@ -230,9 +230,31 @@ shared verb/object logits and prototypes plus a seen-class residual. Graph bias
 is disabled only for train-unseen compositions, and evaluation reports their
 accuracy separately.
 
+### Cache-v2 overfit and full-pilot result
+
+The corrected four-recording overfit run passed the functional wiring gate:
+total loss fell from 12.13 to roughly 1--2, action F1@50 reached 46.81, and
+completion-event recall reached 62.96. Incorrect-event recall reached 100 on
+the repeated subset, but precision was only 2.90, so this is evidence that the
+head learns rather than evidence of generalization.
+
+A 25-epoch seed-7 pilot then ran on the official 36-train/16-validation split
+with BF16, batch size 2, accumulation 4, and the fallback Swin3D-S + ConvNeXt
+cache. It completed in 176 seconds. The epoch-16 selected checkpoint obtained
+21.35 frame accuracy, 30.52 Edit, 9.70 F1@50, 4.54 completion-event F1, 0.00
+incorrect-event F1, and 81.59 state accuracy. Training loss fell from 19.32 to
+4.49, but F1@50 peaked before the end and the incorrect detector remained
+degenerate. Do not start the 80-epoch run with this configuration.
+
+Full commands, metrics, interpretation, and the next experimental gate are in
+`docs/stategraph_psr_v2_pilot_report.md`. The immediate work is validation-only
+event-threshold/PR calibration, stronger outcome-aware sampling, three pilot
+seeds, and then a controlled repeat with the preferred VideoMAEv2-giant SSv2
+features. The test split remains untouched.
+
 ## Known risks and decisions
 
-- No accuracy claim has been made because the architecture has not yet been trained on the labeled release.
+- The first cache-v2 pilot is a diagnostic baseline, not a final accuracy claim; it used fallback Swin3D-S + ConvNeXt features and failed the incorrect-event gate.
 - Incorrect-install examples are highly imbalanced. Report precision and PR-AUC as well as recall.
 - Precomputed features are linearly resampled when their length differs from cache centers. Verify timestamps and replace this fallback with explicit timestamp mapping when source metadata is available.
 - The transition graph is estimated from training recordings only. It retains zero-valued impossible edges so graph regularization remains meaningful.
