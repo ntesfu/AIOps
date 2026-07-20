@@ -73,7 +73,7 @@ python -m aiops.features.industreal_cache --data-root "D:/IndustReal" --output-d
 python -m aiops.training.train_stategraph_psr --cache-index "D:/IndustReal_cache/stategraph/index.json" --output-dir runs/stategraph_psr_v1
 ```
 
-The cache builder expects the extracted official `recordings/train|val|test/...` tree and PSR CSV annotations. Video-only bundles cannot supervise the error/state heads. The trainer keeps splits at recording level, uses BF16 and gradient accumulation by default, selects checkpoints using segmentation and incorrect-recall metrics, and evaluates the test split only when explicitly requested.
+The cache builder accepts the official `recordings/train|val|test/...` annotation tree with either per-recording `rgb/` frames or root-level `RECORDING_ID.mp4` videos. Headerless official PSR CSVs and headered exports are supported. Video-only bundles without PSR annotations cannot supervise the error/state heads. The trainer keeps splits at recording level, uses BF16 and gradient accumulation by default, selects checkpoints using segmentation and incorrect-recall metrics, and evaluates the test split only when explicitly requested.
 
 Implemented temporal pipeline:
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -76,7 +77,11 @@ class FrozenVisualFeatureExtractor:
 
 def build_industreal_cache(args: argparse.Namespace) -> dict[str, Any]:
     recordings = discover_industreal_recordings(args.data_root)
-    official = [recording for recording in recordings if recording.rgb_dir and recording.psr_labels]
+    official = [
+        recording
+        for recording in recordings
+        if (recording.rgb_dir or recording.video_path) and recording.psr_labels
+    ]
     if not official:
         audit = audit_industreal_root(args.data_root)
         raise RuntimeError("No labeled official IndustReal recordings found.\n" + json.dumps(audit.to_dict(), indent=2))
@@ -129,12 +134,29 @@ def _cache_recording(
     args: argparse.Namespace,
     output_dir: Path,
 ) -> StateGraphCacheRecord:
-    frame_paths = sorted(recording.rgb_dir.glob("*"), key=lambda path: _frame_index(path.name))  # type: ignore[union-attr]
-    frame_paths = [path for path in frame_paths if path.suffix.lower() in {".jpg", ".jpeg", ".png"}]
-    if not frame_paths:
-        raise RuntimeError(f"No RGB frames found in {recording.rgb_dir}")
-    all_frame_indices = np.asarray([_frame_index(path.name) for path in frame_paths], dtype=np.int64)
+    frame_paths: list[Path] = []
+    video_capture = None
+    if recording.rgb_dir is not None:
+        frame_paths = sorted(recording.rgb_dir.glob("*"), key=lambda path: _frame_index(path.name))
+        frame_paths = [path for path in frame_paths if path.suffix.lower() in {".jpg", ".jpeg", ".png"}]
+        if not frame_paths:
+            raise RuntimeError(f"No RGB frames found in {recording.rgb_dir}")
+        all_frame_indices = np.asarray([_frame_index(path.name) for path in frame_paths], dtype=np.int64)
+    elif recording.video_path is not None:
+        import cv2
+
+        video_capture = cv2.VideoCapture(str(recording.video_path))
+        frame_count = int(video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        if not video_capture.isOpened() or frame_count <= 0:
+            raise RuntimeError(f"Could not open RGB video {recording.video_path}")
+        all_frame_indices = np.arange(frame_count, dtype=np.int64)
+    else:
+        raise RuntimeError(f"No RGB source found for {recording.recording_id}")
+
+    source_length = len(all_frame_indices)
     centers = np.arange(0, len(frame_paths), args.stride_frames, dtype=np.int64)
+    if video_capture is not None:
+        centers = np.arange(0, source_length, args.stride_frames, dtype=np.int64)
     sampled_frame_indices = all_frame_indices[centers]
     events = read_completion_events(recording.psr_labels)  # type: ignore[arg-type]
     step, outcome, boundary = dense_labels_from_events(
@@ -154,24 +176,47 @@ def _cache_recording(
             raise RuntimeError("A visual extractor is required when either cached modality is missing.")
         import cv2
 
+        frame_cache: OrderedDict[int, np.ndarray] = OrderedDict()
+
+        def read_frame(frame_index: int) -> np.ndarray:
+            if frame_index in frame_cache:
+                frame_cache.move_to_end(frame_index)
+                return frame_cache[frame_index]
+            if frame_paths:
+                frame = cv2.imread(str(frame_paths[frame_index]))
+            else:
+                assert video_capture is not None
+                video_capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+                ok, frame = video_capture.read()
+                if not ok:
+                    frame = None
+            if frame is None:
+                source = frame_paths[frame_index] if frame_paths else recording.video_path
+                raise RuntimeError(f"Failed to decode RGB frame {frame_index} from {source}")
+            frame_cache[frame_index] = frame
+            if len(frame_cache) > max(64, args.clip_span_frames * 4):
+                frame_cache.popitem(last=False)
+            return frame
+
         motion_rows = [] if motion is None else None
         appearance_rows = [] if appearance is None else None
         for center in centers:
             if motion_rows is not None:
-                clip_indices = _clip_indices(int(center), len(frame_paths), args.clip_frames, args.clip_span_frames)
-                clip_frames = [cv2.imread(str(frame_paths[index])) for index in clip_indices]
-                if any(frame is None for frame in clip_frames):
-                    raise RuntimeError(f"Failed to decode RGB frames for {recording.recording_id}")
-                motion_rows.append(extractor.extract_motion(clip_frames))  # type: ignore[arg-type]
+                clip_indices = _clip_indices(
+                    int(center), source_length, args.clip_frames, args.clip_span_frames
+                )
+                clip_frames = [read_frame(index) for index in clip_indices]
+                motion_rows.append(extractor.extract_motion(clip_frames))
             if appearance_rows is not None:
-                frame = cv2.imread(str(frame_paths[int(center)]))
-                if frame is None:
-                    raise RuntimeError(f"Failed to decode {frame_paths[int(center)]}")
+                frame = read_frame(int(center))
                 appearance_rows.append(extractor.extract_appearance(frame))
         if motion_rows is not None:
             motion = np.stack(motion_rows).astype(np.float32)
         if appearance_rows is not None:
             appearance = np.stack(appearance_rows).astype(np.float32)
+
+    if video_capture is not None:
+        video_capture.release()
 
     sensor, sensor_present = _sample_sensors(recording, sampled_frame_indices, args.sensor_dim)
     modality_mask = np.ones((len(centers), 3), dtype=np.bool_)

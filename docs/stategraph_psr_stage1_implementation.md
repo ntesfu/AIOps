@@ -63,8 +63,25 @@ INDUSTREAL_ROOT/
         PSR_labels_raw.csv       # optional but strongly recommended
         hands.csv                # optional
         gaze.csv                 # optional
-        pose.csv                 # optional
+      pose.csv                 # optional
 ```
+
+It also supports the layout verified on the GPU desktop, where annotations are
+in that split tree but RGB videos are stored at the dataset root:
+
+```text
+INDUSTREAL_ROOT/
+  RECORDING_ID.mp4
+  recordings/
+    train|val/
+      RECORDING_ID/
+        PSR_labels_with_errors.csv
+        PSR_labels_raw.csv
+```
+
+Official headerless PSR CSV rows (`frame, step_id, description`) and headered
+exports are both recognized. Video frame indices are used directly for label
+alignment.
 
 Audit before extraction or training:
 

@@ -26,6 +26,38 @@ from aiops.data.stategraph_cache import (
 
 
 class IndustRealAdapterTest(unittest.TestCase):
+    def test_headerless_release_csv_and_root_level_video(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            recording = root / "recordings" / "train" / "27_main_0_1"
+            recording.mkdir(parents=True)
+            (root / "27_main_0_1.mp4").touch()
+            self._write_csv(
+                recording / "PSR_labels_with_errors.csv",
+                [],
+                [
+                    ["000094.jpg", 17, "Remove front rear chassis pin"],
+                    ["000173.jpg", 32, "Wrong rear wheel connection"],
+                ],
+            )
+            self._write_csv(
+                recording / "PSR_labels_raw.csv",
+                [],
+                [["000000.jpg", *([1] * 11)], ["000094.jpg", *([0] * 11)]],
+            )
+
+            records = discover_industreal_recordings(root)
+            self.assertEqual(records[0].video_path, root / "27_main_0_1.mp4")
+            self.assertIsNone(records[0].rgb_dir)
+            events = read_completion_events(records[0].psr_labels)
+            self.assertEqual([event.frame_index for event in events], [94, 173])
+            self.assertEqual([event.step_id for event in events], ["17", "32"])
+            self.assertEqual([event.outcome for event in events], ["remove", "incorrect"])
+            raw = read_raw_states(records[0].psr_raw_labels)
+            np.testing.assert_array_equal(raw[0], np.full(11, 2))
+            np.testing.assert_array_equal(raw[94], np.full(11, 1))
+            self.assertTrue(audit_industreal_root(root).official_layout)
+
     def test_official_layout_annotations_and_dense_labels(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -102,7 +134,8 @@ class IndustRealAdapterTest(unittest.TestCase):
     def _write_csv(path: Path, header: list[str], rows: list[list[object]]) -> None:
         with path.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.writer(handle)
-            writer.writerow(header)
+            if header:
+                writer.writerow(header)
             writer.writerows(rows)
 
 

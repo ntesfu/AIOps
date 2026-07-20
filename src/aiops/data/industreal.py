@@ -116,7 +116,11 @@ def audit_industreal_root(root: str | Path) -> IndustRealAudit:
             labeled += 1
         if recording.video_path is not None and recording.psr_labels is None:
             video_only += 1
-    official = any(recording.rgb_dir is not None for recording in recordings)
+    official = any(
+        recording.split != "unassigned"
+        and (recording.rgb_dir is not None or recording.video_path is not None)
+        for recording in recordings
+    )
     warnings: list[str] = []
     if not recordings:
         warnings.append("No recordings were found.")
@@ -142,11 +146,21 @@ def read_completion_events(path: str | Path) -> list[CompletionEvent]:
     rows = _read_csv(Path(path))
     events: list[CompletionEvent] = []
     for ordinal, row in enumerate(rows):
-        frame_value = _first_value(row, ("image", "image_name", "frame", "frame_id", "filename", "completed_frame"))
+        frame_value = _first_value(
+            row,
+            ("image", "image_name", "frame", "frame_id", "filename", "completed_frame", "column_0"),
+        )
         frame_index = _parse_frame_index(frame_value, fallback=ordinal)
-        step_value = _first_value(row, ("completed_step_id", "step_id", "action_id", "id", "label", "step"))
+        step_value = _first_value(
+            row,
+            ("completed_step_id", "step_id", "action_id", "id", "label", "step", "column_1"),
+        )
         description = str(
-            _first_value(row, ("description", "step_description", "action_description", "name", "label")) or step_value
+            _first_value(
+                row,
+                ("description", "step_description", "action_description", "name", "label", "column_2"),
+            )
+            or step_value
         )
         step_id = str(step_value if step_value not in (None, "") else description).strip()
         if not step_id:
@@ -166,11 +180,21 @@ def read_raw_states(path: str | Path, num_components: int = 11) -> dict[int, np.
     rows = _read_csv(Path(path))
     states: dict[int, np.ndarray] = {}
     for ordinal, row in enumerate(rows):
-        frame_value = _first_value(row, ("image", "image_name", "frame", "frame_id", "filename"))
+        frame_value = _first_value(
+            row, ("image", "image_name", "frame", "frame_id", "filename", "column_0")
+        )
         frame_index = _parse_frame_index(frame_value, fallback=ordinal)
         values: list[int] = []
         for key, value in row.items():
-            if key.lower() in {"image", "image_name", "frame", "frame_id", "filename", "recording"}:
+            if key.lower() in {
+                "image",
+                "image_name",
+                "frame",
+                "frame_id",
+                "filename",
+                "recording",
+                "column_0",
+            }:
                 continue
             try:
                 numeric = int(float(str(value).strip()))
@@ -188,11 +212,21 @@ def read_numeric_timeseries(path: str | Path) -> dict[int, np.ndarray]:
     rows = _read_csv(Path(path))
     result: dict[int, np.ndarray] = {}
     for ordinal, row in enumerate(rows):
-        frame_value = _first_value(row, ("image", "image_name", "frame", "frame_id", "filename"))
+        frame_value = _first_value(
+            row, ("image", "image_name", "frame", "frame_id", "filename", "column_0")
+        )
         frame_index = _parse_frame_index(frame_value, fallback=ordinal)
         values: list[float] = []
         for key, value in row.items():
-            if key.lower() in {"image", "image_name", "frame", "frame_id", "filename", "recording"}:
+            if key.lower() in {
+                "image",
+                "image_name",
+                "frame",
+                "frame_id",
+                "filename",
+                "recording",
+                "column_0",
+            }:
                 continue
             try:
                 values.append(float(str(value).strip()))
@@ -259,7 +293,7 @@ def _official_recording(recording_dir: Path, split: str) -> IndustRealRecording:
         split=split,
         root=recording_dir,
         rgb_dir=_optional_dir(recording_dir / "rgb"),
-        video_path=None,
+        video_path=_find_recording_video(recording_dir),
         ar_labels=_first_existing(recording_dir, ("AR_labels.csv", "ar_labels.csv")),
         psr_labels=_first_existing(recording_dir, ("PSR_labels_with_errors.csv", "PSR_labels.csv")),
         psr_raw_labels=_first_existing(recording_dir, ("PSR_labels_raw.csv",)),
@@ -282,6 +316,20 @@ def _first_existing(root: Path, names: Iterable[str]) -> Path | None:
     return None
 
 
+def _find_recording_video(recording_dir: Path) -> Path | None:
+    # The public release commonly keeps annotations in
+    # recordings/{split}/{id} while placing {id}.mp4 at the dataset root.
+    search_roots = [recording_dir]
+    if len(recording_dir.parents) >= 3:
+        search_roots.append(recording_dir.parents[2])
+    for root in search_roots:
+        for suffix in (".mp4", ".mov", ".avi"):
+            candidate = root / f"{recording_dir.name}{suffix}"
+            if candidate.is_file():
+                return candidate
+    return None
+
+
 def _read_csv(path: Path) -> list[dict[str, str]]:
     if not path.is_file():
         return []
@@ -292,12 +340,40 @@ def _read_csv(path: Path) -> list[dict[str, str]]:
             dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
         except csv.Error:
             dialect = csv.excel
-        reader = csv.DictReader(handle, dialect=dialect)
-        if reader.fieldnames:
-            return [
-                {str(key).strip(): str(value).strip() for key, value in row.items() if key is not None}
-                for row in reader
-            ]
+        reader = csv.reader(handle, dialect=dialect)
+        raw_rows = [[str(value).strip() for value in row] for row in reader if row]
+        if not raw_rows:
+            return []
+        known_headers = {
+            "image",
+            "image_name",
+            "frame",
+            "frame_id",
+            "filename",
+            "completed_frame",
+            "completed_step_id",
+            "step_id",
+            "action_id",
+            "description",
+            "step_description",
+            "recording",
+        }
+        first = [value.lower().strip() for value in raw_rows[0]]
+        has_header = any(value in known_headers for value in first)
+        if has_header:
+            fieldnames = [value or f"column_{index}" for index, value in enumerate(raw_rows[0])]
+            data_rows = raw_rows[1:]
+        else:
+            fieldnames = [f"column_{index}" for index in range(max(map(len, raw_rows)))]
+            data_rows = raw_rows
+        return [
+            {
+                fieldnames[index]: value
+                for index, value in enumerate(row)
+                if index < len(fieldnames)
+            }
+            for row in data_rows
+        ]
     return []
 
 

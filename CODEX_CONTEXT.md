@@ -74,6 +74,25 @@ recordings/
 
 If only videos are available, complete/export step and fault annotations with the Hand Atlas labeler before training.
 
+### GPU desktop verification
+
+The desktop is reachable as `aiops@192.168.20.148` and was verified after the initial handoff:
+
+- GPU: NVIDIA GeForce RTX 4090, 24,564 MiB;
+- driver: 550.78;
+- clean checkout: `/home/aiops/AIOps-stategraph`;
+- original dirty research checkout, deliberately preserved: `/home/aiops/AIOps`;
+- real data root: `/home/aiops/AIOps/data/raw/industreal`;
+- split count observed: 36 train and 16 validation recording directories;
+- PyTorch: 2.4.1+cu121 with CUDA available;
+- torchvision was not installed at audit time.
+
+The desktop release uses a supported hybrid layout: PSR annotations are under
+`recordings/{split}/{recording_id}`, while RGB videos are root-level
+`{recording_id}.mp4` files. Its official CSV files are headerless. The adapter
+was extended and tested for both of these facts after inspecting
+`27_main_0_1` (1,248 frames, 10 FPS, 1280×720).
+
 ## Desktop continuation procedure
 
 After cloning or pulling the published branch:
@@ -102,7 +121,7 @@ python -c "import torch; print(torch.__version__, torch.cuda.is_available(), tor
 Audit the real dataset root:
 
 ```powershell
-python -m aiops.data.industreal --data-root "D:\IndustReal"
+python -m aiops.data.industreal --data-root "/home/aiops/AIOps/data/raw/industreal"
 ```
 
 Build the default Swin3D-S + ConvNeXt cache:
