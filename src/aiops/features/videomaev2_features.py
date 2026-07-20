@@ -384,22 +384,21 @@ def main() -> None:
             "records": sorted(shard_records.values(), key=lambda row: (row["split"], row["recording_id"])),
         }
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    # Also persist all-skip shards and make their provenance explicit.
-    if not manifest_path.is_file() or not shard_records:
-        manifest = {
-            "backend": "videomaev2_ssv2_finetuned" if args.checkpoint else "videomaev2_unlabeledhybrid",
-            "model_id": args.model_id,
-            "revision": args.revision,
-            "checkpoint": str(Path(args.checkpoint).resolve()) if args.checkpoint else None,
-            "stride_frames": args.stride_frames,
-            "num_frames": args.num_frames,
-            "sampling_rate": args.sampling_rate,
-            "pooling": args.pooling,
-            "shard_index": args.shard_index,
-            "num_shards": args.num_shards,
-            "records": sorted(shard_records.values(), key=lambda row: (row["split"], row["recording_id"])),
-        }
-        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    # Always consolidate at the end, including an all-skip resume pass.
+    manifest = {
+        "backend": "videomaev2_ssv2_finetuned" if args.checkpoint else "videomaev2_unlabeledhybrid",
+        "model_id": args.model_id,
+        "revision": args.revision,
+        "checkpoint": str(Path(args.checkpoint).resolve()) if args.checkpoint else None,
+        "stride_frames": args.stride_frames,
+        "num_frames": args.num_frames,
+        "sampling_rate": args.sampling_rate,
+        "pooling": args.pooling,
+        "shard_index": args.shard_index,
+        "num_shards": args.num_shards,
+        "records": sorted(shard_records.values(), key=lambda row: (row["split"], row["recording_id"])),
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"manifest": str(manifest_path), "recordings": len(shard_records)}, indent=2))
 
 
