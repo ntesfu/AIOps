@@ -17,6 +17,13 @@ video = ["opencv-python>=4.9"]
 train = ["opencv-python>=4.9"]
 ml = ["torch>=2.3"]
 vision = ["torch>=2.3", "torchvision>=0.18", "opencv-python>=4.9"]
+videomaev2 = [
+  "torch>=2.3",
+  "transformers>=4.38,<5",
+  "timm>=1.0",
+  "safetensors>=0.4",
+  "opencv-python>=4.9",
+]
 monitor = ["torch>=2.3", "tensorboard>=2.14"]
 
 [tool.setuptools.packages.find]

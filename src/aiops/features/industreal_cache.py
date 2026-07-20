@@ -158,7 +158,13 @@ def build_industreal_cache(args: argparse.Namespace) -> dict[str, Any]:
         "stride_frames": args.stride_frames,
         "clip_frames": args.clip_frames,
         "feature_backends": {
-            "motion": "precomputed" if args.motion_features_dir else "torchvision_swin3d_s",
+            "motion": (
+                getattr(args, "motion_backend_name", None)
+                if args.motion_features_dir and getattr(args, "motion_backend_name", None)
+                else "precomputed"
+                if args.motion_features_dir
+                else "torchvision_swin3d_s"
+            ),
             "appearance": "precomputed" if args.appearance_features_dir else "torchvision_convnext_tiny",
         },
     }
@@ -473,6 +479,11 @@ def main() -> None:
     parser.add_argument("--data-root", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--motion-features-dir", default=None)
+    parser.add_argument(
+        "--motion-backend-name",
+        default=None,
+        help="Provenance label stored in index.json for precomputed motion features.",
+    )
     parser.add_argument("--appearance-features-dir", default=None)
     parser.add_argument(
         "--recording-id",

@@ -293,6 +293,17 @@ Incorrect F1 and PR-AUC remained zero. Retain the large model for the next
 VideoMAEv2-SSv2 experiment, but do not claim that head scaling solved fault
 generalization. Full details are in `docs/stategraph_psr_large_refinement.md`.
 
+### VideoMAEv2 motion upgrade
+
+`aiops.features.videomaev2_features` now provides a resumable, cache-aligned
+VideoMAEv2 extractor. The default public `OpenGVLab/VideoMAEv2-giant` encoder is
+UnlabeledHybrid-pretrained and outputs 1408-d features. The preferred supervised
+SSv2 checkpoint remains `vit_g_hybrid_pt_1200e_ssv2_ft`; it can be supplied with
+`--checkpoint` after obtaining it through the official download-request form.
+Both paths use the official 16-frame, interval-2 SSv2 sampling recipe. Feature
+provenance is written to a manifest and can be propagated into cache `index.json`
+with `--motion-backend-name`. See `docs/videomaev2_motion_cache.md`.
+
 ## Known risks and decisions
 
 - The first cache-v2 pilot is a diagnostic baseline, not a final accuracy claim; it used fallback Swin3D-S + ConvNeXt features and failed the incorrect-event gate.
