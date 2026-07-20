@@ -51,7 +51,17 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     test_records = [record for record in records if record.split.lower() == "test"]
     if not train_records:
         raise ValueError("The cache index contains no train recordings.")
-    if not val_records:
+    overfit_recordings = list(args.overfit_recording_id or [])
+    if overfit_recordings:
+        by_id = {record.recording_id: record for record in train_records}
+        missing = sorted(set(overfit_recordings) - set(by_id))
+        if missing:
+            raise ValueError(f"Overfit recording IDs are not in the train split: {missing}")
+        selected = [by_id[recording_id] for recording_id in overfit_recordings]
+        train_records = selected
+        val_records = selected
+        test_records = []
+    elif not val_records:
         train_records, val_records = _recording_level_split(train_records, args.val_fraction, args.seed)
 
     num_steps = train_records[0].num_steps
@@ -265,6 +275,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         "train_recordings": len(train_records),
         "validation_recordings": len(val_records),
         "test_recordings": len(test_records),
+        "overfit_recording_ids": overfit_recordings,
         "action_factorization": factorization,
         "model_config": model_config.to_dict(),
         "loss_config": asdict(loss_config),
@@ -636,6 +647,12 @@ def main() -> None:
     parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--evaluate-test", action="store_true")
+    parser.add_argument(
+        "--overfit-recording-id",
+        action="append",
+        default=None,
+        help="Train and validate on this train-split recording for an intentional wiring test; repeat for 2-4 IDs.",
+    )
     parser.add_argument("--step-weight", type=float, default=1.0)
     parser.add_argument("--completion-weight", type=float, default=0.45)
     parser.add_argument("--component-outcome-weight", type=float, default=0.7)

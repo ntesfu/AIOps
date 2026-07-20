@@ -146,6 +146,19 @@ The script writes `history.jsonl`, `best_checkpoint.pt`, and identical `metrics.
 
 Do not begin with the 80-epoch command on a newly regenerated cache. First overfit two to four recordings, then run a 20–30 epoch pilot. Use 80 epochs only as an early-stopped maximum (`--patience 15`) after label distributions and validation metrics look sane. See `procedure_schema_v2.md` for the portable cache contract and migration checklist.
 
+Intentional four-recording overfit example (the selected train recordings are also used for validation):
+
+```bash
+python -m aiops.training.train_stategraph_psr \
+  --cache-index /path/to/stategraph_v2/index.json \
+  --output-dir runs/stategraph_overfit4 \
+  --overfit-recording-id 01_assy_0_1 \
+  --overfit-recording-id 01_assy_1_1 \
+  --overfit-recording-id 01_main_0_1 \
+  --overfit-recording-id 02_assy_0_1 \
+  --epochs 30 --patience 30
+```
+
 For lower memory, reduce sequence length to 160, then batch size to 1 and increase accumulation. For more compute, retain cached encoders first and compare hidden dimension 256, 12 temporal blocks, and an InternVideo2/VideoMAE appearance cache. Fine-tuning the giant backbone should be a later controlled experiment with LoRA or the final blocks only.
 
 ## Evaluation and ablation plan
