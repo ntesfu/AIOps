@@ -82,6 +82,15 @@ def build_industreal_cache(args: argparse.Namespace) -> dict[str, Any]:
         for recording in recordings
         if (recording.rgb_dir or recording.video_path) and recording.psr_labels
     ]
+    if args.recording_id:
+        requested = set(args.recording_id)
+        official = [recording for recording in official if recording.recording_id in requested]
+        found = {recording.recording_id for recording in official}
+        missing = sorted(requested - found)
+        if missing:
+            raise RuntimeError(f"Requested recordings were not found with RGB and PSR labels: {missing}")
+    if args.max_recordings is not None:
+        official = official[: args.max_recordings]
     if not official:
         audit = audit_industreal_root(args.data_root)
         raise RuntimeError("No labeled official IndustReal recordings found.\n" + json.dumps(audit.to_dict(), indent=2))
@@ -382,6 +391,18 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--motion-features-dir", default=None)
     parser.add_argument("--appearance-features-dir", default=None)
+    parser.add_argument(
+        "--recording-id",
+        action="append",
+        default=None,
+        help="Cache only this recording ID; repeat the option to select several recordings.",
+    )
+    parser.add_argument(
+        "--max-recordings",
+        type=int,
+        default=None,
+        help="Limit the number of discovered recordings for a smoke test.",
+    )
     parser.add_argument("--device", default=None)
     parser.add_argument("--mixed-precision", choices=["bf16", "fp16"], default="bf16")
     parser.add_argument("--fps", type=float, default=10.0)
@@ -398,6 +419,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.stride_frames <= 0 or args.clip_frames <= 0 or args.clip_span_frames <= 0:
         parser.error("frame sampling parameters must be positive")
+    if args.max_recordings is not None and args.max_recordings <= 0:
+        parser.error("max-recordings must be positive")
     result = build_industreal_cache(args)
     print(json.dumps(result, indent=2))
 

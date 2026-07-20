@@ -166,6 +166,20 @@ Only after the architecture and thresholds are frozen, repeat with `--evaluate-t
 6. Train the full default model and record frame accuracy, Edit, F1@10/25/50, incorrect precision/recall/F1, remove metrics, state macro-F1, and detection delay.
 7. Run the A–E ablation table in `docs/stategraph_psr_stage1_implementation.md` with at least three seeds for the final candidates.
 
+One-recording cache smoke test:
+
+```bash
+python -m aiops.features.industreal_cache \
+  --data-root /home/aiops/AIOps/data/raw/industreal \
+  --output-dir /home/aiops/AIOps/data/processed/stategraph_smoke \
+  --recording-id 27_main_0_1 --device cuda --mixed-precision bf16
+```
+
+Verified label audit: 24 step IDs, 463 total completion events (344 correct,
+19 incorrect, 100 remove), and 96.3% mean dense step coverage at stride 5.
+Raw component supervision contained 2,470 correct, 1,474 pending, and only 38
+incorrect states, so rare-fault sampling and PR-oriented reporting are mandatory.
+
 ## Known risks and decisions
 
 - No accuracy claim has been made because the architecture has not yet been trained on the labeled release.
