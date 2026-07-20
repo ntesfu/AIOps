@@ -256,7 +256,9 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         "final_validation": final_metrics,
         "test": test_metrics,
     }
-    (output_dir / "metrics.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    summary_payload = json.dumps(summary, indent=2) + "\n"
+    (output_dir / "metrics.json").write_text(summary_payload, encoding="utf-8")
+    (output_dir / "summary.json").write_text(summary_payload, encoding="utf-8")
     return summary
 
 
