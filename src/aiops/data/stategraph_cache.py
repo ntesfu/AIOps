@@ -19,6 +19,9 @@ class StateGraphCacheRecord:
     sensor_dim: int
     num_components: int
     num_completion_components: int = 0
+    # `num_steps` is the legacy name for the action-class count. Sequence
+    # length varies by recording and is stored separately for tooling.
+    num_frames: int = 0
 
 
 def read_cache_index(path: str | Path) -> tuple[dict[str, Any], list[StateGraphCacheRecord]]:
@@ -35,6 +38,7 @@ def read_cache_index(path: str | Path) -> tuple[dict[str, Any], list[StateGraphC
             sensor_dim=int(row["sensor_dim"]),
             num_components=int(row.get("num_components", 11)),
             num_completion_components=int(row.get("num_completion_components", 0)),
+            num_frames=int(row.get("num_frames", 0)),
         )
         for row in payload["records"]
     ]
@@ -65,6 +69,7 @@ def write_cache_index(
                 "sensor_dim": record.sensor_dim,
                 "num_components": record.num_components,
                 "num_completion_components": record.num_completion_components,
+                "num_frames": record.num_frames,
             }
         )
     output_path.write_text(json.dumps({"metadata": metadata, "records": rows}, indent=2) + "\n", encoding="utf-8")

@@ -318,12 +318,13 @@ def _cache_recording(
         recording_id=recording.recording_id,
         split=recording.split,
         path=destination,
-        num_steps=len(step),
+        num_steps=len(action_to_index),
         motion_dim=int(motion.shape[1]),
         appearance_dim=int(appearance.shape[1]),
         sensor_dim=int(sensor.shape[1]),
         num_components=args.num_components,
         num_completion_components=len(schema.completion_components),
+        num_frames=len(step),
     )
 
 
