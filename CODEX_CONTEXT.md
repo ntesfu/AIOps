@@ -252,6 +252,31 @@ event-threshold/PR calibration, stronger outcome-aware sampling, three pilot
 seeds, and then a controlled repeat with the preferred VideoMAEv2-giant SSv2
 features. The test split remains untouched.
 
+### v3 refinement and live monitoring
+
+The v3 implementation adds bounded graph fusion, progress supervision,
+asymmetric completion loss, guaranteed rare-event windows, state/action event
+conditioning, component normality prototypes, balanced event-to-state mapping,
+outcome-specific event peaks, and causal state-transition evidence. The desktop
+suite passes 25 tests.
+
+The four-recording overfit gate reached 60.39 frame accuracy, 45.67 F1@50,
+100 incorrect-event F1, and 93.53 state accuracy. The official seed-7 20-epoch
+pilot reached 28.51 frame accuracy, 26.70 Edit, 12.80 F1@50, and 87.19 state
+accuracy. An intermediate decoder recovered one validation incorrect event at
+below 0.1% precision, but the final training-derived refractory rule removed
+that unstable match. A second seed ran for 25 epochs and improved frame
+accuracy/F1@50 to 30.77/15.32 while incorrect precision, recall, F1, and PR-AUC
+stayed zero. Tolerance windows through two seconds found no hidden delayed
+detections. This is not sufficient evidence for the final 80-epoch
+fallback-feature run.
+
+Exact results and the go/no-go gate are in
+`docs/stategraph_psr_v3_experiment_report.md`. The live TensorBoard dashboard is
+`http://192.168.20.148:6006`; its isolated runtime is
+`/home/aiops/.venvs/aiops-dashboard`. Training and NVIDIA telemetry are written
+under `/home/aiops/AIOps/runs`.
+
 ## Known risks and decisions
 
 - The first cache-v2 pilot is a diagnostic baseline, not a final accuracy claim; it used fallback Swin3D-S + ConvNeXt features and failed the incorrect-event gate.

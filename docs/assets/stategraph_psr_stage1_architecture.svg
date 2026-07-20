@@ -54,12 +54,12 @@
   <text x="1070" y="428" text-anchor="middle" class="t">verb + object + seen-class residual</text>
   <text x="1070" y="452" text-anchor="middle" class="tiny">supports train-unseen compositions</text>
   <path d="M840 423 L920 423" class="arrow"/>
-  <rect x="1300" y="350" width="230" height="146" class="box graph"/>
-  <text x="1415" y="387" text-anchor="middle" class="h">Bounded StateGraph filter</text>
-  <text x="1415" y="418" text-anchor="middle" class="t">seen-action transition graph</text>
-  <text x="1415" y="444" text-anchor="middle" class="t">visual evidence / graph-prior mix</text>
-  <text x="1415" y="470" text-anchor="middle" class="tiny">cannot overwhelm current evidence</text>
-  <path d="M1220 423 L1300 423" class="arrow"/>
+  <rect x="1260" y="350" width="270" height="146" class="box graph"/>
+  <text x="1395" y="387" text-anchor="middle" class="h">Bounded StateGraph filter</text>
+  <text x="1395" y="418" text-anchor="middle" class="t">seen-action transition graph</text>
+  <text x="1395" y="444" text-anchor="middle" class="t">visual evidence / graph-prior mix</text>
+  <text x="1395" y="470" text-anchor="middle" class="tiny">cannot overwhelm current evidence</text>
+  <path d="M1220 423 L1260 423" class="arrow"/>
 
   <text x="70" y="560" class="h">SEPARATED JOINT SUPERVISION</text>
   <rect x="70" y="588" width="280" height="120" class="box output"/>
@@ -68,8 +68,8 @@
   <text x="210" y="678" text-anchor="middle" class="tiny">progress reduces online oversegmentation</text>
   <rect x="390" y="588" width="300" height="120" class="box output"/>
   <text x="540" y="624" text-anchor="middle" class="h">Component events (PSR)</text>
-  <text x="540" y="651" text-anchor="middle" class="t">action + state conditioned</text>
-  <text x="540" y="678" text-anchor="middle" class="tiny">ASL + correct / incorrect / remove</text>
+  <text x="540" y="651" text-anchor="middle" class="t">action + state + normal prototype</text>
+  <text x="540" y="678" text-anchor="middle" class="tiny">outcome-specific causal peaks + suppression</text>
   <rect x="730" y="588" width="280" height="120" class="box output"/>
   <text x="870" y="624" text-anchor="middle" class="h">Persistent component state</text>
   <text x="870" y="651" text-anchor="middle" class="t">11 x incorrect / pending / correct</text>
@@ -82,11 +82,11 @@
   <text x="1420" y="624" text-anchor="middle" class="h">Confidence</text>
   <text x="1420" y="651" text-anchor="middle" class="t">entropy + energy + PR curves</text>
   <text x="1420" y="678" text-anchor="middle" class="tiny">outcome-calibrated live alerts</text>
-  <path d="M1415 496 C1415 540 210 535 210 588" class="arrow"/>
+  <path d="M1395 496 C1395 540 210 535 210 588" class="arrow"/>
   <path d="M1070 481 C1070 545 540 535 540 588" class="arrow"/>
   <path d="M1070 481 C1070 545 870 535 870 588" class="arrow"/>
-  <path d="M1415 496 C1415 550 1160 535 1160 588" class="arrow"/>
-  <path d="M1415 496 L1420 588" class="arrow"/>
+  <path d="M1395 496 C1395 550 1160 535 1160 588" class="arrow"/>
+  <path d="M1395 496 L1420 588" class="arrow"/>
   <path d="M1255 262 C1255 535 540 520 540 588" class="dash"/>
 
   <rect x="175" y="780" width="1250" height="112" class="box graph"/>

@@ -1,5 +1,9 @@
 # StateGraph-PSR v3 refinement and live training dashboard
 
+Current pilot measurements and the 80-epoch go/no-go decision are recorded in
+[`stategraph_psr_v3_experiment_report.md`](stategraph_psr_v3_experiment_report.md).
+The test split remains sealed while the architecture is being selected.
+
 ## Why v2 was not ready for a long run
 
 The cache-v2 seed-7 pilot was useful because it failed early and cheaply. Its
