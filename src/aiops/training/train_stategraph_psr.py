@@ -433,6 +433,8 @@ def evaluate(
     f1_scores = {0.1: [], 0.25: [], 0.5: []}
     raw_f1_scores = {0.1: [], 0.25: [], 0.5: []}
     event_samples: list[tuple[list[tuple[int, int, int]], np.ndarray]] = []
+    normality_scores: list[float] = []
+    normality_targets: list[int] = []
     state_correct = 0
     state_total = 0
     with torch.inference_mode():
@@ -453,6 +455,7 @@ def evaluate(
                 outputs["component_outcome_logits"], dim=-1
             )
             state_prediction = outputs["state_logits"].argmax(dim=-1)
+            normality_anomaly_score = torch.sigmoid(-outputs["normality_logits"])
             valid = batch["valid_mask"] & (batch["step"] >= 0)
             frame_correct += int((step_prediction[valid] == batch["step"][valid]).sum().item())
             raw_frame_correct += int(
@@ -493,6 +496,18 @@ def evaluate(
                 event_samples.append(
                     (truth_events, event_scores.detach().float().cpu().numpy())
                 )
+                outcome_targets = batch["component_outcome"][sample_index, :length]
+                normality_mask = (outcome_targets == 0) | (outcome_targets == 1)
+                normality_scores.extend(
+                    normality_anomaly_score[sample_index, :length][normality_mask]
+                    .detach()
+                    .float()
+                    .cpu()
+                    .tolist()
+                )
+                normality_targets.extend(
+                    (outcome_targets[normality_mask] == 1).detach().cpu().int().tolist()
+                )
     if calibrate_events or event_thresholds is None:
         event_thresholds, calibrated_metrics, event_pr_auc = _calibrate_event_thresholds(
             event_samples, outcomes=3
@@ -505,6 +520,13 @@ def evaluate(
     correct_metrics = calibrated_metrics[0]
     incorrect_metrics = calibrated_metrics[1]
     remove_metrics = calibrated_metrics[2]
+    normality_ap = _binary_average_precision(normality_scores, normality_targets)
+    correct_normality = [
+        score for score, target in zip(normality_scores, normality_targets) if target == 0
+    ]
+    incorrect_normality = [
+        score for score, target in zip(normality_scores, normality_targets) if target == 1
+    ]
     return {
         "frame_accuracy": 100.0 * frame_correct / max(frame_total, 1),
         "raw_frame_accuracy": 100.0 * raw_frame_correct / max(frame_total, 1),
@@ -536,6 +558,13 @@ def evaluate(
         "remove_event_pr_auc": event_pr_auc[2],
         "fixed_0.1_completion_event_f1": fixed_metrics["all"]["f1"],
         "fixed_0.1_incorrect_event_f1": fixed_metrics[1]["f1"],
+        "normality_incorrect_average_precision": normality_ap,
+        "normality_correct_mean_anomaly": float(np.mean(correct_normality))
+        if correct_normality
+        else 0.0,
+        "normality_incorrect_mean_anomaly": float(np.mean(incorrect_normality))
+        if incorrect_normality
+        else 0.0,
         "state_accuracy": 100.0 * state_correct / max(state_total, 1),
     }
 
@@ -688,6 +717,20 @@ def _precision_recall_f1(counters: dict[str, int]) -> dict[str, float]:
         "recall": 100.0 * recall,
         "f1": 100.0 * f1,
     }
+
+
+def _binary_average_precision(scores: list[float], targets: list[int]) -> float:
+    if not scores or not any(targets):
+        return 0.0
+    ranked = sorted(zip(scores, targets), key=lambda pair: pair[0], reverse=True)
+    positives = sum(targets)
+    true_positives = 0
+    precision_sum = 0.0
+    for rank, (_, target) in enumerate(ranked, start=1):
+        if target:
+            true_positives += 1
+            precision_sum += true_positives / rank
+    return 100.0 * precision_sum / positives
 
 
 def _class_weights(records: list[StateGraphCacheRecord], field: str, classes: int) -> np.ndarray:

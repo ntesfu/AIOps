@@ -7,6 +7,7 @@ import numpy as np
 
 from aiops.training.train_stategraph_psr import (
     OutcomeAwareBatchSampler,
+    _binary_average_precision,
     _calibrate_event_thresholds,
     _event_metrics_from_samples,
     _match_event_counts,
@@ -78,6 +79,12 @@ class StateGraphMetricsTest(unittest.TestCase):
             _predicted_events_from_scores(scores, [0.5, 0.5, 0.5], minimum_distance=4),
             [(2, 0, 1), (7, 0, 0)],
         )
+
+    def test_binary_average_precision_rewards_ranked_faults(self) -> None:
+        perfect = _binary_average_precision([0.9, 0.8, 0.2], [1, 1, 0])
+        reversed_score = _binary_average_precision([0.1, 0.2, 0.9], [1, 1, 0])
+        self.assertEqual(perfect, 100.0)
+        self.assertGreater(perfect, reversed_score)
 
 
 if __name__ == "__main__":
