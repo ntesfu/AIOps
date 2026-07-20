@@ -780,17 +780,16 @@ def build_stategraph_loss(config: StateGraphLossConfig):
 
 
 def _expand_causal_event_targets(completion, outcomes, valid_mask, horizon: int):
-    """Repeat point events into a short post-event training horizon.
+    """Repeat rare outcome labels into a short post-event training horizon.
 
     Only future rows are filled, so this does not leak future evidence into the
-    causal online model. Exact annotations remain untouched and evaluation still
-    uses the original point events.
+    causal online model. Completion targets remain exact point events to retain
+    immediate alert timing; evaluation also uses the original point events.
     """
 
     torch, _, _ = _load_torch()
     if horizon <= 0:
         return completion, outcomes
-    expanded_completion = completion.clone()
     expanded_outcomes = outcomes.clone()
     for offset in range(1, horizon + 1):
         source_completion = completion[:, :-offset].bool()
@@ -803,17 +802,12 @@ def _expand_causal_event_targets(completion, outcomes, valid_mask, horizon: int)
             & destination_valid
             & empty_destination
         )
-        expanded_completion[:, offset:] = torch.where(
-            propagate,
-            torch.ones_like(expanded_completion[:, offset:]),
-            expanded_completion[:, offset:],
-        )
         expanded_outcomes[:, offset:] = torch.where(
             propagate,
             source_outcomes,
             expanded_outcomes[:, offset:],
         )
-    return expanded_completion, expanded_outcomes
+    return completion, expanded_outcomes
 
 
 def _action_progress_targets(step_targets, valid_mask):
