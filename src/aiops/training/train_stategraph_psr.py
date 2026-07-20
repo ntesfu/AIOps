@@ -538,6 +538,22 @@ def evaluate(
         calibrated_metrics = _event_metrics_from_samples(event_samples, event_thresholds)
         event_pr_auc = [float("nan")] * 3
     fixed_metrics = _event_metrics_from_samples(event_samples, [0.1, 0.1, 0.1])
+    # Keep the strict +/-1 cache-step metric for model selection.  Wider windows
+    # are diagnostics for alert latency and annotation quantisation; calibrating
+    # them independently prevents a strict-window threshold from hiding delayed
+    # but otherwise useful fault evidence.
+    latency_metrics: dict[int, tuple[list[float], dict[Any, dict[str, float]]]] = {}
+    for tolerance in (2, 4):
+        if calibrate_events:
+            latency_thresholds, metrics_at_tolerance, _ = _calibrate_event_thresholds(
+                event_samples, outcomes=3, tolerance=tolerance
+            )
+        else:
+            latency_thresholds = list(event_thresholds)
+            metrics_at_tolerance = _event_metrics_from_samples(
+                event_samples, latency_thresholds, tolerance=tolerance
+            )
+        latency_metrics[tolerance] = (latency_thresholds, metrics_at_tolerance)
     all_event_metrics = calibrated_metrics["all"]
     correct_metrics = calibrated_metrics[0]
     incorrect_metrics = calibrated_metrics[1]
@@ -569,6 +585,12 @@ def evaluate(
         "incorrect_event_precision": incorrect_metrics["precision"],
         "incorrect_event_recall": incorrect_metrics["recall"],
         "incorrect_event_f1": incorrect_metrics["f1"],
+        "incorrect_event_f1_tol2": latency_metrics[2][1][1]["f1"],
+        "incorrect_event_recall_tol2": latency_metrics[2][1][1]["recall"],
+        "incorrect_event_threshold_tol2": latency_metrics[2][0][1],
+        "incorrect_event_f1_tol4": latency_metrics[4][1][1]["f1"],
+        "incorrect_event_recall_tol4": latency_metrics[4][1][1]["recall"],
+        "incorrect_event_threshold_tol4": latency_metrics[4][0][1],
         "remove_event_precision": remove_metrics["precision"],
         "remove_event_recall": remove_metrics["recall"],
         "remove_event_f1": remove_metrics["f1"],
@@ -647,6 +669,7 @@ def _predicted_events_from_scores(
 def _event_metrics_from_samples(
     samples: list[tuple[list[tuple[int, int, int]], np.ndarray]],
     thresholds: list[float] | tuple[float, ...],
+    tolerance: int = 1,
 ) -> dict[Any, dict[str, float]]:
     outcomes = len(thresholds)
     counters: dict[Any, dict[str, int]] = {
@@ -658,14 +681,14 @@ def _event_metrics_from_samples(
     }
     for truth_events, event_scores in samples:
         predicted_events = _predicted_events_from_scores(event_scores, thresholds)
-        matched = _match_event_counts(truth_events, predicted_events, tolerance=1)
+        matched = _match_event_counts(truth_events, predicted_events, tolerance=tolerance)
         for key in counters["all"]:
             counters["all"][key] += matched[key]
         for outcome in range(outcomes):
             matched = _match_event_counts(
                 [event for event in truth_events if event[2] == outcome],
                 [event for event in predicted_events if event[2] == outcome],
-                tolerance=1,
+                tolerance=tolerance,
             )
             for key in counters[outcome]:
                 counters[outcome][key] += matched[key]
@@ -675,6 +698,7 @@ def _event_metrics_from_samples(
 def _calibrate_event_thresholds(
     samples: list[tuple[list[tuple[int, int, int]], np.ndarray]],
     outcomes: int,
+    tolerance: int = 1,
 ) -> tuple[list[float], dict[Any, dict[str, float]], list[float]]:
     """Select validation thresholds and event-level PR-AUC independently by outcome."""
 
@@ -692,7 +716,9 @@ def _calibrate_event_thresholds(
         for threshold in grid:
             candidate = [0.999] * outcomes
             candidate[outcome] = float(threshold)
-            metrics = _event_metrics_from_samples(samples, candidate)[outcome]
+            metrics = _event_metrics_from_samples(
+                samples, candidate, tolerance=tolerance
+            )[outcome]
             curve.append((metrics["recall"], metrics["precision"], float(threshold)))
             if metrics["f1"] > best_f1:
                 best_f1 = metrics["f1"]
@@ -705,7 +731,11 @@ def _calibrate_event_thresholds(
         ):
             area += (right_recall - left_recall) * (left_precision + right_precision) / 2.0
         pr_auc.append(area / 100.0)
-    return thresholds, _event_metrics_from_samples(samples, thresholds), pr_auc
+    return (
+        thresholds,
+        _event_metrics_from_samples(samples, thresholds, tolerance=tolerance),
+        pr_auc,
+    )
 
 
 def _match_event_counts(

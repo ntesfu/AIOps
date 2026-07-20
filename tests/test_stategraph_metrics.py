@@ -62,6 +62,19 @@ class StateGraphMetricsTest(unittest.TestCase):
             _event_metrics_from_samples(samples, thresholds)[1]["recall"], 100.0
         )
 
+    def test_latency_metric_reports_delayed_but_component_correct_fault(self) -> None:
+        scores = np.zeros((8, 1, 3), dtype=np.float32)
+        scores[5, 0, 1] = 0.8
+        samples = [([(2, 0, 1)], scores)]
+        self.assertEqual(
+            _event_metrics_from_samples(samples, [0.9, 0.5, 0.9], tolerance=1)[1]["f1"],
+            0.0,
+        )
+        self.assertEqual(
+            _event_metrics_from_samples(samples, [0.9, 0.5, 0.9], tolerance=4)[1]["f1"],
+            100.0,
+        )
+
     def test_outcome_aware_sampler_places_rare_window_in_each_batch(self) -> None:
         sampler = OutcomeAwareBatchSampler(
             dataset_size=8, batch_size=2, rare_indices=[3], rare_per_batch=1, seed=2
