@@ -173,3 +173,16 @@ and NVIDIA utilization, allocated/reserved/peak memory, temperature, and power.
 
 Full paper links and the design-to-evidence mapping are in
 `docs/stategraph_psr_v3_refinement.md`.
+
+## Subsequent large-model result
+
+The higher-capacity v4 candidate is documented in
+`docs/stategraph_psr_large_refinement.md`. It increases the causal head from
+about 3.3M to 34.1M parameters, adds two deeply supervised action-refinement
+stages and a dedicated event/state branch, and uses 384-step context.
+
+On the official validation split it improved frame accuracy/Edit/F1@50 to
+33.41/29.92/18.05, versus 30.77/27.53/15.32 for the best lite pilot. Incorrect
+F1 and PR-AUC remained zero. The result validates the larger model for Stage-1
+action segmentation while strengthening the conclusion that fault recognition
+is representation/data limited under the fallback cache.

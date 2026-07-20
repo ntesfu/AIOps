@@ -4,6 +4,10 @@ Current pilot measurements and the 80-epoch go/no-go decision are recorded in
 [`stategraph_psr_v3_experiment_report.md`](stategraph_psr_v3_experiment_report.md).
 The test split remains sealed while the architecture is being selected.
 
+The subsequent 34.1M-parameter causal refinement candidate and its measured
+gain are documented in
+[`stategraph_psr_large_refinement.md`](stategraph_psr_large_refinement.md).
+
 ## Why v2 was not ready for a long run
 
 The cache-v2 seed-7 pilot was useful because it failed early and cheaply. Its

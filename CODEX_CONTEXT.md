@@ -277,6 +277,22 @@ Exact results and the go/no-go gate are in
 `/home/aiops/.venvs/aiops-dashboard`. Training and NVIDIA telemetry are written
 under `/home/aiops/AIOps/runs`.
 
+### High-capacity causal refinement result
+
+The optional large preset in `configs/stategraph_psr_stage1_large.json` uses a
+384-d hidden state, 12 shared blocks, two four-block action-refinement stages,
+and a four-block event/state branch. It has 34.1M parameters. Desktop tests pass
+and a representative BF16 forward/backward used about 505 MB of PyTorch peak
+allocation; real batch-4, length-384 training used about 2.4 GB total GPU
+memory.
+
+The four-recording overfit gate retained 100 incorrect-event F1. On the official
+split, the selected epoch-16 checkpoint reached 33.41 frame accuracy, 29.92
+Edit, and 18.05 F1@50, improving the best lite pilot by 2.73 F1@50 points.
+Incorrect F1 and PR-AUC remained zero. Retain the large model for the next
+VideoMAEv2-SSv2 experiment, but do not claim that head scaling solved fault
+generalization. Full details are in `docs/stategraph_psr_large_refinement.md`.
+
 ## Known risks and decisions
 
 - The first cache-v2 pilot is a diagnostic baseline, not a final accuracy claim; it used fallback Swin3D-S + ConvNeXt features and failed the incorrect-event gate.

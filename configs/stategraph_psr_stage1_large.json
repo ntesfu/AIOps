@@ -17,13 +17,14 @@
   },
   "training": {
     "precision": "bf16",
-    "batch_size": 2,
-    "accumulation_steps": 4,
-    "sequence_length": 256,
-    "sequence_stride": 192,
+    "batch_size": 4,
+    "accumulation_steps": 2,
+    "sequence_length": 384,
+    "sequence_stride": 288,
     "learning_rate": 0.0002,
     "weight_decay": 0.001,
     "refinement_weight": 0.5,
+    "rare_windows_per_batch": 2,
     "epochs": 80,
     "patience": 15
   },

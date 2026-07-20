@@ -13,8 +13,8 @@
     <marker id="a" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#60758c"/></marker>
   </defs>
   <rect width="1600" height="1000" fill="#fff"/>
-  <text x="70" y="62" class="title">StateGraph-PSR Lite &#8212; Stage 1 v3 (cache schema v2)</text>
-  <text x="70" y="91" class="sub">Progress-aware causal segmentation + state-conditioned component events + bounded task-graph reasoning &#8226; single 24 GB GPU</text>
+  <text x="70" y="62" class="title">StateGraph-PSR Large &#8212; Stage 1 v4 (cache schema v2)</text>
+  <text x="70" y="91" class="sub">Multi-stage causal refinement + dedicated event/state context + bounded task-graph reasoning &#8226; 34.1M parameters</text>
 
   <text x="70" y="137" class="h">OFFLINE FEATURE CACHE (run once)</text>
   <rect x="70" y="158" width="260" height="104" class="box data"/>
@@ -40,19 +40,19 @@
   <text x="70" y="337" class="h">TRAINABLE CAUSAL CORE (single 24 GB GPU)</text>
   <rect x="110" y="365" width="300" height="116" class="box train"/>
   <text x="260" y="400" text-anchor="middle" class="h">Modality projection + gate</text>
-  <text x="260" y="428" text-anchor="middle" class="t">LayerNorm &#8594; 192-d</text>
+  <text x="260" y="428" text-anchor="middle" class="t">LayerNorm &#8594; 384-d</text>
   <text x="260" y="452" text-anchor="middle" class="tiny">learns motion / appearance / sensor trust</text>
   <path d="M545 275 C545 325 260 320 260 365" class="arrow"/><path d="M900 275 C900 330 260 320 260 365" class="arrow"/>
   <rect x="490" y="350" width="350" height="146" class="box train"/>
   <text x="665" y="387" text-anchor="middle" class="h">Causal multi-scale encoder</text>
-  <text x="665" y="418" text-anchor="middle" class="t">8 gated depthwise TCN blocks</text>
+  <text x="665" y="418" text-anchor="middle" class="t">12 gated depthwise TCN blocks &#8226; 384-d</text>
   <text x="665" y="444" text-anchor="middle" class="t">dilations 1&#8211;16 + sparse causal attention</text>
   <text x="665" y="470" text-anchor="middle" class="tiny">short hand motion + long procedure context</text>
   <path d="M410 423 L490 423" class="arrow"/>
   <rect x="920" y="365" width="300" height="116" class="box train"/>
-  <text x="1070" y="400" text-anchor="middle" class="h">Compositional action tokens</text>
-  <text x="1070" y="428" text-anchor="middle" class="t">verb + object + seen-class residual</text>
-  <text x="1070" y="452" text-anchor="middle" class="tiny">supports train-unseen compositions</text>
+  <text x="1070" y="400" text-anchor="middle" class="h">Action refinement decoder</text>
+  <text x="1070" y="428" text-anchor="middle" class="t">verb/object tokens + 2 causal stages</text>
+  <text x="1070" y="452" text-anchor="middle" class="tiny">4 blocks/stage &#8226; residual logits &#8226; deep loss</text>
   <path d="M840 423 L920 423" class="arrow"/>
   <rect x="1260" y="350" width="270" height="146" class="box graph"/>
   <text x="1395" y="387" text-anchor="middle" class="h">Bounded StateGraph filter</text>
@@ -68,8 +68,8 @@
   <text x="210" y="678" text-anchor="middle" class="tiny">progress reduces online oversegmentation</text>
   <rect x="390" y="588" width="300" height="120" class="box output"/>
   <text x="540" y="624" text-anchor="middle" class="h">Component events (PSR)</text>
-  <text x="540" y="651" text-anchor="middle" class="t">action + state + normal prototype</text>
-  <text x="540" y="678" text-anchor="middle" class="tiny">outcome-specific causal peaks + suppression</text>
+  <text x="540" y="651" text-anchor="middle" class="t">dedicated 4-block causal event branch</text>
+  <text x="540" y="678" text-anchor="middle" class="tiny">action/state/prototype + outcome peaks</text>
   <rect x="730" y="588" width="280" height="120" class="box output"/>
   <text x="870" y="624" text-anchor="middle" class="h">Persistent component state</text>
   <text x="870" y="651" text-anchor="middle" class="t">11 x incorrect / pending / correct</text>
@@ -90,7 +90,7 @@
   <path d="M1255 262 C1255 535 540 520 540 588" class="dash"/>
 
   <rect x="175" y="780" width="1250" height="112" class="box graph"/>
-  <text x="800" y="817" text-anchor="middle" class="loss">Loss = action + asymmetric completion + outcome + prototype normality + state + boundary + progress + anticipation + graph</text>
+  <text x="800" y="817" text-anchor="middle" class="loss">Loss = final action + deep refinement + asymmetric completion + outcome + normality + state + boundary + progress + graph</text>
   <text x="800" y="849" text-anchor="middle" class="t">Same-frame parts remain independent targets; IndustReal IDs never enter the model core.</text>
   <text x="800" y="875" text-anchor="middle" class="tiny">Train another dataset by swapping its annotation adapter and procedure-schema JSON, not the architecture.</text>
   <path d="M210 708 C210 755 400 750 400 780" class="dash"/><path d="M540 708 L650 780" class="dash"/>
