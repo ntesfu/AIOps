@@ -56,6 +56,7 @@ class HuggingFaceVideoMAEv2Encoder:
         checkpoint: str | None = None,
         device: str | None = None,
         precision: str = "bf16",
+        pooling: str = "mean",
     ) -> None:
         try:
             import torch
@@ -79,6 +80,9 @@ class HuggingFaceVideoMAEv2Encoder:
         )
         config = AutoConfig.from_pretrained(model_id, revision=revision, trust_remote_code=True)
         if checkpoint:
+            # Official action-classification checkpoints use token mean pooling
+            # and fc_norm, unlike the public raw-feature wrapper configuration.
+            config.model_config["use_mean_pooling"] = True
             model = AutoModel.from_config(config, trust_remote_code=True)
             self._load_official_checkpoint(model, checkpoint)
         else:
@@ -90,10 +94,22 @@ class HuggingFaceVideoMAEv2Encoder:
                 torch_dtype=self.dtype,
             )
         self.model = model.eval().to(device=self.device, dtype=self.dtype)
+        if pooling not in {"mean", "model"}:
+            raise ValueError("pooling must be 'mean' or 'model'")
+        self.pooling = pooling
+        self._last_tokens = None
+        backbone = getattr(self.model, "model", self.model)
+        self._backbone = backbone
+        self._token_hook = None
+        if pooling == "mean" and getattr(backbone, "fc_norm", None) is None:
+            self._token_hook = backbone.blocks[-1].register_forward_hook(self._capture_tokens)
         model_config = getattr(config, "model_config", {})
         self.feature_dim = int(model_config.get("embed_dim", getattr(model, "embed_dim", 0)))
         if self.feature_dim <= 0:
             raise RuntimeError("Could not determine the VideoMAEv2 output dimension")
+
+    def _capture_tokens(self, _module: Any, _inputs: Any, output: Any) -> None:
+        self._last_tokens = output
 
     def _load_official_checkpoint(self, model: Any, checkpoint: str) -> None:
         payload = self.torch.load(checkpoint, map_location="cpu", weights_only=False)
@@ -129,6 +145,11 @@ class HuggingFaceVideoMAEv2Encoder:
                 features = self.model.extract_features(pixel_values)
             else:
                 features = self.model(pixel_values=pixel_values)
+            if self.pooling == "mean" and self._token_hook is not None:
+                if self._last_tokens is None:
+                    raise RuntimeError("VideoMAEv2 final token hook did not run")
+                features = self._backbone.norm(self._last_tokens.mean(dim=1))
+                self._last_tokens = None
         if hasattr(features, "last_hidden_state"):
             features = features.last_hidden_state.mean(dim=1)
         elif isinstance(features, (tuple, list)):
@@ -286,6 +307,12 @@ def main() -> None:
     parser.add_argument("--num-frames", type=int, default=16)
     parser.add_argument("--sampling-rate", type=int, default=2)
     parser.add_argument("--batch-size", type=int, default=1)
+    parser.add_argument(
+        "--pooling",
+        choices=["mean", "model"],
+        default="mean",
+        help="Mean-pool final patch tokens (recommended) or preserve the model wrapper output.",
+    )
     parser.add_argument("--num-shards", type=int, default=1)
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument("--device", default=None)
@@ -324,7 +351,12 @@ def main() -> None:
             continue
         if encoder is None:
             encoder = HuggingFaceVideoMAEv2Encoder(
-                args.model_id, args.revision, args.checkpoint, args.device, args.precision
+                model_id=args.model_id,
+                revision=args.revision,
+                checkpoint=args.checkpoint,
+                device=args.device,
+                precision=args.precision,
+                pooling=args.pooling,
             )
         print(f"[{ordinal}/{len(recordings)}] extract {recording.recording_id}", flush=True)
         record = extract_recording(
@@ -346,6 +378,7 @@ def main() -> None:
             "stride_frames": args.stride_frames,
             "num_frames": args.num_frames,
             "sampling_rate": args.sampling_rate,
+            "pooling": args.pooling,
             "shard_index": args.shard_index,
             "num_shards": args.num_shards,
             "records": sorted(shard_records.values(), key=lambda row: (row["split"], row["recording_id"])),
@@ -361,6 +394,7 @@ def main() -> None:
             "stride_frames": args.stride_frames,
             "num_frames": args.num_frames,
             "sampling_rate": args.sampling_rate,
+            "pooling": args.pooling,
             "shard_index": args.shard_index,
             "num_shards": args.num_shards,
             "records": sorted(shard_records.values(), key=lambda row: (row["split"], row["recording_id"])),

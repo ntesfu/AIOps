@@ -59,6 +59,14 @@ The public checkpoint and its remote model code are pinned to Hugging Face
 revision `d27568eb41ccb2d41bb191fc2e3fe5aad74942d4`; override `--revision` only as
 an intentional new experiment.
 
+The public wrapper's raw configuration returns its first spatial patch token.
+The extractor instead defaults to final-layer patch-token mean pooling followed
+by the checkpoint's trained LayerNorm (`--pooling mean`), matching the pooling
+principle in the official temporal-action extraction recipe and representing the
+whole frame. `--pooling model` exists only for a controlled wrapper-output
+ablation. Official SSv2 fine-tuned checkpoints are instantiated with their
+native `fc_norm` mean-pooling configuration.
+
 On a machine with enough host RAM, independent recording shards can increase
 GPU utilization without changing features. Launch each shard with the same
 output directory and a different index, for example `--num-shards 3
