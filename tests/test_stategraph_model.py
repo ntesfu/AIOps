@@ -8,6 +8,7 @@ from aiops.models.stategraph_psr import (
     StateGraphPSRConfig,
     build_stategraph_loss,
     build_stategraph_psr,
+    _expand_causal_event_targets,
 )
 
 
@@ -65,6 +66,7 @@ class StateGraphModelTest(unittest.TestCase):
         self.assertEqual(tuple(output["state_outcome_probabilities"].shape), (2, 7, 2, 3))
         self.assertEqual(tuple(output["progress_logits"].shape), (2, 7))
         self.assertEqual(tuple(output["modality_gates"].shape), (2, 7, 4))
+        self.assertEqual(tuple(output["modality_disagreement"].shape), (2, 7, 16))
         self.assertEqual(len(output["refinement_step_logits"]), 2)
         self.assertEqual(tuple(output["refinement_step_logits"][-1].shape), (2, 7, 3))
         self.assertTrue(bool((output["atomic_step_logits"][..., 2] == 0).all()))
@@ -105,6 +107,22 @@ class StateGraphModelTest(unittest.TestCase):
         self.assertGreater(float(loss["refinement"]), 0.0)
         loss["total"].backward()
         self.assertTrue(any(parameter.grad is not None for parameter in model.parameters()))
+
+    def test_event_targets_expand_forward_without_overwriting_events(self) -> None:
+        import torch
+
+        completion = torch.zeros(1, 6, 1)
+        completion[0, 1, 0] = 1
+        completion[0, 3, 0] = 1
+        outcomes = torch.full((1, 6, 1), -100, dtype=torch.long)
+        outcomes[0, 1, 0] = 1
+        outcomes[0, 3, 0] = 2
+        valid = torch.tensor([[True, True, True, True, True, False]])
+        expanded_completion, expanded_outcomes = _expand_causal_event_targets(
+            completion, outcomes, valid, horizon=2
+        )
+        self.assertEqual(expanded_outcomes[0, :, 0].tolist(), [-100, 1, 1, 2, 2, -100])
+        self.assertEqual(expanded_completion[0, :, 0].tolist(), [0, 1, 1, 1, 1, 0])
 
 
 if __name__ == "__main__":

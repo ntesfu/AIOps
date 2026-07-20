@@ -72,6 +72,7 @@ class StateGraphLossConfig:
     asl_negative_gamma: float = 4.0
     asl_clip: float = 0.05
     normality_error_weight: float = 8.0
+    event_label_horizon: int = 2
 
 
 def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | None = None):
@@ -246,6 +247,15 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 nn.GELU(),
                 nn.Linear(config.hidden_dim, modality_count),
             )
+            # A weighted average is useful for action recognition but can hide
+            # precisely the cross-encoder mismatch that signals a wrong part,
+            # tool, or state. Preserve that residual for the event-only branch.
+            self.disagreement_stem = nn.Sequential(
+                nn.LayerNorm(config.hidden_dim),
+                nn.Linear(config.hidden_dim, config.hidden_dim),
+                nn.GELU(),
+                nn.Dropout(config.dropout),
+            )
             self.fusion_norm = nn.LayerNorm(config.hidden_dim)
             blocks = []
             for index in range(config.num_temporal_blocks):
@@ -385,7 +395,8 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 gate_logits = gate_logits.masked_fill(~modality_mask.bool(), -1e4)
             gates = torch.softmax(gate_logits, dim=-1)
             fused = (stack * gates.unsqueeze(-1)).sum(dim=2)
-            return self.fusion_norm(fused), gates
+            disagreement = ((stack - fused.unsqueeze(2)).square() * gates.unsqueeze(-1)).sum(dim=2)
+            return self.fusion_norm(fused), gates, self.disagreement_stem(disagreement)
 
         def _apply_graph_filter(self, raw_logits, valid_mask):
             batch, length, _ = raw_logits.shape
@@ -423,7 +434,7 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
         ):
             if valid_mask is None:
                 valid_mask = torch.ones(motion.shape[:2], dtype=torch.bool, device=motion.device)
-            fused, modality_gates = self._project_modalities(
+            fused, modality_gates, modality_disagreement = self._project_modalities(
                 motion, appearance, sensor, modality_mask, motion_aux
             )
             temporal = fused
@@ -467,7 +478,7 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 )
                 refinement_step_logits.append(raw_step_logits)
             graph_step_logits, step_probabilities = self._apply_graph_filter(raw_step_logits, valid_mask)
-            event_temporal = temporal
+            event_temporal = temporal + modality_disagreement
             for block in self.event_temporal_blocks:
                 event_temporal = block(event_temporal, valid_mask)
             state_logits = self.state_head(event_temporal).view(
@@ -533,6 +544,7 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 "uncertainty": normalized_entropy,
                 "energy": energy,
                 "modality_gates": modality_gates,
+                "modality_disagreement": modality_disagreement,
                 "prototype_weights": proto_weights,
                 "seen_action_mask": self.seen_action_mask,
             }
@@ -612,6 +624,12 @@ def build_stategraph_loss(config: StateGraphLossConfig):
         ):
             valid_mask = targets["valid_mask"].bool()
             step_targets = targets["step"]
+            completion_targets, outcome_targets = _expand_causal_event_targets(
+                targets["completion"],
+                targets["component_outcome"],
+                valid_mask,
+                config.event_label_horizon,
+            )
             losses = {}
             losses["step"] = self._focal_ce(
                 outputs["step_logits"], step_targets, config.focal_gamma, step_class_weights
@@ -627,7 +645,7 @@ def build_stategraph_loss(config: StateGraphLossConfig):
                 losses["refinement"] = outputs["step_logits"].sum() * 0.0
             losses["completion"] = self._asymmetric_bce(
                 outputs["completion_logits"],
-                targets["completion"].float(),
+                completion_targets.float(),
                 valid_mask,
                 positive_gamma=0.0,
                 negative_gamma=config.asl_negative_gamma,
@@ -636,7 +654,7 @@ def build_stategraph_loss(config: StateGraphLossConfig):
             )
             losses["component_outcome"] = self._focal_ce(
                 outputs["component_outcome_logits"],
-                targets["component_outcome"],
+                outcome_targets,
                 config.focal_gamma,
                 component_outcome_class_weights,
             )
@@ -650,7 +668,7 @@ def build_stategraph_loss(config: StateGraphLossConfig):
             else:
                 losses["state"] = outputs["state_logits"].sum() * 0.0
 
-            normality_targets = targets["component_outcome"]
+            normality_targets = outcome_targets
             normality_mask = (normality_targets == 0) | (normality_targets == 1)
             if normality_mask.any():
                 normality_binary = (normality_targets[normality_mask] == 0).float()
@@ -734,8 +752,8 @@ def build_stategraph_loss(config: StateGraphLossConfig):
             consistency_mask = (
                 valid_mask
                 & state_mask.any(dim=-1)
-                & targets["completion"].bool().any(dim=-1)
-                & (targets["component_outcome"] == incorrect_index).any(dim=-1)
+                & completion_targets.bool().any(dim=-1)
+                & (outcome_targets == incorrect_index).any(dim=-1)
             )
             if consistency_mask.any():
                 losses["consistency"] = functional.mse_loss(
@@ -762,6 +780,43 @@ def build_stategraph_loss(config: StateGraphLossConfig):
             return losses
 
     return StateGraphMultiTaskLoss()
+
+
+def _expand_causal_event_targets(completion, outcomes, valid_mask, horizon: int):
+    """Repeat point events into a short post-event training horizon.
+
+    Only future rows are filled, so this does not leak future evidence into the
+    causal online model. Exact annotations remain untouched and evaluation still
+    uses the original point events.
+    """
+
+    torch, _, _ = _load_torch()
+    if horizon <= 0:
+        return completion, outcomes
+    expanded_completion = completion.clone()
+    expanded_outcomes = outcomes.clone()
+    for offset in range(1, horizon + 1):
+        source_completion = completion[:, :-offset].bool()
+        source_outcomes = outcomes[:, :-offset]
+        destination_valid = valid_mask[:, offset:].unsqueeze(-1)
+        empty_destination = expanded_outcomes[:, offset:] == -100
+        propagate = (
+            source_completion
+            & (source_outcomes != -100)
+            & destination_valid
+            & empty_destination
+        )
+        expanded_completion[:, offset:] = torch.where(
+            propagate,
+            torch.ones_like(expanded_completion[:, offset:]),
+            expanded_completion[:, offset:],
+        )
+        expanded_outcomes[:, offset:] = torch.where(
+            propagate,
+            source_outcomes,
+            expanded_outcomes[:, offset:],
+        )
+    return expanded_completion, expanded_outcomes
 
 
 def _action_progress_targets(step_targets, valid_mask):

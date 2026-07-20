@@ -169,6 +169,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         asl_negative_gamma=args.asl_negative_gamma,
         asl_clip=args.asl_clip,
         normality_error_weight=args.normality_error_weight,
+        event_label_horizon=args.event_label_horizon,
     )
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     model = build_stategraph_psr(model_config, transition_matrix).to(device)
@@ -1104,6 +1105,12 @@ def main() -> None:
     parser.add_argument("--asl-negative-gamma", type=float, default=4.0)
     parser.add_argument("--asl-clip", type=float, default=0.05)
     parser.add_argument("--normality-error-weight", type=float, default=8.0)
+    parser.add_argument(
+        "--event-label-horizon",
+        type=int,
+        default=2,
+        help="Causally repeat sparse event labels over this many following feature rows for training only.",
+    )
     parser.add_argument("--incorrect-selection-weight", type=float, default=0.75)
     parser.add_argument("--gpu-log-interval", type=int, default=10)
     parser.add_argument(
@@ -1128,6 +1135,8 @@ def main() -> None:
         parser.error("gpu-log-interval must be positive")
     if args.calibration_interval <= 0:
         parser.error("calibration-interval must be positive")
+    if args.event_label_horizon < 0:
+        parser.error("event-label-horizon cannot be negative")
     if min(
         args.num_action_refinement_stages,
         args.num_refinement_blocks,
