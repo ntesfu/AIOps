@@ -115,6 +115,11 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
 
     num_steps = train_records[0].num_steps
     factorization = _action_factorization(metadata, all_train_records, num_steps)
+    event_state_mapping = _infer_event_state_mapping(
+        all_train_records,
+        train_records[0].num_completion_components,
+        train_records[0].num_components,
+    )
     active_action_mask = (
         _action_presence(train_records, num_steps)
         if overfit_recordings
@@ -132,6 +137,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         action_object_indices=tuple(factorization["object_indices"]),
         seen_action_mask=tuple(factorization["seen_mask"]),
         active_action_mask=tuple(active_action_mask),
+        event_state_indices=tuple(event_state_mapping["indices"]),
         num_completion_components=train_records[0].num_completion_components,
         num_event_outcomes=len(metadata["event_outcomes"]),
         num_components=train_records[0].num_components,
@@ -397,6 +403,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         "overfit_recording_ids": overfit_recordings,
         "completion_pos_weight_cap": args.completion_pos_weight_cap,
         "action_factorization": factorization,
+        "event_state_mapping": event_state_mapping,
         "model_config": model_config.to_dict(),
         "loss_config": asdict(loss_config),
         "best_validation": best_metrics,
@@ -791,6 +798,40 @@ def _completion_pos_weights(
         total_rows += len(completion)
     negative = np.maximum(float(total_rows) - positive, 1.0)
     return np.clip(negative / positive, 1.0, cap).astype(np.float32)
+
+
+def _infer_event_state_mapping(
+    records: list[StateGraphCacheRecord], event_components: int, state_components: int
+) -> dict[str, Any]:
+    """Map each event component to the state column most consistent with its outcomes."""
+
+    agreement = np.zeros((event_components, state_components), dtype=np.float64)
+    observations = np.zeros((event_components, state_components), dtype=np.float64)
+    # Event outcomes [correct, incorrect, remove] correspond most closely to
+    # persistent state classes [correct=2, incorrect=0, pending=1].
+    expected_state = np.asarray([2, 0, 1], dtype=np.int64)
+    for record in records:
+        with np.load(record.path, allow_pickle=False) as arrays:
+            outcomes = arrays["component_outcome"].astype(np.int64)
+            state = arrays["state"].astype(np.int64)
+            state_mask = arrays["state_mask"].astype(bool)
+        rows, components = np.where(outcomes >= 0)
+        for row, component in zip(rows, components):
+            outcome = int(outcomes[row, component])
+            valid = state_mask[row]
+            observations[component, valid] += 1.0
+            agreement[component, valid] += (
+                state[row, valid] == expected_state[outcome]
+            ).astype(np.float64)
+    scores = agreement / np.maximum(observations, 1.0)
+    indices = scores.argmax(axis=1).astype(np.int64)
+    return {
+        "indices": indices.tolist(),
+        "agreement": [float(scores[index, state_index]) for index, state_index in enumerate(indices)],
+        "observations": [
+            int(observations[index, state_index]) for index, state_index in enumerate(indices)
+        ],
+    }
 
 
 def _action_presence(

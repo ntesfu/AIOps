@@ -33,6 +33,7 @@ class StateGraphPSRConfig:
     action_object_indices: tuple[int, ...] = ()
     seen_action_mask: tuple[bool, ...] = ()
     active_action_mask: tuple[bool, ...] = ()
+    event_state_indices: tuple[int, ...] = ()
     num_completion_components: int = 1
     num_event_outcomes: int = 3
     num_components: int = 11
@@ -91,6 +92,11 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             raise ValueError("seen_action_mask must contain one entry per action.")
         if config.active_action_mask and len(config.active_action_mask) != config.num_steps:
             raise ValueError("active_action_mask must contain one entry per action.")
+    if config.event_state_indices:
+        if len(config.event_state_indices) != config.num_completion_components:
+            raise ValueError("event_state_indices must contain one state index per event component.")
+        if any(index < 0 or index >= config.num_components for index in config.event_state_indices):
+            raise ValueError("event_state_indices contains an out-of-range state component.")
 
     torch, nn, functional = _load_torch()
 
@@ -232,6 +238,13 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             self.register_buffer("action_object_indices", object_indices)
             self.register_buffer("seen_action_mask", seen_mask)
             self.register_buffer("active_action_mask", active_mask)
+            event_state_indices = (
+                torch.as_tensor(config.event_state_indices, dtype=torch.long)
+                if config.event_state_indices
+                else torch.arange(config.num_completion_components, dtype=torch.long)
+                % config.num_components
+            )
+            self.register_buffer("event_state_indices", event_state_indices)
             self.action_residual_prototypes = nn.Parameter(
                 torch.empty(config.num_steps, config.hidden_dim)
             )
@@ -265,6 +278,7 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             self.normality_scale_raw = nn.Parameter(torch.tensor(2.0))
             self.normality_bias = nn.Parameter(torch.tensor(0.0))
             self.anomaly_strength_raw = nn.Parameter(torch.tensor(-1.0))
+            self.state_evidence_strength_raw = nn.Parameter(torch.tensor(0.0))
             self.boundary_head = nn.Linear(config.hidden_dim, 1)
             self.progress_head = nn.Linear(config.hidden_dim, 1)
             self.next_step_head = nn.Linear(config.hidden_dim, config.num_steps)
@@ -405,6 +419,15 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             component_outcome_logits[..., incorrect_index] = (
                 component_outcome_logits[..., incorrect_index] + incorrect_boost
             )
+            component_state_probabilities = state_probabilities[..., self.event_state_indices, :]
+            # State classes are [incorrect, pending, correct]; event outcomes are
+            # [correct, incorrect, remove]. Pending is the closest observable
+            # state evidence for a removal event.
+            state_outcome_probabilities = component_state_probabilities[..., [2, 0, 1]]
+            state_evidence_strength = functional.softplus(self.state_evidence_strength_raw)
+            component_outcome_logits = component_outcome_logits + state_evidence_strength * torch.log(
+                state_outcome_probabilities.clamp_min(1e-6)
+            )
             entropy = -(step_probabilities.clamp_min(1e-7).log() * step_probabilities).sum(dim=-1)
             # Entropy is bounded by log(K); this keeps uncertainty in [0, 1].
             normalized_entropy = entropy / math.log(max(config.num_steps, 2))
@@ -421,6 +444,7 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 "completion_logits": self.completion_head(event_features),
                 "component_outcome_logits": component_outcome_logits,
                 "normality_logits": normality_logits,
+                "state_outcome_probabilities": state_outcome_probabilities,
                 "state_logits": state_logits,
                 "boundary_logits": self.boundary_head(temporal).squeeze(-1),
                 "progress_logits": self.progress_head(temporal).squeeze(-1),
