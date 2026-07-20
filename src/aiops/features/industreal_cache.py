@@ -230,7 +230,7 @@ def _cache_recording(
     if not valid_rows.any():
         raise RuntimeError(f"No dense AR action labels could be derived for {recording.recording_id}")
 
-    motion = _load_precomputed(
+    motion = _load_precomputed_group(
         args.motion_features_dir, recording.recording_id, len(centers), preferred_key="motion"
     )
     appearance = _load_precomputed(
@@ -419,6 +419,28 @@ def _load_precomputed(
     return array
 
 
+def _load_precomputed_group(
+    directories: str | list[str] | tuple[str, ...] | None,
+    recording_id: str,
+    length: int,
+    preferred_key: str = "features",
+) -> np.ndarray | None:
+    """Load one feature source or concatenate several aligned sources."""
+    if not directories:
+        return None
+    roots = [directories] if isinstance(directories, str) else list(directories)
+    arrays = [
+        _load_precomputed(root, recording_id, length, preferred_key=preferred_key)
+        for root in roots
+    ]
+    missing = [root for root, array in zip(roots, arrays) if array is None]
+    if missing:
+        raise FileNotFoundError(
+            f"Missing precomputed {preferred_key} features for {recording_id} in {missing}"
+        )
+    return np.concatenate([array for array in arrays if array is not None], axis=1)
+
+
 def _clip_indices(center: int, length: int, clip_frames: int, span_frames: int) -> list[int]:
     start = center - span_frames // 2
     positions = np.linspace(start, start + span_frames - 1, clip_frames).round().astype(np.int64)
@@ -479,7 +501,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Create a low-VRAM StateGraph feature cache from IndustReal.")
     parser.add_argument("--data-root", required=True)
     parser.add_argument("--output-dir", required=True)
-    parser.add_argument("--motion-features-dir", default=None)
+    parser.add_argument(
+        "--motion-features-dir",
+        action="append",
+        default=None,
+        help="Precomputed motion root; repeat to concatenate complementary aligned encoders.",
+    )
     parser.add_argument(
         "--motion-backend-name",
         default=None,

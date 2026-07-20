@@ -104,6 +104,23 @@ The model reads dimensions from `index.json`, so no IndustReal-specific shape is
 embedded in StateGraph-PSR. Other datasets can generate the same per-recording
 arrays and retain the architecture unchanged.
 
+For a controlled complementary-motion fusion, repeat
+`--motion-features-dir`. The cache builder verifies temporal alignment and
+concatenates sources on the feature axis after aligning each to the cache
+centers. For example, VideoMAEv2-giant (1408)
+plus Swin3D-S (768) produces a 2176-d motion vector while leaving the portable
+model and labels unchanged:
+
+```bash
+python3 -m aiops.features.industreal_cache \
+  --data-root /home/aiops/AIOps/data/raw/industreal \
+  --output-dir /home/aiops/AIOps/data/processed/stategraph_v2_videomaev2_swin \
+  --motion-features-dir /home/aiops/AIOps/data/processed/videomaev2_giant_motion \
+  --motion-features-dir /home/aiops/AIOps/data/processed/stategraph_v2_swin_convnext \
+  --motion-backend-name videomaev2_giant_plus_swin3d_s \
+  --appearance-features-dir /home/aiops/AIOps/data/processed/stategraph_v2_swin_convnext
+```
+
 ## Experimental gate
 
 1. Verify all 52 arrays, finite values, 1408 columns, and exact cache lengths.

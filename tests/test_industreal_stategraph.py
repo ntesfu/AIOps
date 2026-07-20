@@ -31,10 +31,24 @@ from aiops.data.stategraph_cache import (
     save_cache_record,
     write_cache_index,
 )
-from aiops.features.industreal_cache import build_industreal_cache
+from aiops.features.industreal_cache import _load_precomputed_group, build_industreal_cache
 
 
 class IndustRealAdapterTest(unittest.TestCase):
+    def test_aligned_precomputed_feature_groups_concatenate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            left = root / "left"
+            right = root / "right"
+            left.mkdir()
+            right.mkdir()
+            np.save(left / "rec.npy", np.ones((3, 2), dtype=np.float32))
+            np.save(right / "rec.npy", np.full((3, 4), 2.0, dtype=np.float32))
+            fused = _load_precomputed_group([str(left), str(right)], "rec", 3)
+            self.assertEqual(fused.shape, (3, 6))
+            np.testing.assert_array_equal(fused[:, :2], 1.0)
+            np.testing.assert_array_equal(fused[:, 2:], 2.0)
+
     def test_headerless_release_csv_and_root_level_video(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
