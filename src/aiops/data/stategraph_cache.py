@@ -149,6 +149,32 @@ class StateGraphCacheDataset:
         sample["start_index"] = start
         return sample
 
+    def window_sampling_weights(
+        self,
+        incorrect_outcome_index: int = 2,
+        rare_window_boost: float = 4.0,
+    ) -> np.ndarray:
+        """Return deterministic weights that expose scarce fault windows more often."""
+        if rare_window_boost < 1.0:
+            raise ValueError("rare_window_boost must be at least 1")
+        labels: dict[int, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
+        for record_index, record in enumerate(self.records):
+            with np.load(record.path, allow_pickle=False) as arrays:
+                labels[record_index] = (
+                    arrays["outcome"].copy(),
+                    arrays["state"].copy(),
+                    arrays["state_mask"].copy(),
+                )
+        weights = np.ones(len(self.windows), dtype=np.float64)
+        for window_index, (record_index, start) in enumerate(self.windows):
+            outcome, state, state_mask = labels[record_index]
+            end = min(len(outcome), start + self.sequence_length)
+            has_incorrect_outcome = bool((outcome[start:end] == incorrect_outcome_index).any())
+            has_incorrect_state = bool(((state[start:end] == 0) & state_mask[start:end]).any())
+            if has_incorrect_outcome or has_incorrect_state:
+                weights[window_index] = rare_window_boost
+        return weights
+
 
 def pad_stategraph_batch(samples: list[dict[str, Any]]) -> dict[str, Any]:
     try:

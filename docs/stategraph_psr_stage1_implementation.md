@@ -49,6 +49,11 @@ The objective is:
 
 Step and outcome use class-balanced focal cross-entropy. State uses masked cross-entropy. Boundary uses dynamically weighted BCE. The graph term penalizes posterior mass on unseen training transitions, and smoothing reduces frame-level oscillation. Labels equal to `-100` are ignored by losses and temporal metrics.
 
+Because incorrect events are rare, training also uses a weighted window sampler:
+windows containing an incorrect outcome or any supervised incorrect component
+state receive a default 4× sampling weight. Validation and test windows remain
+unweighted. The trainer reports the number of rare windows in `summary.json`.
+
 ## Expected IndustReal layout
 
 The cache builder supports the official extracted structure, including a possible single outer archive folder:

@@ -38,7 +38,7 @@ def set_seed(seed: int) -> None:
 
 def train(args: argparse.Namespace) -> dict[str, Any]:
     import torch
-    from torch.utils.data import DataLoader
+    from torch.utils.data import DataLoader, WeightedRandomSampler
 
     set_seed(args.seed)
     metadata, records = read_cache_index(args.cache_index)
@@ -86,16 +86,28 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         _class_weights(train_records, "outcome", model_config.num_outcomes)
     ).to(device)
 
+    train_dataset = StateGraphCacheDataset(
+        train_records,
+        sequence_length=args.sequence_length,
+        sequence_stride=args.sequence_stride,
+        training=True,
+        seed=args.seed,
+    )
+    sampling_weights = train_dataset.window_sampling_weights(
+        incorrect_outcome_index=2,
+        rare_window_boost=args.rare_window_boost,
+    )
+    sampler = WeightedRandomSampler(
+        weights=torch.as_tensor(sampling_weights, dtype=torch.double),
+        num_samples=len(train_dataset),
+        replacement=True,
+        generator=torch.Generator().manual_seed(args.seed),
+    )
     train_loader = DataLoader(
-        StateGraphCacheDataset(
-            train_records,
-            sequence_length=args.sequence_length,
-            sequence_stride=args.sequence_stride,
-            training=True,
-            seed=args.seed,
-        ),
+        train_dataset,
         batch_size=args.batch_size,
-        shuffle=True,
+        shuffle=False,
+        sampler=sampler,
         num_workers=args.num_workers,
         pin_memory=device.type == "cuda",
         collate_fn=pad_stategraph_batch,
@@ -228,6 +240,9 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         "architecture": "StateGraph-PSR Lite Stage 1",
         "device": str(device),
         "parameters": sum(parameter.numel() for parameter in model.parameters()),
+        "train_windows": len(train_dataset),
+        "rare_train_windows": int((sampling_weights > 1.0).sum()),
+        "rare_window_boost": args.rare_window_boost,
         "train_recordings": len(train_records),
         "validation_recordings": len(val_records),
         "test_recordings": len(test_records),
@@ -406,6 +421,12 @@ def main() -> None:
     parser.add_argument("--warmup-fraction", type=float, default=0.08)
     parser.add_argument("--max-grad-norm", type=float, default=2.0)
     parser.add_argument("--transition-smoothing", type=float, default=0.02)
+    parser.add_argument(
+        "--rare-window-boost",
+        type=float,
+        default=4.0,
+        help="Sampling multiplier for train windows containing incorrect outcome/state labels.",
+    )
     parser.add_argument("--val-fraction", type=float, default=0.2)
     parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument("--seed", type=int, default=7)
@@ -422,6 +443,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.batch_size <= 0 or args.accumulation_steps <= 0:
         parser.error("batch size and accumulation steps must be positive")
+    if args.rare_window_boost < 1.0:
+        parser.error("rare-window-boost must be at least 1")
     print(json.dumps(train(args), indent=2))
 
 

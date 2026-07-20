@@ -122,7 +122,12 @@ class IndustRealAdapterTest(unittest.TestCase):
             write_cache_index(index_path, records, {"dataset": "synthetic"})
             metadata, restored = read_cache_index(index_path)
             self.assertEqual(metadata["dataset"], "synthetic")
-            self.assertEqual(len(StateGraphCacheDataset(restored, sequence_length=2, sequence_stride=1)), 5)
+            dataset = StateGraphCacheDataset(restored, sequence_length=2, sequence_stride=1)
+            self.assertEqual(len(dataset), 5)
+            weights = dataset.window_sampling_weights(incorrect_outcome_index=1, rare_window_boost=4.0)
+            np.testing.assert_array_equal(weights, np.full(5, 4.0))
+            with self.assertRaises(ValueError):
+                dataset.window_sampling_weights(rare_window_boost=0.5)
             graph = build_transition_matrix(restored, 3)
             self.assertEqual(graph.shape, (3, 3))
             self.assertEqual(float(graph[1, 2]), 0.0)
