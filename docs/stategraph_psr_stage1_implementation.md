@@ -50,7 +50,7 @@ The objective is:
 
 `L = Laction + 0.45 Lcompletion + 0.7 Levent-outcome + 0.8 Lstate + 0.25 Lboundary + 0.3 Lnext + 0.12 Lsmooth + 0.15 Lgraph + 0.15 Lconsistency`
 
-Action and event outcome use class-balanced focal cross-entropy. Completion uses per-component positive-weighted focal BCE, so several components may fire together. State uses masked cross-entropy. Boundary uses dynamically weighted BCE. The graph term penalizes posterior mass on unseen training transitions, and smoothing reduces frame-level oscillation. Labels equal to `-100` are ignored by losses and temporal metrics.
+Action and event outcome use class-balanced focal cross-entropy. Completion uses per-component positive-weighted focal BCE (default cap 100), so several components may fire together without the all-negative solution dominating. State uses masked cross-entropy. Boundary uses dynamically weighted BCE. The graph term penalizes posterior mass on unseen training transitions, and smoothing reduces frame-level oscillation. Labels equal to `-100` are ignored by losses and temporal metrics. Intentional overfit runs also mask action logits absent from the selected subset; normal training leaves validation-only compositions active.
 
 Because incorrect events are rare, training also uses a weighted window sampler:
 windows containing an incorrect component event or any supervised incorrect component

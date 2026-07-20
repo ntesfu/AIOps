@@ -47,6 +47,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     _validate_cache_schema(metadata, records)
     _validate_records(records)
     train_records = [record for record in records if record.split.lower() == "train"]
+    all_train_records = train_records.copy()
     val_records = [record for record in records if record.split.lower() in {"val", "validation"}]
     test_records = [record for record in records if record.split.lower() == "test"]
     if not train_records:
@@ -65,7 +66,12 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         train_records, val_records = _recording_level_split(train_records, args.val_fraction, args.seed)
 
     num_steps = train_records[0].num_steps
-    factorization = _action_factorization(metadata, train_records, num_steps)
+    factorization = _action_factorization(metadata, all_train_records, num_steps)
+    active_action_mask = (
+        _action_presence(train_records, num_steps)
+        if overfit_recordings
+        else [True] * num_steps
+    )
     transition_matrix = build_transition_matrix(train_records, num_steps, args.transition_smoothing)
     model_config = StateGraphPSRConfig(
         motion_dim=train_records[0].motion_dim,
@@ -77,6 +83,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         action_verb_indices=tuple(factorization["verb_indices"]),
         action_object_indices=tuple(factorization["object_indices"]),
         seen_action_mask=tuple(factorization["seen_mask"]),
+        active_action_mask=tuple(active_action_mask),
         num_completion_components=train_records[0].num_completion_components,
         num_event_outcomes=len(metadata["event_outcomes"]),
         num_components=train_records[0].num_components,
@@ -104,7 +111,11 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     criterion = build_stategraph_loss(loss_config).to(device)
     step_weights = torch.from_numpy(_class_weights(train_records, "step", num_steps)).to(device)
     completion_pos_weights = torch.from_numpy(
-        _completion_pos_weights(train_records, model_config.num_completion_components)
+        _completion_pos_weights(
+            train_records,
+            model_config.num_completion_components,
+            cap=args.completion_pos_weight_cap,
+        )
     ).to(device)
     component_outcome_weights = torch.from_numpy(
         _class_weights(train_records, "component_outcome", model_config.num_event_outcomes)
@@ -276,6 +287,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         "validation_recordings": len(val_records),
         "test_recordings": len(test_records),
         "overfit_recording_ids": overfit_recordings,
+        "completion_pos_weight_cap": args.completion_pos_weight_cap,
         "action_factorization": factorization,
         "model_config": model_config.to_dict(),
         "loss_config": asdict(loss_config),
@@ -497,7 +509,7 @@ def _action_factorization(
 
 
 def _completion_pos_weights(
-    records: list[StateGraphCacheRecord], components: int
+    records: list[StateGraphCacheRecord], components: int, cap: float = 100.0
 ) -> np.ndarray:
     positive = np.ones(components, dtype=np.float64)
     total_rows = 0
@@ -507,7 +519,19 @@ def _completion_pos_weights(
         positive += completion.sum(axis=0)
         total_rows += len(completion)
     negative = np.maximum(float(total_rows) - positive, 1.0)
-    return np.clip(negative / positive, 1.0, 30.0).astype(np.float32)
+    return np.clip(negative / positive, 1.0, cap).astype(np.float32)
+
+
+def _action_presence(
+    records: list[StateGraphCacheRecord], num_steps: int
+) -> list[bool]:
+    counts = np.zeros(num_steps, dtype=np.int64)
+    for record in records:
+        with np.load(record.path, allow_pickle=False) as arrays:
+            labels = arrays["step"].astype(np.int64)
+        labels = labels[(labels >= 0) & (labels < num_steps)]
+        counts += np.bincount(labels, minlength=num_steps)
+    return [bool(count) for count in counts]
 
 
 def _move_batch(batch: dict[str, Any], device) -> dict[str, Any]:
@@ -656,6 +680,12 @@ def main() -> None:
     parser.add_argument("--step-weight", type=float, default=1.0)
     parser.add_argument("--completion-weight", type=float, default=0.45)
     parser.add_argument("--component-outcome-weight", type=float, default=0.7)
+    parser.add_argument(
+        "--completion-pos-weight-cap",
+        type=float,
+        default=100.0,
+        help="Maximum per-component positive BCE weight for sparse completion events.",
+    )
     parser.add_argument("--state-weight", type=float, default=0.8)
     parser.add_argument("--boundary-weight", type=float, default=0.25)
     parser.add_argument("--next-step-weight", type=float, default=0.3)
@@ -668,6 +698,8 @@ def main() -> None:
         parser.error("batch size and accumulation steps must be positive")
     if args.rare_window_boost < 1.0:
         parser.error("rare-window-boost must be at least 1")
+    if args.completion_pos_weight_cap < 1.0:
+        parser.error("completion-pos-weight-cap must be at least 1")
     print(json.dumps(train(args), indent=2))
 
 
