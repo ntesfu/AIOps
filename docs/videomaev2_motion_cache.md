@@ -55,6 +55,9 @@ and resumable at recording granularity. It produces one `[time, 1408]` array per
 recording and `videomaev2_manifest.json`. The default centers are every five
 source frames, exactly matching the current StateGraph cache. Each center uses
 16 frames at interval 2; video-boundary indices are clamped.
+The public checkpoint and its remote model code are pinned to Hugging Face
+revision `d27568eb41ccb2d41bb191fc2e3fe5aad74942d4`; override `--revision` only as
+an intentional new experiment.
 
 After obtaining the official SSv2 checkpoint, use a separate output directory:
 

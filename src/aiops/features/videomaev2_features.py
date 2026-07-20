@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from collections import OrderedDict
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable, Protocol
@@ -13,6 +14,7 @@ from aiops.data.industreal import IndustRealRecording, discover_industreal_recor
 
 
 DEFAULT_MODEL_ID = "OpenGVLab/VideoMAEv2-giant"
+DEFAULT_REVISION = "d27568eb41ccb2d41bb191fc2e3fe5aad74942d4"
 
 
 class ClipEncoder(Protocol):
@@ -50,6 +52,7 @@ class HuggingFaceVideoMAEv2Encoder:
     def __init__(
         self,
         model_id: str = DEFAULT_MODEL_ID,
+        revision: str = DEFAULT_REVISION,
         checkpoint: str | None = None,
         device: str | None = None,
         precision: str = "bf16",
@@ -71,8 +74,10 @@ class HuggingFaceVideoMAEv2Encoder:
             "fp16": torch.float16,
             "fp32": torch.float32,
         }[precision]
-        self.processor = AutoImageProcessor.from_pretrained(model_id, trust_remote_code=True)
-        config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
+        self.processor = AutoImageProcessor.from_pretrained(
+            model_id, revision=revision, trust_remote_code=True, use_fast=False
+        )
+        config = AutoConfig.from_pretrained(model_id, revision=revision, trust_remote_code=True)
         if checkpoint:
             model = AutoModel.from_config(config, trust_remote_code=True)
             self._load_official_checkpoint(model, checkpoint)
@@ -80,6 +85,7 @@ class HuggingFaceVideoMAEv2Encoder:
             model = AutoModel.from_pretrained(
                 model_id,
                 config=config,
+                revision=revision,
                 trust_remote_code=True,
                 torch_dtype=self.dtype,
             )
@@ -158,7 +164,13 @@ def extract_recording(
     else:
         raise RuntimeError(f"No RGB source for {recording.recording_id}")
 
+    frame_cache: OrderedDict[int, np.ndarray] = OrderedDict()
+    cache_capacity = max(32, num_frames * sampling_rate + 8)
+
     def read_frame(index: int) -> np.ndarray:
+        if index in frame_cache:
+            frame_cache.move_to_end(index)
+            return frame_cache[index]
         if frame_paths:
             frame = cv2.imread(str(frame_paths[index]))
         else:
@@ -169,6 +181,9 @@ def extract_recording(
                 frame = None
         if frame is None:
             raise RuntimeError(f"Failed to decode frame {index} from {recording.recording_id}")
+        frame_cache[index] = frame
+        if len(frame_cache) > cache_capacity:
+            frame_cache.popitem(last=False)
         return frame
 
     centers = np.arange(0, source_length, stride_frames, dtype=np.int64)
@@ -241,6 +256,11 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--model-id", default=DEFAULT_MODEL_ID)
     parser.add_argument(
+        "--revision",
+        default=DEFAULT_REVISION,
+        help="Pinned Hugging Face model revision for reproducible remote code and weights.",
+    )
+    parser.add_argument(
         "--checkpoint",
         default=None,
         help="Optional official fine-tuned .pth (preferred: vit_g_hybrid_pt_1200e_ssv2_ft).",
@@ -280,7 +300,7 @@ def main() -> None:
             continue
         if encoder is None:
             encoder = HuggingFaceVideoMAEv2Encoder(
-                args.model_id, args.checkpoint, args.device, args.precision
+                args.model_id, args.revision, args.checkpoint, args.device, args.precision
             )
         print(f"[{ordinal}/{len(recordings)}] extract {recording.recording_id}", flush=True)
         record = extract_recording(
@@ -296,6 +316,7 @@ def main() -> None:
         manifest = {
             "backend": "videomaev2_ssv2_finetuned" if args.checkpoint else "videomaev2_unlabeledhybrid",
             "model_id": args.model_id,
+            "revision": args.revision,
             "checkpoint": str(Path(args.checkpoint).resolve()) if args.checkpoint else None,
             "stride_frames": args.stride_frames,
             "num_frames": args.num_frames,
