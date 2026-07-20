@@ -1,0 +1,42 @@
+{
+  "name": "StateGraph-PSR Large Stage 1",
+  "inherits": "configs/stategraph_psr_stage1.json",
+  "purpose": "Higher-capacity causal candidate for a 24 GB GPU using cached encoders",
+  "model": {
+    "hidden_dim": 384,
+    "num_temporal_blocks": 12,
+    "attention_every": 2,
+    "num_heads": 8,
+    "num_action_refinement_stages": 2,
+    "num_refinement_blocks": 4,
+    "num_event_blocks": 4,
+    "dropout": 0.15,
+    "graph_strength": 0.12,
+    "composition_strength": 1.0,
+    "causal": true
+  },
+  "training": {
+    "precision": "bf16",
+    "batch_size": 2,
+    "accumulation_steps": 4,
+    "sequence_length": 256,
+    "sequence_stride": 192,
+    "learning_rate": 0.0002,
+    "weight_decay": 0.001,
+    "refinement_weight": 0.5,
+    "epochs": 80,
+    "patience": 15
+  },
+  "pilot_command_overrides": [
+    "--hidden-dim 384",
+    "--num-temporal-blocks 12",
+    "--attention-every 2",
+    "--num-heads 8",
+    "--num-action-refinement-stages 2",
+    "--num-refinement-blocks 4",
+    "--num-event-blocks 4",
+    "--dropout 0.15",
+    "--learning-rate 0.0002",
+    "--refinement-weight 0.5"
+  ]
+}

@@ -34,6 +34,9 @@ class StateGraphModelTest(unittest.TestCase):
             num_temporal_blocks=2,
             attention_every=1,
             num_heads=2,
+            num_action_refinement_stages=2,
+            num_refinement_blocks=2,
+            num_event_blocks=2,
             dropout=0.0,
             max_dilation=2,
         )
@@ -52,6 +55,8 @@ class StateGraphModelTest(unittest.TestCase):
         self.assertEqual(tuple(output["normality_logits"].shape), (2, 7, 2))
         self.assertEqual(tuple(output["state_outcome_probabilities"].shape), (2, 7, 2, 3))
         self.assertEqual(tuple(output["progress_logits"].shape), (2, 7))
+        self.assertEqual(len(output["refinement_step_logits"]), 2)
+        self.assertEqual(tuple(output["refinement_step_logits"][-1].shape), (2, 7, 3))
         self.assertTrue(bool((output["atomic_step_logits"][..., 2] == 0).all()))
         self.assertTrue(bool((output["raw_step_logits"][..., 2] != 0).any()))
         self.assertTrue(bool(((output["uncertainty"] >= 0) & (output["uncertainty"] <= 1.0001)).all()))
@@ -60,6 +65,10 @@ class StateGraphModelTest(unittest.TestCase):
         changed[:, 4:] += 100.0
         changed_output = model(changed, appearance, sensor, valid, modalities)
         torch.testing.assert_close(output["step_logits"][:, :4], changed_output["step_logits"][:, :4])
+        torch.testing.assert_close(
+            output["component_outcome_logits"][:, :4],
+            changed_output["component_outcome_logits"][:, :4],
+        )
 
         targets = {
             "valid_mask": valid,
@@ -75,6 +84,8 @@ class StateGraphModelTest(unittest.TestCase):
         self.assertTrue(bool(torch.isfinite(loss["total"])))
         self.assertIn("progress", loss)
         self.assertIn("normality", loss)
+        self.assertIn("refinement", loss)
+        self.assertGreater(float(loss["refinement"]), 0.0)
         loss["total"].backward()
         self.assertTrue(any(parameter.grad is not None for parameter in model.parameters()))
 

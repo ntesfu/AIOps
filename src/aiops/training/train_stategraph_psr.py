@@ -145,6 +145,9 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         num_temporal_blocks=args.num_temporal_blocks,
         attention_every=args.attention_every,
         num_heads=args.num_heads,
+        num_action_refinement_stages=args.num_action_refinement_stages,
+        num_refinement_blocks=args.num_refinement_blocks,
+        num_event_blocks=args.num_event_blocks,
         dropout=args.dropout,
         graph_strength_init=args.graph_strength,
     )
@@ -160,6 +163,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         consistency_weight=args.consistency_weight,
         progress_weight=args.progress_weight,
         normality_weight=args.normality_weight,
+        refinement_weight=args.refinement_weight,
         focal_gamma=args.focal_gamma,
         asl_negative_gamma=args.asl_negative_gamma,
         asl_clip=args.asl_clip,
@@ -1041,6 +1045,9 @@ def main() -> None:
     parser.add_argument("--num-temporal-blocks", type=int, default=8)
     parser.add_argument("--attention-every", type=int, default=2)
     parser.add_argument("--num-heads", type=int, default=4)
+    parser.add_argument("--num-action-refinement-stages", type=int, default=0)
+    parser.add_argument("--num-refinement-blocks", type=int, default=4)
+    parser.add_argument("--num-event-blocks", type=int, default=0)
     parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--graph-strength", type=float, default=0.12)
     parser.add_argument("--learning-rate", type=float, default=3e-4)
@@ -1087,6 +1094,7 @@ def main() -> None:
     parser.add_argument("--consistency-weight", type=float, default=0.15)
     parser.add_argument("--progress-weight", type=float, default=0.25)
     parser.add_argument("--normality-weight", type=float, default=0.3)
+    parser.add_argument("--refinement-weight", type=float, default=0.5)
     parser.add_argument("--focal-gamma", type=float, default=1.5)
     parser.add_argument("--asl-negative-gamma", type=float, default=4.0)
     parser.add_argument("--asl-clip", type=float, default=0.05)
@@ -1115,6 +1123,12 @@ def main() -> None:
         parser.error("gpu-log-interval must be positive")
     if args.calibration_interval <= 0:
         parser.error("calibration-interval must be positive")
+    if min(
+        args.num_action_refinement_stages,
+        args.num_refinement_blocks,
+        args.num_event_blocks,
+    ) < 0:
+        parser.error("refinement stage/block counts cannot be negative")
     print(json.dumps(train(args), indent=2))
 
 

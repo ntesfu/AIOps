@@ -41,6 +41,9 @@ class StateGraphPSRConfig:
     num_temporal_blocks: int = 8
     attention_every: int = 2
     num_heads: int = 4
+    num_action_refinement_stages: int = 0
+    num_refinement_blocks: int = 4
+    num_event_blocks: int = 0
     dropout: float = 0.2
     graph_strength_init: float = 0.12
     composition_strength_init: float = 1.0
@@ -63,6 +66,7 @@ class StateGraphLossConfig:
     consistency_weight: float = 0.15
     progress_weight: float = 0.25
     normality_weight: float = 0.3
+    refinement_weight: float = 0.5
     focal_gamma: float = 1.5
     asl_negative_gamma: float = 4.0
     asl_clip: float = 0.05
@@ -82,6 +86,12 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
         raise ValueError("Stage 1 expects three event outcomes: correct, incorrect, remove.")
     if config.hidden_dim % config.num_heads:
         raise ValueError("hidden_dim must be divisible by num_heads.")
+    if min(
+        config.num_action_refinement_stages,
+        config.num_refinement_blocks,
+        config.num_event_blocks,
+    ) < 0:
+        raise ValueError("Refinement stage/block counts cannot be negative.")
 
     if config.action_verb_indices:
         if len(config.action_verb_indices) != config.num_steps:
@@ -191,6 +201,35 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 x = self.attention(x, valid_mask)
             return x
 
+    class CausalActionRefinementStage(nn.Module):
+        """Refine class trajectories without looking at future frames."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.input = nn.Sequential(
+                nn.LayerNorm(config.num_steps),
+                nn.Linear(config.num_steps, config.hidden_dim),
+                nn.GELU(),
+            )
+            self.blocks = nn.ModuleList(
+                TemporalBlock(
+                    min(2 ** (index % 5), config.max_dilation),
+                    config.attention_every > 0
+                    and (index + 1) % config.attention_every == 0,
+                )
+                for index in range(config.num_refinement_blocks)
+            )
+            self.output = nn.Sequential(
+                nn.LayerNorm(config.hidden_dim),
+                nn.Linear(config.hidden_dim, config.num_steps),
+            )
+
+        def forward(self, logits, valid_mask):
+            features = self.input(torch.softmax(logits, dim=-1))
+            for block in self.blocks:
+                features = block(features, valid_mask)
+            return logits + self.output(features)
+
     class StateGraphPSRLite(nn.Module):
         def __init__(self) -> None:
             super().__init__()
@@ -211,6 +250,18 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 with_attention = config.attention_every > 0 and (index + 1) % config.attention_every == 0
                 blocks.append(TemporalBlock(dilation, with_attention))
             self.temporal_blocks = nn.ModuleList(blocks)
+            self.action_refinement_stages = nn.ModuleList(
+                CausalActionRefinementStage()
+                for _ in range(config.num_action_refinement_stages)
+            )
+            self.event_temporal_blocks = nn.ModuleList(
+                TemporalBlock(
+                    min(2 ** (index % 5), config.max_dilation),
+                    config.attention_every > 0
+                    and (index + 1) % config.attention_every == 0,
+                )
+                for index in range(config.num_event_blocks)
+            )
             factorized = bool(config.action_verb_indices)
             num_verbs = config.num_action_verbs if factorized else config.num_steps
             num_objects = config.num_action_objects if factorized else 1
@@ -389,14 +440,24 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             raw_step_logits = raw_step_logits.masked_fill(
                 self.active_action_mask.view(1, 1, -1) < 0.5, -1e4
             )
+            refinement_step_logits = []
+            for stage in self.action_refinement_stages:
+                raw_step_logits = stage(raw_step_logits, valid_mask)
+                raw_step_logits = raw_step_logits.masked_fill(
+                    self.active_action_mask.view(1, 1, -1) < 0.5, -1e4
+                )
+                refinement_step_logits.append(raw_step_logits)
             graph_step_logits, step_probabilities = self._apply_graph_filter(raw_step_logits, valid_mask)
-            state_logits = self.state_head(temporal).view(
+            event_temporal = temporal
+            for block in self.event_temporal_blocks:
+                event_temporal = block(event_temporal, valid_mask)
+            state_logits = self.state_head(event_temporal).view(
                 temporal.shape[0], temporal.shape[1], config.num_components, 3
             )
             action_context = step_probabilities @ prototype_total
             state_probabilities = torch.softmax(state_logits, dim=-1)
             event_features = self.event_norm(
-                temporal
+                event_temporal
                 + self.action_event_context(action_context)
                 + self.state_event_context(state_probabilities.flatten(start_dim=-2))
             )
@@ -440,6 +501,7 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 "object_logits": object_logits,
                 "step_logits": graph_step_logits,
                 "step_probabilities": step_probabilities,
+                "refinement_step_logits": refinement_step_logits,
                 "event_features": event_features,
                 "completion_logits": self.completion_head(event_features),
                 "component_outcome_logits": component_outcome_logits,
@@ -535,6 +597,15 @@ def build_stategraph_loss(config: StateGraphLossConfig):
             losses["step"] = self._focal_ce(
                 outputs["step_logits"], step_targets, config.focal_gamma, step_class_weights
             )
+            refinement_logits = outputs.get("refinement_step_logits", [])
+            if refinement_logits:
+                refinement_losses = [
+                    self._focal_ce(logits, step_targets, config.focal_gamma, step_class_weights)
+                    for logits in refinement_logits
+                ]
+                losses["refinement"] = torch.stack(refinement_losses).mean()
+            else:
+                losses["refinement"] = outputs["step_logits"].sum() * 0.0
             losses["completion"] = self._asymmetric_bce(
                 outputs["completion_logits"],
                 targets["completion"].float(),
@@ -666,6 +737,7 @@ def build_stategraph_loss(config: StateGraphLossConfig):
                 + config.consistency_weight * losses["consistency"]
                 + config.progress_weight * losses["progress"]
                 + config.normality_weight * losses["normality"]
+                + config.refinement_weight * losses["refinement"]
             )
             losses["total"] = total
             return losses
