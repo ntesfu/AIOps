@@ -137,7 +137,7 @@ python -m aiops.training.train_stategraph_psr \
   --epochs 80 --patience 15
 ```
 
-The script writes `history.jsonl`, `best_checkpoint.pt`, and `summary.json`. Validation selection uses `F1@50 + 0.25 Edit + 0.25 incorrect-recall`. Test evaluation is deliberately disabled during model selection. After all choices are frozen, run once with `--evaluate-test`.
+The script writes `history.jsonl`, `best_checkpoint.pt`, and `summary.json`. Validation selection uses `F1@50 + 0.25 Edit + 0.25 incorrect-F1`; recall alone is not used because predicting every frame as incorrect can otherwise win checkpoint selection. Test evaluation is deliberately disabled during model selection. After all choices are frozen, run once with `--evaluate-test`.
 
 For lower memory, reduce sequence length to 160, then batch size to 1 and increase accumulation. For more compute, retain cached encoders first and compare hidden dimension 256, 12 temporal blocks, and an InternVideo2/VideoMAE appearance cache. Fine-tuning the giant backbone should be a later controlled experiment with LoRA or the final blocks only.
 

@@ -135,8 +135,12 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     )
     use_amp = device.type == "cuda" and args.precision in {"bf16", "fp16"}
     amp_dtype = torch.bfloat16 if args.precision == "bf16" else torch.float16
-    # torch.cuda.amp remains compatible with the minimum supported torch 2.3.
-    scaler = torch.cuda.amp.GradScaler(enabled=use_amp and args.precision == "fp16")
+    try:
+        scaler = torch.amp.GradScaler(
+            "cuda", enabled=use_amp and args.precision == "fp16"
+        )
+    except (AttributeError, TypeError):  # torch 2.3 compatibility
+        scaler = torch.cuda.amp.GradScaler(enabled=use_amp and args.precision == "fp16")
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -192,7 +196,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
             handle.write(json.dumps(row) + "\n")
         print(json.dumps(row), flush=True)
 
-        score = metrics["f1@50"] + 0.25 * metrics["edit"] + 0.25 * metrics["incorrect_recall"]
+        score = metrics["f1@50"] + 0.25 * metrics["edit"] + 0.25 * metrics["incorrect_f1"]
         if score > best_score:
             best_score = score
             best_metrics = metrics
@@ -264,8 +268,10 @@ def evaluate(model, loader, device, use_amp: bool, amp_dtype, num_components: in
     frame_total = 0
     edits: list[float] = []
     f1_scores = {0.1: [], 0.25: [], 0.5: []}
-    incorrect_true = 0
-    incorrect_found = 0
+    outcome_stats = {
+        2: {"true": 0, "predicted": 0, "tp": 0},
+        3: {"true": 0, "predicted": 0, "tp": 0},
+    }
     state_correct = 0
     state_total = 0
     with torch.inference_mode():
@@ -285,9 +291,12 @@ def evaluate(model, loader, device, use_amp: bool, amp_dtype, num_components: in
             valid = batch["valid_mask"] & (batch["step"] >= 0)
             frame_correct += int((step_prediction[valid] == batch["step"][valid]).sum().item())
             frame_total += int(valid.sum().item())
-            incorrect = valid & (batch["outcome"] == 2)
-            incorrect_true += int(incorrect.sum().item())
-            incorrect_found += int((outcome_prediction[incorrect] == 2).sum().item())
+            for outcome_index, counters in outcome_stats.items():
+                truth_mask = valid & (batch["outcome"] == outcome_index)
+                prediction_mask = valid & (outcome_prediction == outcome_index)
+                counters["true"] += int(truth_mask.sum().item())
+                counters["predicted"] += int(prediction_mask.sum().item())
+                counters["tp"] += int((truth_mask & prediction_mask).sum().item())
             state_valid = batch["state_mask"] & batch["valid_mask"].unsqueeze(-1)
             state_correct += int((state_prediction[state_valid] == batch["state"][state_valid]).sum().item())
             state_total += int(state_valid.sum().item())
@@ -298,14 +307,32 @@ def evaluate(model, loader, device, use_amp: bool, amp_dtype, num_components: in
                 edits.append(edit_score(pred, truth))
                 for overlap in f1_scores:
                     f1_scores[overlap].append(segmental_f1(pred, truth, overlap))
+    incorrect_metrics = _precision_recall_f1(outcome_stats[2])
+    remove_metrics = _precision_recall_f1(outcome_stats[3])
     return {
         "frame_accuracy": 100.0 * frame_correct / max(frame_total, 1),
         "edit": float(np.mean(edits)) if edits else 0.0,
         "f1@10": float(np.mean(f1_scores[0.1])) if f1_scores[0.1] else 0.0,
         "f1@25": float(np.mean(f1_scores[0.25])) if f1_scores[0.25] else 0.0,
         "f1@50": float(np.mean(f1_scores[0.5])) if f1_scores[0.5] else 0.0,
-        "incorrect_recall": 100.0 * incorrect_found / max(incorrect_true, 1),
+        "incorrect_precision": incorrect_metrics["precision"],
+        "incorrect_recall": incorrect_metrics["recall"],
+        "incorrect_f1": incorrect_metrics["f1"],
+        "remove_precision": remove_metrics["precision"],
+        "remove_recall": remove_metrics["recall"],
+        "remove_f1": remove_metrics["f1"],
         "state_accuracy": 100.0 * state_correct / max(state_total, 1),
+    }
+
+
+def _precision_recall_f1(counters: dict[str, int]) -> dict[str, float]:
+    precision = counters["tp"] / max(counters["predicted"], 1)
+    recall = counters["tp"] / max(counters["true"], 1)
+    f1 = 2.0 * precision * recall / max(precision + recall, 1e-12)
+    return {
+        "precision": 100.0 * precision,
+        "recall": 100.0 * recall,
+        "f1": 100.0 * f1,
     }
 
 

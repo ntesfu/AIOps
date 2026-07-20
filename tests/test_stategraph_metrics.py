@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from aiops.evaluation.temporal_metrics import edit_score, segmental_f1
+from aiops.training.train_stategraph_psr import _precision_recall_f1
 
 
 class StateGraphMetricsTest(unittest.TestCase):
@@ -18,6 +19,12 @@ class StateGraphMetricsTest(unittest.TestCase):
         truth = [-100, 0, 0, 1, -100]
         prediction = [2, 0, 0, 1, 2]
         self.assertEqual(edit_score(prediction, truth), 100.0)
+
+    def test_fault_metrics_penalize_overprediction(self) -> None:
+        metrics = _precision_recall_f1({"tp": 5, "predicted": 20, "true": 5})
+        self.assertEqual(metrics["precision"], 25.0)
+        self.assertEqual(metrics["recall"], 100.0)
+        self.assertEqual(metrics["f1"], 40.0)
 
 
 if __name__ == "__main__":

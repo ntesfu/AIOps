@@ -180,6 +180,24 @@ Verified label audit: 24 step IDs, 463 total completion events (344 correct,
 Raw component supervision contained 2,470 correct, 1,474 pending, and only 38
 incorrect states, so rare-fault sampling and PR-oriented reporting are mandatory.
 
+### First full-cache and training-smoke results
+
+The fallback Swin3D-S + ConvNeXt cache completed for all 52 recordings in about
+32 minutes: 23,414 sampled time steps, 127 MB, no NaNs, 88 training windows,
+and 20 rare-fault windows. A five-epoch end-to-end training smoke test completed
+in 46 seconds with 3,284,122 trainable parameters and reduced total training
+loss from 18.18 to 4.51. All 14 desktop tests passed.
+
+Do not interpret the smoke validation numbers as a benchmark. The raw 24 PSR
+event IDs include outcome variants and simultaneous multi-component completion
+events; five IDs have no mutually exclusive dense interval at stride 5. The
+final comparison must define the group's canonical 10-part + background mapping
+or move co-completed components to a multi-label completion/state objective.
+The 80-epoch benchmark run is intentionally blocked until that taxonomy is
+resolved. Checkpoint selection was also changed from incorrect recall to
+incorrect F1 after the smoke run showed that near-100% recall could result from
+overpredicting the incorrect class.
+
 ## Known risks and decisions
 
 - No accuracy claim has been made because the architecture has not yet been trained on the labeled release.
