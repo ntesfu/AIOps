@@ -89,7 +89,10 @@ signal without adding a second video encoder.
 
 Each completion component is also mapped, from training annotations only, to
 the persistent state column whose correct/incorrect/pending values best agree
-with its observed outcomes. At inference, a fault can be proposed by either the
+with its observed outcomes. Mapping agreement is balanced across outcomes so
+the abundant correct events cannot erase the scarce incorrect signal, and it
+allows a two-cache-step post-event delay for state annotations to update. At
+inference, a fault can be proposed by either the
 supervised completion/outcome score or the geometric mean of a rising mapped
 incorrect-state probability and prototype anomaly. This prevents the sparse
 completion head from vetoing dense, independently learned evidence of a state

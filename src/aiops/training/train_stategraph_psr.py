@@ -820,8 +820,8 @@ def _infer_event_state_mapping(
 ) -> dict[str, Any]:
     """Map each event component to the state column most consistent with its outcomes."""
 
-    agreement = np.zeros((event_components, state_components), dtype=np.float64)
-    observations = np.zeros((event_components, state_components), dtype=np.float64)
+    agreement = np.zeros((event_components, state_components, 3), dtype=np.float64)
+    observations = np.zeros((event_components, state_components, 3), dtype=np.float64)
     # Event outcomes [correct, incorrect, remove] correspond most closely to
     # persistent state classes [correct=2, incorrect=0, pending=1].
     expected_state = np.asarray([2, 0, 1], dtype=np.int64)
@@ -833,18 +833,30 @@ def _infer_event_state_mapping(
         rows, components = np.where(outcomes >= 0)
         for row, component in zip(rows, components):
             outcome = int(outcomes[row, component])
-            valid = state_mask[row]
-            observations[component, valid] += 1.0
-            agreement[component, valid] += (
-                state[row, valid] == expected_state[outcome]
-            ).astype(np.float64)
-    scores = agreement / np.maximum(observations, 1.0)
+            end = min(len(state), row + 3)
+            valid = state_mask[row:end].any(axis=0)
+            observations[component, valid, outcome] += 1.0
+            matches = (
+                (state[row:end] == expected_state[outcome]) & state_mask[row:end]
+            ).any(axis=0)
+            agreement[component, valid, outcome] += matches[valid].astype(np.float64)
+    per_outcome_scores = agreement / np.maximum(observations, 1.0)
+    outcome_weights = np.asarray([0.3, 0.6, 0.1], dtype=np.float64)
+    available = observations > 0
+    weighted = per_outcome_scores * outcome_weights
+    normalizer = (available * outcome_weights).sum(axis=-1)
+    scores = weighted.sum(axis=-1) / np.maximum(normalizer, 1e-12)
     indices = scores.argmax(axis=1).astype(np.int64)
     return {
         "indices": indices.tolist(),
         "agreement": [float(scores[index, state_index]) for index, state_index in enumerate(indices)],
         "observations": [
-            int(observations[index, state_index]) for index, state_index in enumerate(indices)
+            int(observations[index, state_index].sum())
+            for index, state_index in enumerate(indices)
+        ],
+        "per_outcome_agreement": [
+            per_outcome_scores[index, state_index].tolist()
+            for index, state_index in enumerate(indices)
         ],
     }
 
