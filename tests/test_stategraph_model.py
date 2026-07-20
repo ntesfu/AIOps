@@ -22,6 +22,7 @@ class StateGraphModelTest(unittest.TestCase):
             appearance_dim=6,
             sensor_dim=4,
             num_steps=3,
+            motion_aux_dim=5,
             num_action_verbs=2,
             num_action_objects=2,
             action_verb_indices=(0, 0, 1),
@@ -45,9 +46,17 @@ class StateGraphModelTest(unittest.TestCase):
         motion = torch.randn(2, 7, 8)
         appearance = torch.randn(2, 7, 6)
         sensor = torch.randn(2, 7, 4)
+        motion_aux = torch.randn(2, 7, 5)
         valid = torch.ones(2, 7, dtype=torch.bool)
         modalities = torch.ones(2, 7, 3, dtype=torch.bool)
-        output = model(motion, appearance, sensor, valid, modalities)
+        output = model(
+            motion,
+            appearance,
+            sensor,
+            valid,
+            modalities,
+            motion_aux=motion_aux,
+        )
         self.assertEqual(tuple(output["step_logits"].shape), (2, 7, 3))
         self.assertEqual(tuple(output["state_logits"].shape), (2, 7, 2, 3))
         self.assertEqual(tuple(output["completion_logits"].shape), (2, 7, 2))
@@ -55,6 +64,7 @@ class StateGraphModelTest(unittest.TestCase):
         self.assertEqual(tuple(output["normality_logits"].shape), (2, 7, 2))
         self.assertEqual(tuple(output["state_outcome_probabilities"].shape), (2, 7, 2, 3))
         self.assertEqual(tuple(output["progress_logits"].shape), (2, 7))
+        self.assertEqual(tuple(output["modality_gates"].shape), (2, 7, 4))
         self.assertEqual(len(output["refinement_step_logits"]), 2)
         self.assertEqual(tuple(output["refinement_step_logits"][-1].shape), (2, 7, 3))
         self.assertTrue(bool((output["atomic_step_logits"][..., 2] == 0).all()))
@@ -63,7 +73,14 @@ class StateGraphModelTest(unittest.TestCase):
 
         changed = motion.clone()
         changed[:, 4:] += 100.0
-        changed_output = model(changed, appearance, sensor, valid, modalities)
+        changed_output = model(
+            changed,
+            appearance,
+            sensor,
+            valid,
+            modalities,
+            motion_aux=motion_aux,
+        )
         torch.testing.assert_close(output["step_logits"][:, :4], changed_output["step_logits"][:, :4])
         torch.testing.assert_close(
             output["component_outcome_logits"][:, :4],

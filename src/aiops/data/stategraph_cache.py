@@ -22,6 +22,7 @@ class StateGraphCacheRecord:
     # `num_steps` is the legacy name for the action-class count. Sequence
     # length varies by recording and is stored separately for tooling.
     num_frames: int = 0
+    motion_aux_dim: int = 0
 
 
 def read_cache_index(path: str | Path) -> tuple[dict[str, Any], list[StateGraphCacheRecord]]:
@@ -39,6 +40,7 @@ def read_cache_index(path: str | Path) -> tuple[dict[str, Any], list[StateGraphC
             num_components=int(row.get("num_components", 11)),
             num_completion_components=int(row.get("num_completion_components", 0)),
             num_frames=int(row.get("num_frames", 0)),
+            motion_aux_dim=int(row.get("motion_aux_dim", 0)),
         )
         for row in payload["records"]
     ]
@@ -70,6 +72,7 @@ def write_cache_index(
                 "num_components": record.num_components,
                 "num_completion_components": record.num_completion_components,
                 "num_frames": record.num_frames,
+                "motion_aux_dim": record.motion_aux_dim,
             }
         )
     output_path.write_text(json.dumps({"metadata": metadata, "records": rows}, indent=2) + "\n", encoding="utf-8")
@@ -89,6 +92,7 @@ def save_cache_record(
     state_mask: np.ndarray,
     boundary: np.ndarray,
     timestamps: np.ndarray,
+    motion_aux: np.ndarray | None = None,
 ) -> None:
     length = len(step)
     arrays = {
@@ -104,6 +108,8 @@ def save_cache_record(
         "boundary": np.asarray(boundary, dtype=np.float32),
         "timestamps": np.asarray(timestamps, dtype=np.float32),
     }
+    if motion_aux is not None:
+        arrays["motion_aux"] = np.asarray(motion_aux, dtype=np.float32)
     for name, array in arrays.items():
         if array.shape[0] != length:
             raise ValueError(f"{name} has {array.shape[0]} rows, expected {length}")
@@ -232,7 +238,7 @@ def pad_stategraph_batch(samples: list[dict[str, Any]]) -> dict[str, Any]:
     step = pad_array("step", -100)
     next_step = np.stack([_next_distinct_labels(row) for row in step])
     next_step[~valid_mask] = -100
-    return {
+    batch = {
         "motion": torch.from_numpy(pad_array("motion", 0.0)),
         "appearance": torch.from_numpy(pad_array("appearance", 0.0)),
         "sensor": torch.from_numpy(pad_array("sensor", 0.0)),
@@ -248,6 +254,9 @@ def pad_stategraph_batch(samples: list[dict[str, Any]]) -> dict[str, Any]:
         "recording_id": [sample["recording_id"] for sample in samples],
         "start_index": [sample["start_index"] for sample in samples],
     }
+    if "motion_aux" in samples[0]:
+        batch["motion_aux"] = torch.from_numpy(pad_array("motion_aux", 0.0))
+    return batch
 
 
 def _next_distinct_labels(labels: np.ndarray) -> np.ndarray:

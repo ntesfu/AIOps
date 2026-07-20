@@ -128,6 +128,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     transition_matrix = build_transition_matrix(train_records, num_steps, args.transition_smoothing)
     model_config = StateGraphPSRConfig(
         motion_dim=train_records[0].motion_dim,
+        motion_aux_dim=train_records[0].motion_aux_dim,
         appearance_dim=train_records[0].appearance_dim,
         sensor_dim=train_records[0].sensor_dim,
         num_steps=num_steps,
@@ -264,6 +265,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                         batch["sensor"],
                         valid_mask=batch["valid_mask"],
                         modality_mask=batch["modality_mask"],
+                        motion_aux=batch.get("motion_aux"),
                     )
                     losses = criterion(
                         outputs,
@@ -459,6 +461,7 @@ def evaluate(
                     batch["sensor"],
                     valid_mask=batch["valid_mask"],
                     modality_mask=batch["modality_mask"],
+                    motion_aux=batch.get("motion_aux"),
                 )
             step_prediction = outputs["step_logits"].argmax(dim=-1)
             raw_step_prediction = outputs["raw_step_logits"].argmax(dim=-1)
@@ -935,6 +938,7 @@ def _validate_records(records: list[StateGraphCacheRecord]) -> None:
     signature = (
         records[0].num_steps,
         records[0].motion_dim,
+        records[0].motion_aux_dim,
         records[0].appearance_dim,
         records[0].sensor_dim,
         records[0].num_components,
@@ -944,6 +948,7 @@ def _validate_records(records: list[StateGraphCacheRecord]) -> None:
         current = (
             record.num_steps,
             record.motion_dim,
+            record.motion_aux_dim,
             record.appearance_dim,
             record.sensor_dim,
             record.num_components,

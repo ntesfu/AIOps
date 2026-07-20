@@ -166,6 +166,11 @@ def build_industreal_cache(args: argparse.Namespace) -> dict[str, Any]:
                 else "torchvision_swin3d_s"
             ),
             "appearance": "precomputed" if args.appearance_features_dir else "torchvision_convnext_tiny",
+            "motion_aux": (
+                getattr(args, "motion_aux_backend_name", None) or "precomputed"
+                if getattr(args, "motion_aux_features_dir", None)
+                else None
+            ),
         },
     }
     index_path = output_dir / "index.json"
@@ -238,6 +243,12 @@ def _cache_recording(
         recording.recording_id,
         len(centers),
         preferred_key="appearance",
+    )
+    motion_aux = _load_precomputed(
+        getattr(args, "motion_aux_features_dir", None),
+        recording.recording_id,
+        len(centers),
+        preferred_key="motion",
     )
     if motion is None or appearance is None:
         if extractor is None:
@@ -313,6 +324,7 @@ def _cache_recording(
         state_mask=state_mask,
         boundary=boundary,
         timestamps=timestamps,
+        motion_aux=motion_aux,
     )
     return StateGraphCacheRecord(
         recording_id=recording.recording_id,
@@ -325,6 +337,7 @@ def _cache_recording(
         num_components=args.num_components,
         num_completion_components=len(schema.completion_components),
         num_frames=len(step),
+        motion_aux_dim=int(motion_aux.shape[1]) if motion_aux is not None else 0,
     )
 
 
@@ -512,6 +525,8 @@ def main() -> None:
         default=None,
         help="Provenance label stored in index.json for precomputed motion features.",
     )
+    parser.add_argument("--motion-aux-features-dir", default=None)
+    parser.add_argument("--motion-aux-backend-name", default=None)
     parser.add_argument("--appearance-features-dir", default=None)
     parser.add_argument(
         "--recording-id",

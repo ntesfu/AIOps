@@ -27,6 +27,7 @@ class StateGraphPSRConfig:
     appearance_dim: int
     sensor_dim: int
     num_steps: int
+    motion_aux_dim: int = 0
     num_action_verbs: int = 0
     num_action_objects: int = 0
     action_verb_indices: tuple[int, ...] = ()
@@ -235,13 +236,15 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             super().__init__()
             self.config = config
             self.motion_stem = ProjectionStem(config.motion_dim)
+            self.motion_aux_stem = ProjectionStem(config.motion_aux_dim)
             self.appearance_stem = ProjectionStem(config.appearance_dim)
             self.sensor_stem = ProjectionStem(config.sensor_dim)
+            modality_count = 4 if config.motion_aux_dim > 0 else 3
             self.modality_gate = nn.Sequential(
-                nn.LayerNorm(config.hidden_dim * 3),
-                nn.Linear(config.hidden_dim * 3, config.hidden_dim),
+                nn.LayerNorm(config.hidden_dim * modality_count),
+                nn.Linear(config.hidden_dim * modality_count, config.hidden_dim),
                 nn.GELU(),
-                nn.Linear(config.hidden_dim, 3),
+                nn.Linear(config.hidden_dim, modality_count),
             )
             self.fusion_norm = nn.LayerNorm(config.hidden_dim)
             blocks = []
@@ -354,18 +357,31 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             matrix = matrix / matrix.sum(dim=1, keepdim=True).clamp_min(1e-6)
             self.register_buffer("transition_matrix", matrix)
 
-        def _project_modalities(self, motion, appearance, sensor, modality_mask):
+        def _project_modalities(self, motion, appearance, sensor, modality_mask, motion_aux=None):
             batch, length = motion.shape[:2]
             zeros = motion.new_zeros(batch, length, config.hidden_dim)
             projected = [
                 self.motion_stem(motion) if config.motion_dim > 0 else zeros,
-                self.appearance_stem(appearance) if config.appearance_dim > 0 else zeros,
-                self.sensor_stem(sensor) if config.sensor_dim > 0 else zeros,
             ]
+            if config.motion_aux_dim > 0:
+                projected.append(
+                    self.motion_aux_stem(motion_aux) if motion_aux is not None else zeros
+                )
+            projected.extend(
+                [
+                    self.appearance_stem(appearance) if config.appearance_dim > 0 else zeros,
+                    self.sensor_stem(sensor) if config.sensor_dim > 0 else zeros,
+                ]
+            )
             stack = torch.stack(projected, dim=2)
             gate_input = torch.cat(projected, dim=-1)
             gate_logits = self.modality_gate(gate_input)
             if modality_mask is not None:
+                if config.motion_aux_dim > 0 and modality_mask.shape[-1] == 3:
+                    aux_mask = torch.full_like(modality_mask[..., :1], motion_aux is not None)
+                    modality_mask = torch.cat(
+                        [modality_mask[..., :1], aux_mask, modality_mask[..., 1:]], dim=-1
+                    )
                 gate_logits = gate_logits.masked_fill(~modality_mask.bool(), -1e4)
             gates = torch.softmax(gate_logits, dim=-1)
             fused = (stack * gates.unsqueeze(-1)).sum(dim=2)
@@ -403,10 +419,13 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             sensor,
             valid_mask=None,
             modality_mask=None,
+            motion_aux=None,
         ):
             if valid_mask is None:
                 valid_mask = torch.ones(motion.shape[:2], dtype=torch.bool, device=motion.device)
-            fused, modality_gates = self._project_modalities(motion, appearance, sensor, modality_mask)
+            fused, modality_gates = self._project_modalities(
+                motion, appearance, sensor, modality_mask, motion_aux
+            )
             temporal = fused
             for block in self.temporal_blocks:
                 temporal = block(temporal, valid_mask)
