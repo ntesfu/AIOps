@@ -12,6 +12,7 @@ from aiops.training.train_stategraph_psr import (
     _match_event_counts,
     _precision_recall_f1,
     _predicted_events,
+    _predicted_events_from_scores,
 )
 
 
@@ -67,6 +68,16 @@ class StateGraphMetricsTest(unittest.TestCase):
         batches = list(sampler)
         self.assertEqual(len(batches), 4)
         self.assertTrue(all(3 in batch for batch in batches))
+
+    def test_joint_decoder_assigns_one_outcome_and_suppresses_nearby_peak(self) -> None:
+        scores = np.zeros((8, 1, 3), dtype=np.float32)
+        scores[2, 0] = [0.1, 0.7, 0.2]
+        scores[4, 0] = [0.1, 0.6, 0.2]
+        scores[7, 0] = [0.8, 0.1, 0.1]
+        self.assertEqual(
+            _predicted_events_from_scores(scores, [0.5, 0.5, 0.5], minimum_distance=4),
+            [(2, 0, 1), (7, 0, 0)],
+        )
 
 
 if __name__ == "__main__":

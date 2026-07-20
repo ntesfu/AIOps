@@ -564,20 +564,33 @@ def _predicted_events(
 def _predicted_events_from_scores(
     event_scores: np.ndarray,
     thresholds: list[float] | tuple[float, ...],
+    minimum_distance: int = 4,
 ) -> list[tuple[int, int, int]]:
-    """Decode component/outcome peaks from joint completion-outcome scores."""
+    """Propose each component completion once, then assign exactly one outcome."""
 
     events: list[tuple[int, int, int]] = []
     for component in range(event_scores.shape[1]):
-        for outcome in range(event_scores.shape[2]):
-            scores = event_scores[:, component, outcome]
-            threshold = float(thresholds[outcome])
-            for row, score in enumerate(scores):
-                previous = scores[row - 1] if row > 0 else -np.inf
-                following = scores[row + 1] if row + 1 < len(scores) else -np.inf
-                if score >= threshold and score >= previous and score > following:
-                    events.append((row, component, outcome))
-    return events
+        completion_scores = event_scores[:, component].sum(axis=-1)
+        candidates: list[tuple[float, int, int]] = []
+        for row, completion_score in enumerate(completion_scores):
+            previous = completion_scores[row - 1] if row > 0 else -np.inf
+            following = (
+                completion_scores[row + 1]
+                if row + 1 < len(completion_scores)
+                else -np.inf
+            )
+            if completion_score < previous or completion_score <= following:
+                continue
+            outcome = int(event_scores[row, component].argmax())
+            joint_score = float(event_scores[row, component, outcome])
+            if joint_score >= float(thresholds[outcome]):
+                candidates.append((joint_score, row, outcome))
+        selected_rows: list[int] = []
+        for _, row, outcome in sorted(candidates, reverse=True):
+            if all(abs(row - selected) >= minimum_distance for selected in selected_rows):
+                selected_rows.append(row)
+                events.append((row, component, outcome))
+    return sorted(events)
 
 
 def _event_metrics_from_samples(

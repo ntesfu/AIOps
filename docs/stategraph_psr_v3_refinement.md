@@ -93,7 +93,10 @@ signal without adding a second video encoder.
   incorrect completion event (`--rare-windows-per-batch`, default 1).
 - Incorrect-event windows are not randomly jittered away from their event.
 - Completion uses asymmetric multi-label loss.
-- Decoding uses the joint score `P(completion) * P(outcome | completion)`.
+- Decoding proposes one completion peak per component, applies temporal
+  suppression, and assigns exactly one outcome using
+  `P(completion) * P(outcome | completion)`. It cannot emit correct, incorrect,
+  and remove alerts for the same physical event.
 - Correct, incorrect, and remove thresholds are calibrated independently on
   validation; fixed-threshold metrics remain visible for auditability.
 - Event PR-AUC and selected thresholds are logged. Test thresholds must be
