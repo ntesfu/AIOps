@@ -64,6 +64,7 @@ def main() -> None:
         amp_dtype,
         config.num_components,
         calibrate_events=True,
+        calibrate_latency=True,
     )
     payload = {
         "checkpoint": str(Path(args.checkpoint).resolve()),

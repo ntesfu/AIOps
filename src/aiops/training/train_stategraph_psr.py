@@ -425,6 +425,7 @@ def evaluate(
     num_components: int,
     event_thresholds: list[float] | None = None,
     calibrate_events: bool = True,
+    calibrate_latency: bool = False,
 ) -> dict[str, float]:
     import torch
 
@@ -548,7 +549,7 @@ def evaluate(
     # but otherwise useful fault evidence.
     latency_metrics: dict[int, tuple[list[float], dict[Any, dict[str, float]]]] = {}
     for tolerance in (2, 4):
-        if calibrate_events:
+        if calibrate_events and calibrate_latency:
             latency_thresholds, metrics_at_tolerance, _ = _calibrate_event_thresholds(
                 event_samples, outcomes=3, tolerance=tolerance
             )
