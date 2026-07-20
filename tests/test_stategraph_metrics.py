@@ -93,6 +93,17 @@ class StateGraphMetricsTest(unittest.TestCase):
             [(2, 0, 1), (7, 0, 0)],
         )
 
+    def test_rare_outcome_peak_is_not_hidden_by_correct_outcome_sum(self) -> None:
+        scores = np.zeros((7, 1, 3), dtype=np.float32)
+        # Correct evidence keeps rising through row 4, so the summed curve has no
+        # local maximum at the true incorrect event on row 2.
+        scores[:, 0, 0] = [0.1, 0.2, 0.3, 0.5, 0.8, 0.2, 0.1]
+        scores[:, 0, 1] = [0.0, 0.1, 0.6, 0.1, 0.0, 0.0, 0.0]
+        predictions = _predicted_events_from_scores(
+            scores, [0.5, 0.5, 0.5], minimum_distance=2
+        )
+        self.assertIn((2, 0, 1), predictions)
+
     def test_binary_average_precision_rewards_ranked_faults(self) -> None:
         perfect = _binary_average_precision([0.9, 0.8, 0.2], [1, 1, 0])
         reversed_score = _binary_average_precision([0.1, 0.2, 0.9], [1, 1, 0])

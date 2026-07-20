@@ -639,27 +639,28 @@ def _predicted_events_from_scores(
     thresholds: list[float] | tuple[float, ...],
     minimum_distance: int = 4,
 ) -> list[tuple[int, int, int]]:
-    """Propose each component completion once, then assign exactly one outcome."""
+    """Propose outcome-specific peaks, then keep one outcome per nearby event.
+
+    A peak in the sum over outcomes can be controlled by the majority ``correct``
+    curve and hide a smaller, temporally sharper fault peak.  We therefore form
+    candidates per outcome and perform cross-outcome temporal suppression using
+    score relative to that outcome's calibrated threshold.
+    """
 
     events: list[tuple[int, int, int]] = []
     for component in range(event_scores.shape[1]):
-        completion_scores = event_scores[:, component].sum(axis=-1)
-        candidates: list[tuple[float, int, int]] = []
-        for row, completion_score in enumerate(completion_scores):
-            previous = completion_scores[row - 1] if row > 0 else -np.inf
-            following = (
-                completion_scores[row + 1]
-                if row + 1 < len(completion_scores)
-                else -np.inf
-            )
-            if completion_score < previous or completion_score <= following:
-                continue
-            outcome = int(event_scores[row, component].argmax())
-            joint_score = float(event_scores[row, component, outcome])
-            if joint_score >= float(thresholds[outcome]):
-                candidates.append((joint_score, row, outcome))
+        candidates: list[tuple[float, float, int, int]] = []
+        for outcome, threshold in enumerate(thresholds):
+            scores = event_scores[:, component, outcome]
+            for row, score in enumerate(scores):
+                previous = scores[row - 1] if row > 0 else -np.inf
+                following = scores[row + 1] if row + 1 < len(scores) else -np.inf
+                if score < previous or score <= following or score < float(threshold):
+                    continue
+                calibrated_confidence = float(score) / max(float(threshold), 1e-6)
+                candidates.append((calibrated_confidence, float(score), row, outcome))
         selected_rows: list[int] = []
-        for _, row, outcome in sorted(candidates, reverse=True):
+        for _, _, row, outcome in sorted(candidates, reverse=True):
             if all(abs(row - selected) >= minimum_distance for selected in selected_rows):
                 selected_rows.append(row)
                 events.append((row, component, outcome))
