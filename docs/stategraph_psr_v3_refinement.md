@@ -102,6 +102,15 @@ signal without adding a second video encoder.
 - Event PR-AUC and selected thresholds are logged. Test thresholds must be
   frozen before a single test evaluation.
 
+Re-evaluate a saved checkpoint after a decoder-only change without retraining:
+
+```bash
+python3 -m aiops.evaluation.evaluate_stategraph_checkpoint \
+  --checkpoint /path/to/best_checkpoint.pt \
+  --cache-index /path/to/cache/index.json \
+  --split val --output /path/to/decoder_metrics.json
+```
+
 ## Reusable dashboard
 
 Training always writes:
