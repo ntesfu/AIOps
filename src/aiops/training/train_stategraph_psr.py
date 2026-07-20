@@ -463,6 +463,16 @@ def evaluate(
             )
             state_prediction = outputs["state_logits"].argmax(dim=-1)
             normality_anomaly_score = torch.sigmoid(-outputs["normality_logits"])
+            state_incorrect_probability = outputs["state_outcome_probabilities"][..., 1]
+            previous_state_incorrect = torch.nn.functional.pad(
+                state_incorrect_probability[:, :-1], (0, 0, 1, 0), value=0.0
+            )
+            state_incorrect_onset = state_incorrect_probability * (
+                1.0 - previous_state_incorrect
+            )
+            prototype_state_fault_score = torch.sqrt(
+                (state_incorrect_onset * normality_anomaly_score).clamp_min(0.0)
+            )
             valid = batch["valid_mask"] & (batch["step"] >= 0)
             frame_correct += int((step_prediction[valid] == batch["step"][valid]).sum().item())
             raw_frame_correct += int(
@@ -499,6 +509,11 @@ def evaluate(
                 event_scores = (
                     completion_score[sample_index, :length].unsqueeze(-1)
                     * component_outcome_probability[sample_index, :length]
+                )
+                event_scores = event_scores.clone()
+                event_scores[..., 1] = torch.maximum(
+                    event_scores[..., 1],
+                    prototype_state_fault_score[sample_index, :length],
                 )
                 event_samples.append(
                     (truth_events, event_scores.detach().float().cpu().numpy())

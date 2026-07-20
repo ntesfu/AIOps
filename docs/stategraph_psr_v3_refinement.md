@@ -87,6 +87,14 @@ incorrect events receive higher weight in its binary auxiliary loss, and anomaly
 evidence contributes to the incorrect-outcome logit. This supplies an open-set
 signal without adding a second video encoder.
 
+Each completion component is also mapped, from training annotations only, to
+the persistent state column whose correct/incorrect/pending values best agree
+with its observed outcomes. At inference, a fault can be proposed by either the
+supervised completion/outcome score or the geometric mean of a rising mapped
+incorrect-state probability and prototype anomaly. This prevents the sparse
+completion head from vetoing dense, independently learned evidence of a state
+failure.
+
 ### Rare-event optimization and decoding
 
 - Every training batch contains a configurable number of windows with a real
