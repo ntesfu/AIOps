@@ -41,7 +41,7 @@ class StateGraphPSRConfig:
     attention_every: int = 2
     num_heads: int = 4
     dropout: float = 0.2
-    graph_strength_init: float = 1.5
+    graph_strength_init: float = 0.12
     composition_strength_init: float = 1.0
     max_dilation: int = 16
 
@@ -60,7 +60,12 @@ class StateGraphLossConfig:
     smoothing_weight: float = 0.12
     graph_weight: float = 0.15
     consistency_weight: float = 0.15
+    progress_weight: float = 0.25
+    normality_weight: float = 0.3
     focal_gamma: float = 1.5
+    asl_negative_gamma: float = 4.0
+    asl_clip: float = 0.05
+    normality_error_weight: float = 8.0
 
 
 def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | None = None):
@@ -245,14 +250,28 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             self.step_classifier = nn.Linear(config.hidden_dim, config.num_steps)
             self.verb_classifier = nn.Linear(config.hidden_dim, num_verbs)
             self.object_classifier = nn.Linear(config.hidden_dim, num_objects)
+            self.state_head = nn.Linear(config.hidden_dim, config.num_components * 3)
+            self.action_event_context = nn.Linear(config.hidden_dim, config.hidden_dim)
+            self.state_event_context = nn.Linear(config.num_components * 3, config.hidden_dim)
+            self.event_norm = nn.LayerNorm(config.hidden_dim)
             self.completion_head = nn.Linear(config.hidden_dim, config.num_completion_components)
             self.component_outcome_head = nn.Linear(
                 config.hidden_dim, config.num_completion_components * config.num_event_outcomes
             )
-            self.state_head = nn.Linear(config.hidden_dim, config.num_components * 3)
+            self.component_normal_prototypes = nn.Parameter(
+                torch.empty(config.num_completion_components, config.hidden_dim)
+            )
+            nn.init.trunc_normal_(self.component_normal_prototypes, std=0.02)
+            self.normality_scale_raw = nn.Parameter(torch.tensor(2.0))
+            self.normality_bias = nn.Parameter(torch.tensor(0.0))
+            self.anomaly_strength_raw = nn.Parameter(torch.tensor(-1.0))
             self.boundary_head = nn.Linear(config.hidden_dim, 1)
+            self.progress_head = nn.Linear(config.hidden_dim, 1)
             self.next_step_head = nn.Linear(config.hidden_dim, config.num_steps)
-            self.graph_strength_raw = nn.Parameter(torch.tensor(float(config.graph_strength_init)))
+            graph_gate = min(max(float(config.graph_strength_init), 1e-4), 1.0 - 1e-4)
+            self.graph_strength_raw = nn.Parameter(
+                torch.tensor(math.log(graph_gate / (1.0 - graph_gate)))
+            )
             self.composition_strength_raw = nn.Parameter(
                 torch.tensor(float(config.composition_strength_init))
             )
@@ -292,16 +311,21 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             posterior_rows = []
             adjusted_rows = []
             previous = raw_logits.new_full((batch, config.num_steps), 1.0 / config.num_steps)
-            strength = functional.softplus(self.graph_strength_raw)
+            strength = torch.sigmoid(self.graph_strength_raw)
             for index in range(length):
                 prior = previous @ self.transition_matrix
-                graph_bias = strength * torch.log(prior.clamp_min(1e-6))
-                graph_bias = graph_bias * self.seen_action_mask.unsqueeze(0)
-                adjusted = raw_logits[:, index] + graph_bias
-                posterior = torch.softmax(adjusted, dim=-1)
+                evidence = torch.softmax(raw_logits[:, index], dim=-1)
+                graph_prior = torch.where(
+                    self.seen_action_mask.unsqueeze(0) > 0.5,
+                    prior,
+                    evidence,
+                )
+                posterior = (1.0 - strength) * evidence + strength * graph_prior
+                posterior = posterior / posterior.sum(dim=-1, keepdim=True).clamp_min(1e-6)
                 if valid_mask is not None:
                     active = valid_mask[:, index].unsqueeze(-1)
                     posterior = torch.where(active, posterior, previous)
+                adjusted = torch.log(posterior.clamp_min(1e-7))
                 adjusted_rows.append(adjusted)
                 posterior_rows.append(posterior)
                 previous = posterior
@@ -355,11 +379,31 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             state_logits = self.state_head(temporal).view(
                 temporal.shape[0], temporal.shape[1], config.num_components, 3
             )
-            component_outcome_logits = self.component_outcome_head(temporal).view(
+            action_context = step_probabilities @ prototype_total
+            state_probabilities = torch.softmax(state_logits, dim=-1)
+            event_features = self.event_norm(
+                temporal
+                + self.action_event_context(action_context)
+                + self.state_event_context(state_probabilities.flatten(start_dim=-2))
+            )
+            normal_reference = action_context.unsqueeze(-2) + self.component_normal_prototypes
+            normality_logits = (
+                functional.softplus(self.normality_scale_raw)
+                * functional.cosine_similarity(event_features.unsqueeze(-2), normal_reference, dim=-1)
+                + self.normality_bias
+            )
+            component_outcome_logits = self.component_outcome_head(event_features).view(
                 temporal.shape[0],
                 temporal.shape[1],
                 config.num_completion_components,
                 config.num_event_outcomes,
+            )
+            incorrect_index = 1
+            anomaly_strength = functional.softplus(self.anomaly_strength_raw)
+            incorrect_boost = anomaly_strength * (-normality_logits)
+            component_outcome_logits = component_outcome_logits.clone()
+            component_outcome_logits[..., incorrect_index] = (
+                component_outcome_logits[..., incorrect_index] + incorrect_boost
             )
             entropy = -(step_probabilities.clamp_min(1e-7).log() * step_probabilities).sum(dim=-1)
             # Entropy is bounded by log(K); this keeps uncertainty in [0, 1].
@@ -373,10 +417,13 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 "object_logits": object_logits,
                 "step_logits": graph_step_logits,
                 "step_probabilities": step_probabilities,
-                "completion_logits": self.completion_head(temporal),
+                "event_features": event_features,
+                "completion_logits": self.completion_head(event_features),
                 "component_outcome_logits": component_outcome_logits,
+                "normality_logits": normality_logits,
                 "state_logits": state_logits,
                 "boundary_logits": self.boundary_head(temporal).squeeze(-1),
+                "progress_logits": self.progress_head(temporal).squeeze(-1),
                 "next_step_logits": self.next_step_head(temporal),
                 "uncertainty": normalized_entropy,
                 "energy": energy,
@@ -422,6 +469,33 @@ def build_stategraph_loss(config: StateGraphLossConfig):
             pt = torch.where(selected_targets > 0.5, probabilities, 1.0 - probabilities)
             return (((1.0 - pt).clamp_min(0.0) ** gamma) * bce).mean()
 
+        @staticmethod
+        def _asymmetric_bce(
+            logits,
+            targets,
+            valid_mask,
+            positive_gamma: float,
+            negative_gamma: float,
+            clip: float,
+            pos_weight=None,
+        ):
+            if not valid_mask.any():
+                return logits.sum() * 0.0
+            selected_logits = logits[valid_mask]
+            selected_targets = targets[valid_mask]
+            probabilities = torch.sigmoid(selected_logits)
+            positive_probability = probabilities.clamp(1e-8, 1.0 - 1e-8)
+            negative_probability = (1.0 - probabilities + clip).clamp(max=1.0)
+            positive_loss = selected_targets * torch.log(positive_probability)
+            negative_loss = (1.0 - selected_targets) * torch.log(
+                negative_probability.clamp_min(1e-8)
+            )
+            if pos_weight is not None:
+                positive_loss = positive_loss * pos_weight
+            positive_focus = (1.0 - positive_probability) ** positive_gamma
+            negative_focus = (1.0 - negative_probability) ** negative_gamma
+            return -(positive_focus * positive_loss + negative_focus * negative_loss).mean()
+
         def forward(
             self,
             outputs,
@@ -437,12 +511,14 @@ def build_stategraph_loss(config: StateGraphLossConfig):
             losses["step"] = self._focal_ce(
                 outputs["step_logits"], step_targets, config.focal_gamma, step_class_weights
             )
-            losses["completion"] = self._focal_bce(
+            losses["completion"] = self._asymmetric_bce(
                 outputs["completion_logits"],
                 targets["completion"].float(),
                 valid_mask,
-                config.focal_gamma,
-                completion_pos_weights,
+                positive_gamma=0.0,
+                negative_gamma=config.asl_negative_gamma,
+                clip=config.asl_clip,
+                pos_weight=completion_pos_weights,
             )
             losses["component_outcome"] = self._focal_ce(
                 outputs["component_outcome_logits"],
@@ -460,6 +536,24 @@ def build_stategraph_loss(config: StateGraphLossConfig):
             else:
                 losses["state"] = outputs["state_logits"].sum() * 0.0
 
+            normality_targets = targets["component_outcome"]
+            normality_mask = (normality_targets == 0) | (normality_targets == 1)
+            if normality_mask.any():
+                normality_binary = (normality_targets[normality_mask] == 0).float()
+                normality_loss = functional.binary_cross_entropy_with_logits(
+                    outputs["normality_logits"][normality_mask],
+                    normality_binary,
+                    reduction="none",
+                )
+                normality_weights = torch.where(
+                    normality_binary > 0.5,
+                    torch.ones_like(normality_binary),
+                    torch.full_like(normality_binary, config.normality_error_weight),
+                )
+                losses["normality"] = (normality_loss * normality_weights).mean()
+            else:
+                losses["normality"] = outputs["normality_logits"].sum() * 0.0
+
             boundary_target = targets["boundary"].float()
             if valid_mask.any():
                 positive = boundary_target[valid_mask].sum()
@@ -476,6 +570,15 @@ def build_stategraph_loss(config: StateGraphLossConfig):
             losses["next_step"] = self._focal_ce(
                 outputs["next_step_logits"], targets["next_step"], config.focal_gamma, step_class_weights
             )
+
+            progress_target, progress_mask = _action_progress_targets(step_targets, valid_mask)
+            if progress_mask.any():
+                losses["progress"] = functional.smooth_l1_loss(
+                    torch.sigmoid(outputs["progress_logits"])[progress_mask],
+                    progress_target[progress_mask],
+                )
+            else:
+                losses["progress"] = outputs["progress_logits"].sum() * 0.0
 
             log_probs = functional.log_softmax(outputs["raw_step_logits"], dim=-1)
             pair_mask = valid_mask[:, 1:] & valid_mask[:, :-1]
@@ -537,8 +640,37 @@ def build_stategraph_loss(config: StateGraphLossConfig):
                 + config.smoothing_weight * losses["smoothing"]
                 + config.graph_weight * losses["graph"]
                 + config.consistency_weight * losses["consistency"]
+                + config.progress_weight * losses["progress"]
+                + config.normality_weight * losses["normality"]
             )
             losses["total"] = total
             return losses
 
     return StateGraphMultiTaskLoss()
+
+
+def _action_progress_targets(step_targets, valid_mask):
+    """Create causal-compatible 0..1 progress targets for each action segment."""
+
+    torch, _, _ = _load_torch()
+    progress = torch.zeros_like(step_targets, dtype=torch.float32)
+    mask = valid_mask.bool() & (step_targets >= 0)
+    for batch_index in range(step_targets.shape[0]):
+        length = int(mask[batch_index].sum().item())
+        if length == 0:
+            continue
+        labels = step_targets[batch_index, :length]
+        start = 0
+        while start < length:
+            end = start + 1
+            while end < length and labels[end] == labels[start]:
+                end += 1
+            segment_length = end - start
+            if segment_length == 1:
+                progress[batch_index, start] = 1.0
+            else:
+                progress[batch_index, start:end] = torch.linspace(
+                    0.0, 1.0, segment_length, device=step_targets.device
+                )
+            start = end
+    return progress, mask

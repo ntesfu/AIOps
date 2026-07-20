@@ -132,6 +132,7 @@ class StateGraphCacheDataset:
         self.training = training
         self.seed = seed
         self.windows: list[tuple[int, int]] = []
+        self.incorrect_event_windows: set[int] = set()
         for record_index, record in enumerate(records):
             with np.load(record.path, allow_pickle=False) as arrays:
                 length = int(arrays["step"].shape[0])
@@ -143,6 +144,11 @@ class StateGraphCacheDataset:
                 if not starts or starts[-1] != final_start:
                     starts.append(final_start)
                 self.windows.extend((record_index, start) for start in starts)
+        for window_index, (record_index, start) in enumerate(self.windows):
+            with np.load(self.records[record_index].path, allow_pickle=False) as arrays:
+                end = min(len(arrays["component_outcome"]), start + self.sequence_length)
+                if (arrays["component_outcome"][start:end] == 1).any():
+                    self.incorrect_event_windows.add(window_index)
 
     def __len__(self) -> int:
         return len(self.windows)
@@ -152,7 +158,11 @@ class StateGraphCacheDataset:
         record = self.records[record_index]
         with np.load(record.path, allow_pickle=False) as arrays:
             length = int(arrays["step"].shape[0])
-            if self.training and length > self.sequence_length:
+            if (
+                self.training
+                and length > self.sequence_length
+                and index not in self.incorrect_event_windows
+            ):
                 rng = np.random.default_rng(self.seed + index)
                 jitter = int(rng.integers(-self.sequence_stride // 4, self.sequence_stride // 4 + 1))
                 start = int(np.clip(start + jitter, 0, length - self.sequence_length))
@@ -167,7 +177,7 @@ class StateGraphCacheDataset:
         incorrect_outcome_index: int = 1,
         rare_window_boost: float = 4.0,
     ) -> np.ndarray:
-        """Return deterministic weights that expose scarce fault windows more often."""
+        """Return deterministic weights that expose scarce event windows more often."""
         if rare_window_boost < 1.0:
             raise ValueError("rare_window_boost must be at least 1")
         labels: dict[int, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
@@ -185,10 +195,14 @@ class StateGraphCacheDataset:
             has_incorrect_outcome = bool(
                 (component_outcome[start:end] == incorrect_outcome_index).any()
             )
-            has_incorrect_state = bool(((state[start:end] == 0) & state_mask[start:end]).any())
-            if has_incorrect_outcome or has_incorrect_state:
+            if has_incorrect_outcome:
                 weights[window_index] = rare_window_boost
         return weights
+
+    def rare_window_indices(self) -> list[int]:
+        """Return windows containing a supervised incorrect completion event."""
+
+        return sorted(self.incorrect_event_windows)
 
 
 def pad_stategraph_batch(samples: list[dict[str, Any]]) -> dict[str, Any]:

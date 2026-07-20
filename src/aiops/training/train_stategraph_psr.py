@@ -26,6 +26,54 @@ from aiops.models.stategraph_psr import (
     build_stategraph_psr,
 )
 from aiops.data.procedure_schema import CACHE_SCHEMA_VERSION
+from aiops.training.monitoring import TrainingMonitor
+
+
+class OutcomeAwareBatchSampler:
+    """Deterministic batches with guaranteed exposure to rare event windows."""
+
+    def __init__(
+        self,
+        dataset_size: int,
+        batch_size: int,
+        rare_indices: list[int],
+        rare_per_batch: int = 1,
+        seed: int = 7,
+    ) -> None:
+        if dataset_size <= 0 or batch_size <= 0:
+            raise ValueError("dataset_size and batch_size must be positive")
+        if rare_per_batch < 0 or rare_per_batch > batch_size:
+            raise ValueError("rare_per_batch must be between zero and batch_size")
+        self.dataset_size = dataset_size
+        self.batch_size = batch_size
+        self.rare_indices = np.asarray(sorted(set(rare_indices)), dtype=np.int64)
+        self.rare_per_batch = rare_per_batch if len(self.rare_indices) else 0
+        self.seed = seed
+        self.epoch = 0
+
+    def __len__(self) -> int:
+        return math.ceil(self.dataset_size / self.batch_size)
+
+    def __iter__(self):
+        rng = np.random.default_rng(self.seed + self.epoch)
+        self.epoch += 1
+        all_indices = np.arange(self.dataset_size, dtype=np.int64)
+        remaining = self.dataset_size
+        for _ in range(len(self)):
+            current_size = min(self.batch_size, remaining)
+            rare_count = min(self.rare_per_batch, current_size)
+            batch: list[int] = []
+            if rare_count:
+                batch.extend(
+                    int(value)
+                    for value in rng.choice(self.rare_indices, size=rare_count, replace=True)
+                )
+            fill = current_size - rare_count
+            if fill:
+                batch.extend(int(value) for value in rng.choice(all_indices, size=fill, replace=True))
+            rng.shuffle(batch)
+            yield batch
+            remaining -= current_size
 
 
 def set_seed(seed: int) -> None:
@@ -40,7 +88,7 @@ def set_seed(seed: int) -> None:
 
 def train(args: argparse.Namespace) -> dict[str, Any]:
     import torch
-    from torch.utils.data import DataLoader, WeightedRandomSampler
+    from torch.utils.data import DataLoader
 
     set_seed(args.seed)
     metadata, records = read_cache_index(args.cache_index)
@@ -104,7 +152,12 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         smoothing_weight=args.smoothing_weight,
         graph_weight=args.graph_weight,
         consistency_weight=args.consistency_weight,
+        progress_weight=args.progress_weight,
+        normality_weight=args.normality_weight,
         focal_gamma=args.focal_gamma,
+        asl_negative_gamma=args.asl_negative_gamma,
+        asl_clip=args.asl_clip,
+        normality_error_weight=args.normality_error_weight,
     )
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     model = build_stategraph_psr(model_config, transition_matrix).to(device)
@@ -132,17 +185,16 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         incorrect_outcome_index=1,
         rare_window_boost=args.rare_window_boost,
     )
-    sampler = WeightedRandomSampler(
-        weights=torch.as_tensor(sampling_weights, dtype=torch.double),
-        num_samples=len(train_dataset),
-        replacement=True,
-        generator=torch.Generator().manual_seed(args.seed),
+    batch_sampler = OutcomeAwareBatchSampler(
+        dataset_size=len(train_dataset),
+        batch_size=args.batch_size,
+        rare_indices=train_dataset.rare_window_indices(),
+        rare_per_batch=args.rare_windows_per_batch,
+        seed=args.seed,
     )
     train_loader = DataLoader(
         train_dataset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        sampler=sampler,
+        batch_sampler=batch_sampler,
         num_workers=args.num_workers,
         pin_memory=device.type == "cuda",
         collate_fn=pad_stategraph_batch,
@@ -181,79 +233,110 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     history_path = output_dir / "history.jsonl"
     history_path.write_text("", encoding="utf-8")
+    monitor = TrainingMonitor(output_dir, enabled=not args.disable_dashboard)
     best_score = -float("inf")
     best_metrics: dict[str, Any] | None = None
     patience_left = args.patience
+    global_update = 0
 
-    for epoch in range(1, args.epochs + 1):
-        model.train()
-        optimizer.zero_grad(set_to_none=True)
-        running: dict[str, list[float]] = {}
-        for batch_index, batch in enumerate(train_loader, start=1):
-            batch = _move_batch(batch, device)
-            with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
-                outputs = model(
-                    batch["motion"],
-                    batch["appearance"],
-                    batch["sensor"],
-                    valid_mask=batch["valid_mask"],
-                    modality_mask=batch["modality_mask"],
-                )
-                losses = criterion(
-                    outputs,
-                    batch,
-                    transition_matrix=model.transition_matrix,
-                    step_class_weights=step_weights,
-                    completion_pos_weights=completion_pos_weights,
-                    component_outcome_class_weights=component_outcome_weights,
-                )
-                scaled_loss = losses["total"] / args.accumulation_steps
-            scaler.scale(scaled_loss).backward()
-            for name, value in losses.items():
-                running.setdefault(name, []).append(float(value.detach().cpu()))
-            if batch_index % args.accumulation_steps == 0 or batch_index == len(train_loader):
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
-                scaler.step(optimizer)
-                scaler.update()
-                optimizer.zero_grad(set_to_none=True)
-                scheduler.step()
+    try:
+        for epoch in range(1, args.epochs + 1):
+            model.train()
+            optimizer.zero_grad(set_to_none=True)
+            running: dict[str, list[float]] = {}
+            for batch_index, batch in enumerate(train_loader, start=1):
+                batch = _move_batch(batch, device)
+                with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
+                    outputs = model(
+                        batch["motion"],
+                        batch["appearance"],
+                        batch["sensor"],
+                        valid_mask=batch["valid_mask"],
+                        modality_mask=batch["modality_mask"],
+                    )
+                    losses = criterion(
+                        outputs,
+                        batch,
+                        transition_matrix=model.transition_matrix,
+                        step_class_weights=step_weights,
+                        completion_pos_weights=completion_pos_weights,
+                        component_outcome_class_weights=component_outcome_weights,
+                    )
+                    scaled_loss = losses["total"] / args.accumulation_steps
+                scaler.scale(scaled_loss).backward()
+                for name, value in losses.items():
+                    running.setdefault(name, []).append(float(value.detach().cpu()))
+                if batch_index % args.accumulation_steps == 0 or batch_index == len(train_loader):
+                    scaler.unscale_(optimizer)
+                    gradient_norm = torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), args.max_grad_norm
+                    )
+                    scaler.step(optimizer)
+                    scaler.update()
+                    optimizer.zero_grad(set_to_none=True)
+                    scheduler.step()
+                    global_update += 1
+                    update_values = {
+                        name: float(values[-1]) for name, values in running.items()
+                    }
+                    update_values["learning_rate"] = optimizer.param_groups[0]["lr"]
+                    update_values["gradient_norm"] = float(gradient_norm.detach().cpu())
+                    monitor.log_scalars("train_update", update_values, global_update)
+                    if global_update % args.gpu_log_interval == 0:
+                        monitor.log_system(global_update, device)
 
-        train_loss = {name: float(np.mean(values)) for name, values in running.items()}
-        metrics = evaluate(model, val_loader, device, use_amp, amp_dtype, model_config.num_components)
-        row = {
-            "epoch": epoch,
-            "train_loss": train_loss,
-            "validation": metrics,
-            "learning_rate": optimizer.param_groups[0]["lr"],
-            "graph_strength": float(torch.nn.functional.softplus(model.graph_strength_raw).detach().cpu()),
-        }
-        with history_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(row) + "\n")
-        print(json.dumps(row), flush=True)
-
-        score = metrics["f1@50"] + 0.25 * metrics["edit"] + 0.25 * metrics["incorrect_event_f1"]
-        if score > best_score:
-            best_score = score
-            best_metrics = metrics
-            patience_left = args.patience
-            _save_checkpoint(
-                output_dir / "best_checkpoint.pt",
-                model,
-                optimizer,
-                scheduler,
-                model_config,
-                loss_config,
-                metadata,
-                transition_matrix,
+            train_loss = {name: float(np.mean(values)) for name, values in running.items()}
+            metrics = evaluate(model, val_loader, device, use_amp, amp_dtype, model_config.num_components)
+            row = {
+                "epoch": epoch,
+                "train_loss": train_loss,
+                "validation": metrics,
+                "learning_rate": optimizer.param_groups[0]["lr"],
+                "graph_strength": float(torch.sigmoid(model.graph_strength_raw).detach().cpu()),
+            }
+            with history_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(row) + "\n")
+            monitor.log_scalars("train_epoch", train_loss, epoch)
+            monitor.log_scalars("validation", metrics, epoch)
+            monitor.log_scalars(
+                "optimizer",
+                {
+                    "learning_rate": row["learning_rate"],
+                    "graph_strength": row["graph_strength"],
+                },
                 epoch,
-                metrics,
             )
-        else:
-            patience_left -= 1
-            if patience_left <= 0:
-                print(f"Early stopping at epoch {epoch}", flush=True)
-                break
+            monitor.log_system(global_update, device)
+            print(json.dumps(row), flush=True)
+
+            score = (
+                metrics["f1@50"]
+                + 0.25 * metrics["edit"]
+                + args.incorrect_selection_weight * metrics["incorrect_event_f1"]
+            )
+            if score > best_score:
+                best_score = score
+                best_metrics = metrics
+                patience_left = args.patience
+                _save_checkpoint(
+                    output_dir / "best_checkpoint.pt",
+                    model,
+                    optimizer,
+                    scheduler,
+                    model_config,
+                    loss_config,
+                    metadata,
+                    transition_matrix,
+                    epoch,
+                    metrics,
+                )
+            else:
+                patience_left -= 1
+                if patience_left <= 0:
+                    print(f"Early stopping at epoch {epoch}", flush=True)
+                    break
+    finally:
+        monitor.close()
 
     # Report and test the selected checkpoint, not the last (possibly worse)
     # early-stopping epoch.
@@ -283,6 +366,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         "train_windows": len(train_dataset),
         "rare_train_windows": int((sampling_weights > 1.0).sum()),
         "rare_window_boost": args.rare_window_boost,
+        "rare_windows_per_batch": args.rare_windows_per_batch,
         "train_recordings": len(train_records),
         "validation_recordings": len(val_records),
         "test_recordings": len(test_records),
@@ -307,18 +391,15 @@ def evaluate(model, loader, device, use_amp: bool, amp_dtype, num_components: in
     model.eval()
     frame_correct = 0
     frame_total = 0
+    raw_frame_correct = 0
     seen_action_correct = 0
     seen_action_total = 0
     unseen_action_correct = 0
     unseen_action_total = 0
     edits: list[float] = []
     f1_scores = {0.1: [], 0.25: [], 0.5: []}
-    event_stats = {
-        0: {"true": 0, "predicted": 0, "tp": 0},
-        1: {"true": 0, "predicted": 0, "tp": 0},
-        2: {"true": 0, "predicted": 0, "tp": 0},
-    }
-    all_event_stats = {"true": 0, "predicted": 0, "tp": 0}
+    raw_f1_scores = {0.1: [], 0.25: [], 0.5: []}
+    event_samples: list[tuple[list[tuple[int, int, int]], np.ndarray]] = []
     state_correct = 0
     state_total = 0
     with torch.inference_mode():
@@ -333,11 +414,17 @@ def evaluate(model, loader, device, use_amp: bool, amp_dtype, num_components: in
                     modality_mask=batch["modality_mask"],
                 )
             step_prediction = outputs["step_logits"].argmax(dim=-1)
+            raw_step_prediction = outputs["raw_step_logits"].argmax(dim=-1)
             completion_score = torch.sigmoid(outputs["completion_logits"])
-            component_outcome_prediction = outputs["component_outcome_logits"].argmax(dim=-1)
+            component_outcome_probability = torch.softmax(
+                outputs["component_outcome_logits"], dim=-1
+            )
             state_prediction = outputs["state_logits"].argmax(dim=-1)
             valid = batch["valid_mask"] & (batch["step"] >= 0)
             frame_correct += int((step_prediction[valid] == batch["step"][valid]).sum().item())
+            raw_frame_correct += int(
+                (raw_step_prediction[valid] == batch["step"][valid]).sum().item()
+            )
             frame_total += int(valid.sum().item())
             seen_lookup = outputs["seen_action_mask"].bool()
             target_seen = seen_lookup[batch["step"].clamp_min(0)]
@@ -357,34 +444,33 @@ def evaluate(model, loader, device, use_amp: bool, amp_dtype, num_components: in
             for sample_index in range(step_prediction.shape[0]):
                 length = int(batch["valid_mask"][sample_index].sum().item())
                 pred = step_prediction[sample_index, :length].detach().cpu().tolist()
+                raw_pred = raw_step_prediction[sample_index, :length].detach().cpu().tolist()
                 truth = batch["step"][sample_index, :length].detach().cpu().tolist()
                 edits.append(edit_score(pred, truth))
                 for overlap in f1_scores:
                     f1_scores[overlap].append(segmental_f1(pred, truth, overlap))
+                    raw_f1_scores[overlap].append(segmental_f1(raw_pred, truth, overlap))
                 truth_events = _target_events(
                     batch["component_outcome"][sample_index, :length].detach().cpu().numpy()
                 )
-                predicted_events = _predicted_events(
-                    completion_score[sample_index, :length].detach().float().cpu().numpy(),
-                    component_outcome_prediction[sample_index, :length].detach().cpu().numpy(),
+                event_scores = (
+                    completion_score[sample_index, :length].unsqueeze(-1)
+                    * component_outcome_probability[sample_index, :length]
                 )
-                all_matched = _match_event_counts(truth_events, predicted_events, tolerance=1)
-                for key in all_event_stats:
-                    all_event_stats[key] += all_matched[key]
-                for outcome_index, counters in event_stats.items():
-                    matched = _match_event_counts(
-                        [event for event in truth_events if event[2] == outcome_index],
-                        [event for event in predicted_events if event[2] == outcome_index],
-                        tolerance=1,
-                    )
-                    for key in counters:
-                        counters[key] += matched[key]
-    all_event_metrics = _precision_recall_f1(all_event_stats)
-    correct_metrics = _precision_recall_f1(event_stats[0])
-    incorrect_metrics = _precision_recall_f1(event_stats[1])
-    remove_metrics = _precision_recall_f1(event_stats[2])
+                event_samples.append(
+                    (truth_events, event_scores.detach().float().cpu().numpy())
+                )
+    event_thresholds, calibrated_metrics, event_pr_auc = _calibrate_event_thresholds(
+        event_samples, outcomes=3
+    )
+    fixed_metrics = _event_metrics_from_samples(event_samples, [0.1, 0.1, 0.1])
+    all_event_metrics = calibrated_metrics["all"]
+    correct_metrics = calibrated_metrics[0]
+    incorrect_metrics = calibrated_metrics[1]
+    remove_metrics = calibrated_metrics[2]
     return {
         "frame_accuracy": 100.0 * frame_correct / max(frame_total, 1),
+        "raw_frame_accuracy": 100.0 * raw_frame_correct / max(frame_total, 1),
         "seen_action_accuracy": 100.0 * seen_action_correct / max(seen_action_total, 1),
         "unseen_composition_accuracy": 100.0 * unseen_action_correct / max(unseen_action_total, 1),
         "unseen_composition_frames": unseen_action_total,
@@ -392,6 +478,7 @@ def evaluate(model, loader, device, use_amp: bool, amp_dtype, num_components: in
         "f1@10": float(np.mean(f1_scores[0.1])) if f1_scores[0.1] else 0.0,
         "f1@25": float(np.mean(f1_scores[0.25])) if f1_scores[0.25] else 0.0,
         "f1@50": float(np.mean(f1_scores[0.5])) if f1_scores[0.5] else 0.0,
+        "raw_f1@50": float(np.mean(raw_f1_scores[0.5])) if raw_f1_scores[0.5] else 0.0,
         "completion_event_precision": all_event_metrics["precision"],
         "completion_event_recall": all_event_metrics["recall"],
         "completion_event_f1": all_event_metrics["f1"],
@@ -404,6 +491,14 @@ def evaluate(model, loader, device, use_amp: bool, amp_dtype, num_components: in
         "remove_event_precision": remove_metrics["precision"],
         "remove_event_recall": remove_metrics["recall"],
         "remove_event_f1": remove_metrics["f1"],
+        "correct_event_threshold": event_thresholds[0],
+        "incorrect_event_threshold": event_thresholds[1],
+        "remove_event_threshold": event_thresholds[2],
+        "correct_event_pr_auc": event_pr_auc[0],
+        "incorrect_event_pr_auc": event_pr_auc[1],
+        "remove_event_pr_auc": event_pr_auc[2],
+        "fixed_0.1_completion_event_f1": fixed_metrics["all"]["f1"],
+        "fixed_0.1_incorrect_event_f1": fixed_metrics[1]["f1"],
         "state_accuracy": 100.0 * state_correct / max(state_total, 1),
     }
 
@@ -427,6 +522,89 @@ def _predicted_events(
             if score >= threshold and score >= previous and score > following:
                 events.append((row, component, int(component_outcome[row, component])))
     return events
+
+
+def _predicted_events_from_scores(
+    event_scores: np.ndarray,
+    thresholds: list[float] | tuple[float, ...],
+) -> list[tuple[int, int, int]]:
+    """Decode component/outcome peaks from joint completion-outcome scores."""
+
+    events: list[tuple[int, int, int]] = []
+    for component in range(event_scores.shape[1]):
+        for outcome in range(event_scores.shape[2]):
+            scores = event_scores[:, component, outcome]
+            threshold = float(thresholds[outcome])
+            for row, score in enumerate(scores):
+                previous = scores[row - 1] if row > 0 else -np.inf
+                following = scores[row + 1] if row + 1 < len(scores) else -np.inf
+                if score >= threshold and score >= previous and score > following:
+                    events.append((row, component, outcome))
+    return events
+
+
+def _event_metrics_from_samples(
+    samples: list[tuple[list[tuple[int, int, int]], np.ndarray]],
+    thresholds: list[float] | tuple[float, ...],
+) -> dict[Any, dict[str, float]]:
+    outcomes = len(thresholds)
+    counters: dict[Any, dict[str, int]] = {
+        "all": {"true": 0, "predicted": 0, "tp": 0},
+        **{
+            outcome: {"true": 0, "predicted": 0, "tp": 0}
+            for outcome in range(outcomes)
+        },
+    }
+    for truth_events, event_scores in samples:
+        predicted_events = _predicted_events_from_scores(event_scores, thresholds)
+        matched = _match_event_counts(truth_events, predicted_events, tolerance=1)
+        for key in counters["all"]:
+            counters["all"][key] += matched[key]
+        for outcome in range(outcomes):
+            matched = _match_event_counts(
+                [event for event in truth_events if event[2] == outcome],
+                [event for event in predicted_events if event[2] == outcome],
+                tolerance=1,
+            )
+            for key in counters[outcome]:
+                counters[outcome][key] += matched[key]
+    return {key: _precision_recall_f1(value) for key, value in counters.items()}
+
+
+def _calibrate_event_thresholds(
+    samples: list[tuple[list[tuple[int, int, int]], np.ndarray]],
+    outcomes: int,
+) -> tuple[list[float], dict[Any, dict[str, float]], list[float]]:
+    """Select validation thresholds and event-level PR-AUC independently by outcome."""
+
+    grid = np.unique(
+        np.concatenate(
+            [np.linspace(0.01, 0.2, 20), np.linspace(0.225, 0.9, 28)]
+        )
+    )
+    thresholds: list[float] = []
+    pr_auc: list[float] = []
+    for outcome in range(outcomes):
+        curve: list[tuple[float, float, float]] = []
+        best_threshold = 0.1
+        best_f1 = -1.0
+        for threshold in grid:
+            candidate = [0.999] * outcomes
+            candidate[outcome] = float(threshold)
+            metrics = _event_metrics_from_samples(samples, candidate)[outcome]
+            curve.append((metrics["recall"], metrics["precision"], float(threshold)))
+            if metrics["f1"] > best_f1:
+                best_f1 = metrics["f1"]
+                best_threshold = float(threshold)
+        thresholds.append(best_threshold)
+        points = sorted({(recall, precision) for recall, precision, _ in curve})
+        area = 0.0
+        for (left_recall, left_precision), (right_recall, right_precision) in zip(
+            points[:-1], points[1:]
+        ):
+            area += (right_recall - left_recall) * (left_precision + right_precision) / 2.0
+        pr_auc.append(area / 100.0)
+    return thresholds, _event_metrics_from_samples(samples, thresholds), pr_auc
 
 
 def _match_event_counts(
@@ -655,7 +833,7 @@ def main() -> None:
     parser.add_argument("--attention-every", type=int, default=2)
     parser.add_argument("--num-heads", type=int, default=4)
     parser.add_argument("--dropout", type=float, default=0.2)
-    parser.add_argument("--graph-strength", type=float, default=1.5)
+    parser.add_argument("--graph-strength", type=float, default=0.12)
     parser.add_argument("--learning-rate", type=float, default=3e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-3)
     parser.add_argument("--warmup-fraction", type=float, default=0.08)
@@ -666,6 +844,12 @@ def main() -> None:
         type=float,
         default=4.0,
         help="Sampling multiplier for train windows containing incorrect outcome/state labels.",
+    )
+    parser.add_argument(
+        "--rare-windows-per-batch",
+        type=int,
+        default=1,
+        help="Guarantee this many incorrect-event windows in each training batch.",
     )
     parser.add_argument("--val-fraction", type=float, default=0.2)
     parser.add_argument("--num-workers", type=int, default=2)
@@ -692,7 +876,15 @@ def main() -> None:
     parser.add_argument("--smoothing-weight", type=float, default=0.12)
     parser.add_argument("--graph-weight", type=float, default=0.15)
     parser.add_argument("--consistency-weight", type=float, default=0.15)
+    parser.add_argument("--progress-weight", type=float, default=0.25)
+    parser.add_argument("--normality-weight", type=float, default=0.3)
     parser.add_argument("--focal-gamma", type=float, default=1.5)
+    parser.add_argument("--asl-negative-gamma", type=float, default=4.0)
+    parser.add_argument("--asl-clip", type=float, default=0.05)
+    parser.add_argument("--normality-error-weight", type=float, default=8.0)
+    parser.add_argument("--incorrect-selection-weight", type=float, default=0.75)
+    parser.add_argument("--gpu-log-interval", type=int, default=10)
+    parser.add_argument("--disable-dashboard", action="store_true")
     args = parser.parse_args()
     if args.batch_size <= 0 or args.accumulation_steps <= 0:
         parser.error("batch size and accumulation steps must be positive")
@@ -700,6 +892,12 @@ def main() -> None:
         parser.error("rare-window-boost must be at least 1")
     if args.completion_pos_weight_cap < 1.0:
         parser.error("completion-pos-weight-cap must be at least 1")
+    if not 0.0 <= args.graph_strength <= 1.0:
+        parser.error("graph-strength must be a probability in [0, 1]")
+    if not 0 <= args.rare_windows_per_batch <= args.batch_size:
+        parser.error("rare-windows-per-batch must be between zero and batch-size")
+    if args.gpu_log_interval <= 0:
+        parser.error("gpu-log-interval must be positive")
     print(json.dumps(train(args), indent=2))
 
 

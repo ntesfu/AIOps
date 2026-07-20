@@ -6,6 +6,9 @@ from aiops.evaluation.temporal_metrics import edit_score, segmental_f1
 import numpy as np
 
 from aiops.training.train_stategraph_psr import (
+    OutcomeAwareBatchSampler,
+    _calibrate_event_thresholds,
+    _event_metrics_from_samples,
     _match_event_counts,
     _precision_recall_f1,
     _predicted_events,
@@ -44,6 +47,26 @@ class StateGraphMetricsTest(unittest.TestCase):
         scores = np.asarray([[0.1], [0.7], [0.9], [0.8], [0.1]], dtype=np.float32)
         outcomes = np.ones((5, 1), dtype=np.int64)
         self.assertEqual(_predicted_events(scores, outcomes), [(2, 0, 1)])
+
+    def test_joint_event_threshold_calibration_finds_rare_outcome(self) -> None:
+        scores = np.zeros((5, 1, 3), dtype=np.float32)
+        scores[2, 0, 1] = 0.12
+        samples = [([(2, 0, 1)], scores)]
+        thresholds, metrics, pr_auc = _calibrate_event_thresholds(samples, outcomes=3)
+        self.assertLessEqual(thresholds[1], 0.12)
+        self.assertEqual(metrics[1]["f1"], 100.0)
+        self.assertGreaterEqual(pr_auc[1], 0.0)
+        self.assertEqual(
+            _event_metrics_from_samples(samples, thresholds)[1]["recall"], 100.0
+        )
+
+    def test_outcome_aware_sampler_places_rare_window_in_each_batch(self) -> None:
+        sampler = OutcomeAwareBatchSampler(
+            dataset_size=8, batch_size=2, rare_indices=[3], rare_per_batch=1, seed=2
+        )
+        batches = list(sampler)
+        self.assertEqual(len(batches), 4)
+        self.assertTrue(all(3 in batch for batch in batches))
 
 
 if __name__ == "__main__":

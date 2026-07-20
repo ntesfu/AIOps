@@ -48,6 +48,8 @@ class StateGraphModelTest(unittest.TestCase):
         self.assertEqual(tuple(output["state_logits"].shape), (2, 7, 2, 3))
         self.assertEqual(tuple(output["completion_logits"].shape), (2, 7, 2))
         self.assertEqual(tuple(output["component_outcome_logits"].shape), (2, 7, 2, 3))
+        self.assertEqual(tuple(output["normality_logits"].shape), (2, 7, 2))
+        self.assertEqual(tuple(output["progress_logits"].shape), (2, 7))
         self.assertTrue(bool((output["atomic_step_logits"][..., 2] == 0).all()))
         self.assertTrue(bool((output["raw_step_logits"][..., 2] != 0).any()))
         self.assertTrue(bool(((output["uncertainty"] >= 0) & (output["uncertainty"] <= 1.0001)).all()))
@@ -69,6 +71,8 @@ class StateGraphModelTest(unittest.TestCase):
         }
         loss = build_stategraph_loss(StateGraphLossConfig())(output, targets, transition)
         self.assertTrue(bool(torch.isfinite(loss["total"])))
+        self.assertIn("progress", loss)
+        self.assertIn("normality", loss)
         loss["total"].backward()
         self.assertTrue(any(parameter.grad is not None for parameter in model.parameters()))
 

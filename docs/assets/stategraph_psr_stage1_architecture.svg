@@ -13,8 +13,8 @@
     <marker id="a" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#60758c"/></marker>
   </defs>
   <rect width="1600" height="1000" fill="#fff"/>
-  <text x="70" y="62" class="title">StateGraph-PSR Lite &#8212; Stage 1 (cache schema v2)</text>
-  <text x="70" y="91" class="sub">Causal action segmentation + collision-safe component events + persistent assembly state &#8226; trainable head about 4M parameters</text>
+  <text x="70" y="62" class="title">StateGraph-PSR Lite &#8212; Stage 1 v3 (cache schema v2)</text>
+  <text x="70" y="91" class="sub">Progress-aware causal segmentation + state-conditioned component events + bounded task-graph reasoning &#8226; single 24 GB GPU</text>
 
   <text x="70" y="137" class="h">OFFLINE FEATURE CACHE (run once)</text>
   <rect x="70" y="158" width="260" height="104" class="box data"/>
@@ -55,21 +55,21 @@
   <text x="1070" y="452" text-anchor="middle" class="tiny">supports train-unseen compositions</text>
   <path d="M840 423 L920 423" class="arrow"/>
   <rect x="1300" y="350" width="230" height="146" class="box graph"/>
-  <text x="1415" y="387" text-anchor="middle" class="h">StateGraph filter</text>
+  <text x="1415" y="387" text-anchor="middle" class="h">Bounded StateGraph filter</text>
   <text x="1415" y="418" text-anchor="middle" class="t">seen-action transition graph</text>
-  <text x="1415" y="444" text-anchor="middle" class="t">differentiable causal belief</text>
-  <text x="1415" y="470" text-anchor="middle" class="tiny">branches and repair loops allowed</text>
+  <text x="1415" y="444" text-anchor="middle" class="t">visual evidence / graph-prior mix</text>
+  <text x="1415" y="470" text-anchor="middle" class="tiny">cannot overwhelm current evidence</text>
   <path d="M1220 423 L1300 423" class="arrow"/>
 
   <text x="70" y="560" class="h">SEPARATED JOINT SUPERVISION</text>
   <rect x="70" y="588" width="280" height="120" class="box output"/>
   <text x="210" y="624" text-anchor="middle" class="h">Action timeline (AR)</text>
-  <text x="210" y="651" text-anchor="middle" class="t">frame class + boundary</text>
-  <text x="210" y="678" text-anchor="middle" class="tiny">Acc &#8226; Edit &#8226; F1@10/25/50</text>
+  <text x="210" y="651" text-anchor="middle" class="t">frame class + boundary + progress</text>
+  <text x="210" y="678" text-anchor="middle" class="tiny">progress reduces online oversegmentation</text>
   <rect x="390" y="588" width="300" height="120" class="box output"/>
   <text x="540" y="624" text-anchor="middle" class="h">Component events (PSR)</text>
-  <text x="540" y="651" text-anchor="middle" class="t">10-way multi-label completion</text>
-  <text x="540" y="678" text-anchor="middle" class="tiny">per-part correct / incorrect / remove</text>
+  <text x="540" y="651" text-anchor="middle" class="t">action + state conditioned</text>
+  <text x="540" y="678" text-anchor="middle" class="tiny">ASL + correct / incorrect / remove</text>
   <rect x="730" y="588" width="280" height="120" class="box output"/>
   <text x="870" y="624" text-anchor="middle" class="h">Persistent component state</text>
   <text x="870" y="651" text-anchor="middle" class="t">11 x incorrect / pending / correct</text>
@@ -80,8 +80,8 @@
   <text x="1160" y="678" text-anchor="middle" class="tiny">anticipation auxiliary head</text>
   <rect x="1310" y="588" width="220" height="120" class="box output"/>
   <text x="1420" y="624" text-anchor="middle" class="h">Confidence</text>
-  <text x="1420" y="651" text-anchor="middle" class="t">entropy + energy</text>
-  <text x="1420" y="678" text-anchor="middle" class="tiny">calibrated live alerts</text>
+  <text x="1420" y="651" text-anchor="middle" class="t">entropy + energy + PR curves</text>
+  <text x="1420" y="678" text-anchor="middle" class="tiny">outcome-calibrated live alerts</text>
   <path d="M1415 496 C1415 540 210 535 210 588" class="arrow"/>
   <path d="M1070 481 C1070 545 540 535 540 588" class="arrow"/>
   <path d="M1070 481 C1070 545 870 535 870 588" class="arrow"/>
@@ -90,7 +90,7 @@
   <path d="M1255 262 C1255 535 540 520 540 588" class="dash"/>
 
   <rect x="175" y="780" width="1250" height="112" class="box graph"/>
-  <text x="800" y="817" text-anchor="middle" class="loss">Loss = action + multi-label completion + per-component outcome + state + boundary + next action + smoothness + graph + consistency</text>
+  <text x="800" y="817" text-anchor="middle" class="loss">Loss = action + asymmetric completion + outcome + prototype normality + state + boundary + progress + anticipation + graph</text>
   <text x="800" y="849" text-anchor="middle" class="t">Same-frame parts remain independent targets; IndustReal IDs never enter the model core.</text>
   <text x="800" y="875" text-anchor="middle" class="tiny">Train another dataset by swapping its annotation adapter and procedure-schema JSON, not the architecture.</text>
   <path d="M210 708 C210 755 400 750 400 780" class="dash"/><path d="M540 708 L650 780" class="dash"/>

@@ -19,7 +19,7 @@
     "attention_every": 2,
     "num_heads": 4,
     "dropout": 0.2,
-    "graph_strength": 1.5,
+    "graph_strength": 0.12,
     "composition_strength": 1.0,
     "num_components": 11,
     "completion_components": 10,
@@ -36,6 +36,12 @@
     "learning_rate": 0.0003,
     "weight_decay": 0.001,
     "rare_window_boost": 4.0,
-    "completion_pos_weight_cap": 100.0
+    "rare_windows_per_batch": 1,
+    "completion_pos_weight_cap": 100.0,
+    "progress_weight": 0.25,
+    "normality_weight": 0.3,
+    "asl_negative_gamma": 4.0,
+    "asl_clip": 0.05,
+    "incorrect_selection_weight": 0.75
   }
 }
