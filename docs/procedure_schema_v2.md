@@ -58,4 +58,13 @@ Before a full run:
 
 Final reporting should use at least three seeds and include action F1@10/25/50, Edit, frame accuracy, per-outcome event precision/recall/F1 with the documented ±1 cache-step tolerance, and component-state metrics.
 
+Run the reusable cache gate before any experiment:
+
+```bash
+python -m aiops.data.audit_stategraph_cache \
+  --cache-index /path/to/stategraph_v2/index.json \
+  --output /path/to/stategraph_v2/audit.json \
+  --fail-on-warnings
+```
+
 The AR/PSR separation follows the dataset authors' published annotation contract: `AR_labels.csv` stores action ID/description/start/end, while PSR files store completion timestamps and persistent component state. See the [official IndustReal repository](https://github.com/TimSchoonbeek/IndustReal).

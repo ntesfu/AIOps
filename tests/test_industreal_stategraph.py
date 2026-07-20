@@ -22,6 +22,7 @@ from aiops.data.industreal import (
     read_raw_states,
 )
 from aiops.data.procedure_schema import ProcedureSchema
+from aiops.data.audit_stategraph_cache import audit_stategraph_cache
 from aiops.data.stategraph_cache import (
     StateGraphCacheDataset,
     StateGraphCacheRecord,
@@ -245,6 +246,10 @@ class IndustRealAdapterTest(unittest.TestCase):
             with np.load(records[0].path, allow_pickle=False) as arrays:
                 np.testing.assert_array_equal(arrays["step"], [1, 1, 0, 0])
                 np.testing.assert_array_equal(arrays["completion"][2], [1, 1])
+            audit = audit_stategraph_cache(result["index"])
+            self.assertEqual(audit["schema_version"], 2)
+            self.assertEqual(audit["multi_component_rows"]["train"], 1)
+            self.assertEqual(audit["warnings"], [])
 
     @staticmethod
     def _write_csv(path: Path, header: list[str], rows: list[list[object]]) -> None:
