@@ -467,9 +467,13 @@ def evaluate(
             previous_state_incorrect = torch.nn.functional.pad(
                 state_incorrect_probability[:, :-1], (0, 0, 1, 0), value=0.0
             )
-            state_incorrect_onset = state_incorrect_probability * (
-                1.0 - previous_state_incorrect
-            )
+            # A probabilistic onset is a positive transition, not p_t*(1-p_t-1):
+            # the latter remains non-zero in a steady state and creates repeated
+            # false alerts.  Positive differencing is causal and becomes quiet
+            # once the predicted incorrect state stabilises.
+            state_incorrect_onset = (
+                state_incorrect_probability - previous_state_incorrect
+            ).clamp_min(0.0)
             prototype_state_fault_score = torch.sqrt(
                 (state_incorrect_onset * normality_anomaly_score).clamp_min(0.0)
             )
