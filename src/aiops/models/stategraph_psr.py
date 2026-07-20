@@ -399,29 +399,26 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             return self.fusion_norm(fused), gates, self.disagreement_stem(disagreement)
 
         def _apply_graph_filter(self, raw_logits, valid_mask):
-            batch, length, _ = raw_logits.shape
-            posterior_rows = []
-            adjusted_rows = []
-            previous = raw_logits.new_full((batch, config.num_steps), 1.0 / config.num_steps)
+            batch = raw_logits.shape[0]
             strength = torch.sigmoid(self.graph_strength_raw)
-            for index in range(length):
-                prior = previous @ self.transition_matrix
-                evidence = torch.softmax(raw_logits[:, index], dim=-1)
-                graph_prior = torch.where(
-                    self.seen_action_mask.unsqueeze(0) > 0.5,
-                    prior,
-                    evidence,
-                )
-                posterior = (1.0 - strength) * evidence + strength * graph_prior
-                posterior = posterior / posterior.sum(dim=-1, keepdim=True).clamp_min(1e-6)
-                if valid_mask is not None:
-                    active = valid_mask[:, index].unsqueeze(-1)
-                    posterior = torch.where(active, posterior, previous)
-                adjusted = torch.log(posterior.clamp_min(1e-7))
-                adjusted_rows.append(adjusted)
-                posterior_rows.append(posterior)
-                previous = posterior
-            return torch.stack(adjusted_rows, dim=1), torch.stack(posterior_rows, dim=1)
+            evidence = torch.softmax(raw_logits, dim=-1)
+            initial = raw_logits.new_full((batch, 1, config.num_steps), 1.0 / config.num_steps)
+            # A first-order causal prior is parallel across time during training.
+            # The previous *visual evidence* (never a future row) predicts the
+            # allowed next state. This avoids hundreds of serialized CUDA kernel
+            # launches from a Python recurrence on every sequence.
+            previous = torch.cat([initial, evidence[:, :-1]], dim=1)
+            prior = previous @ self.transition_matrix
+            graph_prior = torch.where(
+                self.seen_action_mask.view(1, 1, -1) > 0.5,
+                prior,
+                evidence,
+            )
+            posterior = (1.0 - strength) * evidence + strength * graph_prior
+            posterior = posterior / posterior.sum(dim=-1, keepdim=True).clamp_min(1e-6)
+            if valid_mask is not None:
+                posterior = torch.where(valid_mask.unsqueeze(-1), posterior, evidence)
+            return torch.log(posterior.clamp_min(1e-7)), posterior
 
         def forward(
             self,
