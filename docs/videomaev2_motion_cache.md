@@ -59,6 +59,12 @@ The public checkpoint and its remote model code are pinned to Hugging Face
 revision `d27568eb41ccb2d41bb191fc2e3fe5aad74942d4`; override `--revision` only as
 an intentional new experiment.
 
+On a machine with enough host RAM, independent recording shards can increase
+GPU utilization without changing features. Launch each shard with the same
+output directory and a different index, for example `--num-shards 3
+--shard-index 0`, `1`, and `2`. Shards write separate manifests and disjoint
+recording files; every process also recognizes work completed by the others.
+
 After obtaining the official SSv2 checkpoint, use a separate output directory:
 
 ```bash

@@ -4,7 +4,7 @@ import unittest
 
 import numpy as np
 
-from aiops.features.videomaev2_features import centered_clip_indices
+from aiops.features.videomaev2_features import centered_clip_indices, shard_items
 
 
 class VideoMAEv2FeatureTest(unittest.TestCase):
@@ -22,6 +22,14 @@ class VideoMAEv2FeatureTest(unittest.TestCase):
     def test_centered_clip_rejects_invalid_inputs(self) -> None:
         with self.assertRaises(ValueError):
             centered_clip_indices(0, 0)
+
+    def test_recording_shards_are_disjoint_and_complete(self) -> None:
+        items = list(range(11))
+        shards = [shard_items(items, index, 3) for index in range(3)]
+        self.assertEqual(sorted(item for shard in shards for item in shard), items)
+        self.assertTrue(set(shards[0]).isdisjoint(shards[1]))
+        with self.assertRaises(ValueError):
+            shard_items(items, 3, 3)
 
 
 if __name__ == "__main__":

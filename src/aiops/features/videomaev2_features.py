@@ -250,6 +250,21 @@ def _eligible_recordings(data_root: str, selected: Iterable[str] | None) -> list
     return recordings
 
 
+def shard_items(items: list[Any], shard_index: int, num_shards: int) -> list[Any]:
+    if num_shards <= 0 or not 0 <= shard_index < num_shards:
+        raise ValueError("Require num_shards > 0 and 0 <= shard_index < num_shards")
+    return items[shard_index::num_shards]
+
+
+def _read_completed_manifests(output_dir: Path) -> dict[str, dict[str, Any]]:
+    completed: dict[str, dict[str, Any]] = {}
+    for manifest_path in sorted(output_dir.glob("videomaev2_manifest*.json")):
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for row in payload.get("records", []):
+            completed[row["recording_id"]] = row
+    return completed
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Extract cache-aligned frozen VideoMAEv2 features.")
     parser.add_argument("--data-root", required=True)
@@ -271,6 +286,8 @@ def main() -> None:
     parser.add_argument("--num-frames", type=int, default=16)
     parser.add_argument("--sampling-rate", type=int, default=2)
     parser.add_argument("--batch-size", type=int, default=1)
+    parser.add_argument("--num-shards", type=int, default=1)
+    parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument("--device", default=None)
     parser.add_argument("--precision", choices=["bf16", "fp16", "fp32"], default="bf16")
     parser.add_argument("--overwrite", action="store_true")
@@ -281,15 +298,21 @@ def main() -> None:
         if args.max_recordings <= 0:
             parser.error("--max-recordings must be positive")
         recordings = recordings[: args.max_recordings]
+    try:
+        recordings = shard_items(recordings, args.shard_index, args.num_shards)
+    except ValueError as exc:
+        parser.error(str(exc))
     if not recordings:
         raise RuntimeError("No RGB recordings found")
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    manifest_path = output_dir / "videomaev2_manifest.json"
-    completed: dict[str, dict[str, Any]] = {}
-    if manifest_path.is_file() and not args.overwrite:
-        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-        completed = {row["recording_id"]: row for row in payload.get("records", [])}
+    manifest_path = output_dir / (
+        "videomaev2_manifest.json"
+        if args.num_shards == 1
+        else f"videomaev2_manifest.shard-{args.shard_index:02d}-of-{args.num_shards:02d}.json"
+    )
+    completed = {} if args.overwrite else _read_completed_manifests(output_dir)
+    shard_records: dict[str, dict[str, Any]] = {}
 
     encoder: HuggingFaceVideoMAEv2Encoder | None = None
     for ordinal, recording in enumerate(recordings, start=1):
@@ -297,6 +320,7 @@ def main() -> None:
         previous = completed.get(recording.recording_id)
         if not args.overwrite and previous and output_path.is_file():
             print(f"[{ordinal}/{len(recordings)}] skip {recording.recording_id}", flush=True)
+            shard_records[recording.recording_id] = previous
             continue
         if encoder is None:
             encoder = HuggingFaceVideoMAEv2Encoder(
@@ -313,6 +337,7 @@ def main() -> None:
             args.batch_size,
         )
         completed[recording.recording_id] = asdict(record)
+        shard_records[recording.recording_id] = asdict(record)
         manifest = {
             "backend": "videomaev2_ssv2_finetuned" if args.checkpoint else "videomaev2_unlabeledhybrid",
             "model_id": args.model_id,
@@ -321,10 +346,27 @@ def main() -> None:
             "stride_frames": args.stride_frames,
             "num_frames": args.num_frames,
             "sampling_rate": args.sampling_rate,
-            "records": sorted(completed.values(), key=lambda row: (row["split"], row["recording_id"])),
+            "shard_index": args.shard_index,
+            "num_shards": args.num_shards,
+            "records": sorted(shard_records.values(), key=lambda row: (row["split"], row["recording_id"])),
         }
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"manifest": str(manifest_path), "recordings": len(completed)}, indent=2))
+    # Also persist all-skip shards and make their provenance explicit.
+    if not manifest_path.is_file() or not shard_records:
+        manifest = {
+            "backend": "videomaev2_ssv2_finetuned" if args.checkpoint else "videomaev2_unlabeledhybrid",
+            "model_id": args.model_id,
+            "revision": args.revision,
+            "checkpoint": str(Path(args.checkpoint).resolve()) if args.checkpoint else None,
+            "stride_frames": args.stride_frames,
+            "num_frames": args.num_frames,
+            "sampling_rate": args.sampling_rate,
+            "shard_index": args.shard_index,
+            "num_shards": args.num_shards,
+            "records": sorted(shard_records.values(), key=lambda row: (row["split"], row["recording_id"])),
+        }
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps({"manifest": str(manifest_path), "recordings": len(shard_records)}, indent=2))
 
 
 if __name__ == "__main__":
