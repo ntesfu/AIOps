@@ -1,6 +1,6 @@
 {
   "protocol": {
-    "source_commit": "3ac5994 plus the commit containing this protocol",
+    "source_commit": "ee98b6c",
     "cache": "data/processed/assembly101_ego30_expanded/index.json",
     "train_recordings": 133,
     "train_actors": 16,
