@@ -22,6 +22,7 @@ def iter_causal_clips(
     target_fps: float = 30.0,
     clip_frames: int = 32,
     stride_frames: int = 8,
+    output_size: tuple[int, int] | None = None,
 ) -> Iterator[VideoClip]:
     """Decode a video at ``target_fps`` and yield past-only temporal clips.
 
@@ -56,6 +57,8 @@ def iter_causal_clips(
             # Select the source frame nearest the next point on the 30-fps clock.
             if source_index + 0.5 >= next_source_position:
                 rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+                if output_size is not None:
+                    rgb = cv2.resize(rgb, output_size, interpolation=cv2.INTER_LINEAR)
                 if not history:
                     history.extend([rgb] * clip_frames)
                 else:
@@ -92,7 +95,8 @@ class Swin3DFeatureExtractor:
         for clip in clips:
             # Swin3D weights use 224x224, Kinetics mean/std, and [B,C,T,H,W].
             x = torch.from_numpy(clip.copy()).permute(0, 3, 1, 2).float().div_(255.0)
-            x = torch.nn.functional.interpolate(x, size=(224, 224), mode="bilinear")
+            if x.shape[-2:] != (224, 224):
+                x = torch.nn.functional.interpolate(x, size=(224, 224), mode="bilinear")
             x = x.permute(1, 0, 2, 3)
             mean = x.new_tensor((0.43216, 0.394666, 0.37645)).view(3, 1, 1, 1)
             std = x.new_tensor((0.22803, 0.22145, 0.216989)).view(3, 1, 1, 1)
@@ -107,7 +111,10 @@ class Swin3DFeatureExtractor:
         ):
             output = self.model(batch)
         if self.device.type == "cuda":
-            peak_gib = torch.cuda.max_memory_allocated(self.device) / 2**30
+            peak_gib = max(
+                torch.cuda.max_memory_allocated(self.device),
+                torch.cuda.max_memory_reserved(self.device),
+            ) / 2**30
             if peak_gib >= 23.0:
                 raise RuntimeError(f"Swin3D extraction exceeded the 23-GiB limit: {peak_gib:.2f} GiB")
         return output.float().cpu().numpy().astype(np.float32)

@@ -651,6 +651,7 @@ def build_stategraph_loss(config: StateGraphLossConfig):
             step_class_weights=None,
             completion_pos_weights=None,
             component_outcome_class_weights=None,
+            state_class_weights=None,
         ):
             valid_mask = targets["valid_mask"].bool()
             step_targets = targets["step"]
@@ -692,9 +693,23 @@ def build_stategraph_loss(config: StateGraphLossConfig):
             state_targets = targets["state"]
             state_mask = targets["state_mask"].bool() & valid_mask.unsqueeze(-1)
             if state_mask.any():
-                losses["state"] = functional.cross_entropy(
-                    outputs["state_logits"][state_mask], state_targets[state_mask]
+                selected_logits = outputs["state_logits"][state_mask]
+                selected_targets = state_targets[state_mask]
+                state_ce = functional.cross_entropy(
+                    selected_logits, selected_targets, reduction="none"
                 )
+                if state_class_weights is not None:
+                    component_ids = torch.arange(
+                        state_targets.shape[-1], device=state_targets.device
+                    ).view(1, 1, -1).expand_as(state_targets)[state_mask]
+                    selected_weights = state_class_weights[component_ids, selected_targets]
+                    state_ce = state_ce * selected_weights
+                probabilities = torch.softmax(selected_logits, dim=-1).gather(
+                    1, selected_targets[:, None]
+                ).squeeze(1)
+                losses["state"] = (
+                    ((1.0 - probabilities).clamp_min(0.0) ** config.focal_gamma) * state_ce
+                ).mean()
             else:
                 losses["state"] = outputs["state_logits"].sum() * 0.0
 

@@ -6,8 +6,10 @@ from pathlib import Path
 import numpy as np
 
 from aiops.data.assembly101 import (
+    CoarseActionSegment,
     dense_assembly_targets,
     parse_recording_identity,
+    read_coarse_action_segments,
     read_mistake_segments,
 )
 from aiops.features.assembly101_cache import _archive_frames, _sample_positions
@@ -49,6 +51,25 @@ def test_dense_targets_are_causal_and_preserve_fault_then_recovery(tmp_path: Pat
     assert targets["step"].tolist() == [1, 1, 2, 2, 0]
     assert targets["component_outcome"][:, 0].tolist() == [-100, 1, -100, 2, -100]
     assert targets["state"][:, 0].tolist() == [1, 0, 0, 1, 1]
+
+
+def test_complete_coarse_actions_replace_sparse_mistake_action_labels(tmp_path: Path):
+    mistake = tmp_path / "nusar-2021_action_both_9033-c02a_9033_user_id_2021.csv"
+    mistake.write_text("60,90,attach,wheel,chassis,mistake,\n", encoding="utf-8")
+    coarse = tmp_path / "assembly.txt"
+    coarse.write_text("000000000\t000000060\tinspect toy\t\n60\t120\tattach wheel\t\n")
+    action_segments = read_coarse_action_segments([coarse])
+    assert action_segments[0] == CoarseActionSegment(0, 60, "inspect toy")
+    targets = dense_assembly_targets(
+        np.asarray([0, 30, 60, 90, 120]),
+        read_mistake_segments(mistake),
+        {"__background__": 0, "inspect toy": 1, "attach wheel": 2},
+        {"wheel": 0},
+        background_index=0,
+        action_segments=action_segments,
+    )
+    assert targets["step"].tolist() == [1, 1, 2, 2, 0]
+    assert targets["component_outcome"][:, 0].tolist() == [-100, -100, 1, -100, -100]
 
 
 def test_public_mirror_frame_clock_is_converted_to_official_30fps(tmp_path: Path):

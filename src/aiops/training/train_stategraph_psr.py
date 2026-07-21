@@ -208,6 +208,9 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     component_outcome_weights = torch.from_numpy(
         _class_weights(train_records, "component_outcome", model_config.num_event_outcomes)
     ).to(device)
+    state_class_weights = torch.from_numpy(
+        _state_class_weights(train_records, model_config.num_components)
+    ).to(device)
 
     train_dataset = StateGraphCacheDataset(
         train_records,
@@ -333,6 +336,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                         step_class_weights=step_weights,
                         completion_pos_weights=completion_pos_weights,
                         component_outcome_class_weights=component_outcome_weights,
+                        state_class_weights=state_class_weights,
                     )
                     scaled_loss = losses["total"] / args.accumulation_steps
                 scaler.scale(scaled_loss).backward()
@@ -382,6 +386,10 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                 "learning_rate": optimizer.param_groups[0]["lr"],
                 "graph_strength": float(torch.sigmoid(model.graph_strength_raw).detach().cpu()),
             }
+            score = _validation_selection_score(
+                metrics, mistake_weight=args.incorrect_selection_weight
+            )
+            row["selection_score"] = score
             with history_path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(row) + "\n")
             monitor.log_scalars("train_epoch", train_loss, epoch)
@@ -397,11 +405,6 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
             monitor.log_system(global_update, device)
             print(json.dumps(row), flush=True)
 
-            score = (
-                metrics["f1@50"]
-                + 0.25 * metrics["edit"]
-                + args.incorrect_selection_weight * metrics["incorrect_event_f1"]
-            )
             if score > best_score:
                 best_score = score
                 best_metrics = metrics
@@ -671,12 +674,16 @@ def evaluate(
                 )
     if calibrate_events or event_thresholds is None:
         event_thresholds, calibrated_metrics, event_pr_auc = _calibrate_event_thresholds(
-            event_samples, outcomes=3
+            event_samples, outcomes=3, seconds_per_step=seconds_per_step
         )
     else:
-        calibrated_metrics = _event_metrics_from_samples(event_samples, event_thresholds)
+        calibrated_metrics = _event_metrics_from_samples(
+            event_samples, event_thresholds, seconds_per_step=seconds_per_step
+        )
         event_pr_auc = [float("nan")] * 3
-    fixed_metrics = _event_metrics_from_samples(event_samples, [0.1, 0.1, 0.1])
+    fixed_metrics = _event_metrics_from_samples(
+        event_samples, [0.1, 0.1, 0.1], seconds_per_step=seconds_per_step
+    )
     # Keep the strict +/-1 cache-step metric for model selection.  Wider windows
     # are diagnostics for alert latency and annotation quantisation; calibrating
     # them independently prevents a strict-window threshold from hiding delayed
@@ -685,12 +692,18 @@ def evaluate(
     for tolerance in (2, 4):
         if calibrate_events and calibrate_latency:
             latency_thresholds, metrics_at_tolerance, _ = _calibrate_event_thresholds(
-                event_samples, outcomes=3, tolerance=tolerance
+                event_samples,
+                outcomes=3,
+                tolerance=tolerance,
+                seconds_per_step=seconds_per_step,
             )
         else:
             latency_thresholds = list(event_thresholds)
             metrics_at_tolerance = _event_metrics_from_samples(
-                event_samples, latency_thresholds, tolerance=tolerance
+                event_samples,
+                latency_thresholds,
+                tolerance=tolerance,
+                seconds_per_step=seconds_per_step,
             )
         latency_metrics[tolerance] = (latency_thresholds, metrics_at_tolerance)
     all_event_metrics = calibrated_metrics["all"]
@@ -703,6 +716,7 @@ def evaluate(
         event_thresholds,
         outcome=1,
         total_duration_seconds=evaluated_steps * seconds_per_step,
+        seconds_per_step=seconds_per_step,
     )
     correct_normality = [
         score for score, target in zip(normality_scores, normality_targets) if target == 0
@@ -792,6 +806,7 @@ def _event_timing_diagnostics(
     thresholds: list[float] | tuple[float, ...],
     outcome: int,
     total_duration_seconds: float,
+    seconds_per_step: float = 0.5,
 ) -> dict[str, float]:
     """Report causal alert delay and strict false-alert rate for one outcome."""
 
@@ -802,7 +817,9 @@ def _event_timing_diagnostics(
         truth = [event for event in truth_events if event[2] == outcome]
         predicted = [
             event
-            for event in _predicted_events_from_scores(event_scores, thresholds)
+            for event in _predicted_events_from_scores(
+                event_scores, thresholds, seconds_per_step=seconds_per_step
+            )
             if event[2] == outcome
         ]
         predicted_total += len(predicted)
@@ -845,8 +862,9 @@ def _predicted_events(
 def _predicted_events_from_scores(
     event_scores: np.ndarray,
     thresholds: list[float] | tuple[float, ...],
-    minimum_distance: int = 8,
-    install_minimum_distance: int = 29,
+    minimum_distance: int | None = None,
+    install_minimum_distance: int | None = None,
+    seconds_per_step: float = 0.5,
 ) -> list[tuple[int, int, int]]:
     """Propose outcome-specific peaks, then keep one outcome per nearby event.
 
@@ -854,10 +872,17 @@ def _predicted_events_from_scores(
     curve and hide a smaller, temporally sharper fault peak.  We therefore form
     candidates per outcome and perform cross-outcome temporal suppression using
     score relative to that outcome's calibrated threshold. Defaults come from
-    the minimum training-only same-component gaps: 8 cache steps for any event
-    and 29 steps between installation outcomes (4.0 s and 14.5 s respectively).
+    the minimum training-only same-component gaps: 4.0 seconds for any event
+    and 14.5 seconds between installation outcomes. They are converted into
+    cache steps so changing visual sampling rate cannot change decoder timing.
     """
 
+    if seconds_per_step <= 0:
+        raise ValueError("seconds_per_step must be positive")
+    minimum_distance = minimum_distance or max(1, round(4.0 / seconds_per_step))
+    install_minimum_distance = install_minimum_distance or max(
+        1, round(14.5 / seconds_per_step)
+    )
     events: list[tuple[int, int, int]] = []
     for component in range(event_scores.shape[1]):
         candidates: list[tuple[float, float, int, int]] = []
@@ -891,6 +916,7 @@ def _event_metrics_from_samples(
     samples: list[tuple[list[tuple[int, int, int]], np.ndarray]],
     thresholds: list[float] | tuple[float, ...],
     tolerance: int = 1,
+    seconds_per_step: float = 0.5,
 ) -> dict[Any, dict[str, float]]:
     outcomes = len(thresholds)
     counters: dict[Any, dict[str, int]] = {
@@ -901,7 +927,9 @@ def _event_metrics_from_samples(
         },
     }
     for truth_events, event_scores in samples:
-        predicted_events = _predicted_events_from_scores(event_scores, thresholds)
+        predicted_events = _predicted_events_from_scores(
+            event_scores, thresholds, seconds_per_step=seconds_per_step
+        )
         matched = _match_event_counts(truth_events, predicted_events, tolerance=tolerance)
         for key in counters["all"]:
             counters["all"][key] += matched[key]
@@ -920,6 +948,7 @@ def _calibrate_event_thresholds(
     samples: list[tuple[list[tuple[int, int, int]], np.ndarray]],
     outcomes: int,
     tolerance: int = 1,
+    seconds_per_step: float = 0.5,
 ) -> tuple[list[float], dict[Any, dict[str, float]], list[float]]:
     """Select validation thresholds and event-level PR-AUC independently by outcome."""
 
@@ -938,7 +967,10 @@ def _calibrate_event_thresholds(
             candidate = [0.999] * outcomes
             candidate[outcome] = float(threshold)
             metrics = _event_metrics_from_samples(
-                samples, candidate, tolerance=tolerance
+                samples,
+                candidate,
+                tolerance=tolerance,
+                seconds_per_step=seconds_per_step,
             )[outcome]
             curve.append((metrics["recall"], metrics["precision"], float(threshold)))
             if metrics["f1"] > best_f1:
@@ -954,7 +986,12 @@ def _calibrate_event_thresholds(
         pr_auc.append(area / 100.0)
     return (
         thresholds,
-        _event_metrics_from_samples(samples, thresholds, tolerance=tolerance),
+        _event_metrics_from_samples(
+            samples,
+            thresholds,
+            tolerance=tolerance,
+            seconds_per_step=seconds_per_step,
+        ),
         pr_auc,
     )
 
@@ -1004,6 +1041,25 @@ def _binary_average_precision(scores: list[float], targets: list[int]) -> float:
             true_positives += 1
             precision_sum += true_positives / rank
     return 100.0 * precision_sum / positives
+
+
+def _validation_selection_score(
+    metrics: dict[str, float], mistake_weight: float = 1.0
+) -> float:
+    """Balanced validation-only checkpoint criterion for the full task contract."""
+    general = (
+        0.25 * metrics["f1@50"]
+        + 0.10 * metrics["edit"]
+        + 0.10 * metrics["frame_accuracy"]
+        + 0.15 * metrics["state_macro_f1"]
+    )
+    mistake = (
+        0.15 * metrics["state_incorrect_f1"]
+        + 0.15 * metrics["incorrect_event_f1"]
+        + 0.10 * metrics["normality_incorrect_average_precision"]
+        - 0.25 * min(metrics["incorrect_false_alerts_per_minute"], 20.0)
+    )
+    return general + mistake_weight * mistake
 
 
 def _class_weights(records: list[StateGraphCacheRecord], field: str, classes: int) -> np.ndarray:
@@ -1064,6 +1120,26 @@ def _completion_pos_weights(
         total_rows += len(completion)
     negative = np.maximum(float(total_rows) - positive, 1.0)
     return np.clip(negative / positive, 1.0, cap).astype(np.float32)
+
+
+def _state_class_weights(
+    records: list[StateGraphCacheRecord], components: int, cap: float = 12.0
+) -> np.ndarray:
+    """Per-component state balancing without letting rare faults explode gradients."""
+    counts = np.ones((components, 3), dtype=np.float64)
+    for record in records:
+        with np.load(record.path, allow_pickle=False) as arrays:
+            state = arrays["state"].astype(np.int64)
+            mask = arrays["state_mask"].astype(np.bool_)
+        for component in range(components):
+            labels = state[:, component][mask[:, component]]
+            counts[component] += np.bincount(labels, minlength=3)
+    # Inverse square root is more stable than full inverse frequency for the
+    # very scarce incorrect state, while still countering pending-state scale.
+    weights = np.sqrt(counts.sum(axis=1, keepdims=True) / (3.0 * counts))
+    weights = np.clip(weights, 0.25, cap)
+    weights /= weights.mean(axis=1, keepdims=True)
+    return weights.astype(np.float32)
 
 
 def _infer_event_state_mapping(

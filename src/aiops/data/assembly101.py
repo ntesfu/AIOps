@@ -55,6 +55,33 @@ class AssemblySegment:
         return 0
 
 
+@dataclass(frozen=True)
+class CoarseActionSegment:
+    """One complete action interval from the official coarse annotations."""
+
+    start_frame: int
+    end_frame: int
+    action: str
+
+
+def read_coarse_action_segments(paths: Iterable[str | Path]) -> list[CoarseActionSegment]:
+    segments: list[CoarseActionSegment] = []
+    for source in paths:
+        path = Path(source)
+        with path.open("r", encoding="utf-8") as handle:
+            for row_number, line in enumerate(handle, 1):
+                values = line.strip().split("\t")
+                if not values or all(not value.strip() for value in values):
+                    continue
+                if len(values) < 3:
+                    raise ValueError(f"{path}:{row_number} has fewer than three columns")
+                start, end = int(values[0]), int(values[1])
+                if end <= start:
+                    raise ValueError(f"{path}:{row_number} has a non-positive interval")
+                segments.append(CoarseActionSegment(start, end, _normalize(values[2])))
+    return sorted(segments, key=lambda item: (item.start_frame, item.end_frame, item.action))
+
+
 def parse_recording_identity(recording_id: str) -> tuple[str, str]:
     match = _RECORDING_PATTERN.match(recording_id)
     if match is None:
@@ -123,6 +150,7 @@ def dense_assembly_targets(
     component_to_index: dict[str, int],
     *,
     background_index: int,
+    action_segments: Iterable[CoarseActionSegment] | None = None,
 ) -> dict[str, np.ndarray]:
     """Project sparse part-to-part annotations onto sampled visual frames.
 
@@ -145,6 +173,14 @@ def dense_assembly_targets(
     current_state = np.ones(components, dtype=np.int64)
     cursor = 0
 
+    complete_actions = list(action_segments) if action_segments is not None else None
+    if complete_actions is not None:
+        for action in complete_actions:
+            inside = np.flatnonzero((frames >= action.start_frame) & (frames < action.end_frame))
+            if inside.size:
+                step[inside] = action_to_index[action.action]
+                boundary[int(inside[0])] = 1.0
+
     for segment in ordered:
         while cursor < length and frames[cursor] < segment.start_frame:
             state[cursor] = current_state
@@ -152,9 +188,11 @@ def dense_assembly_targets(
         inside = np.flatnonzero(
             (frames >= segment.start_frame) & (frames < segment.end_frame)
         )
-        if inside.size:
+        if inside.size and complete_actions is None:
             step[inside] = action_to_index[segment.action_id]
             boundary[int(inside[0])] = 1.0
+            event_row = int(inside[-1])
+        elif inside.size:
             event_row = int(inside[-1])
         else:
             event_row = int(np.argmin(np.abs(frames - (segment.end_frame - 1))))
