@@ -23,6 +23,7 @@ from aiops.training.train_stategraph_psr import (
     _event_metrics_from_samples,
     _factorized_mistake_diagnostics,
     _macro_f1_from_confusion,
+    _model_configs_compatible,
     _restore_rng_state,
     _stitch_recording_chunks,
     _calibrate_incorrect_state_threshold,
@@ -34,6 +35,19 @@ from aiops.training.train_stategraph_psr import (
 
 
 class StateGraphMetricsTest(unittest.TestCase):
+    def test_legacy_model_config_accepts_only_default_off_new_field(self) -> None:
+        legacy = {"hidden_dim": 256}
+        self.assertTrue(
+            _model_configs_compatible(
+                legacy, {"hidden_dim": 256, "factorized_mistake_detection": False}
+            )
+        )
+        self.assertFalse(
+            _model_configs_compatible(
+                legacy, {"hidden_dim": 256, "factorized_mistake_detection": True}
+            )
+        )
+
     def test_factorized_diagnostics_separate_timing_and_component_selection(self) -> None:
         outcomes = np.full((4, 3), -100, dtype=np.int64)
         outcomes[1, 2] = 1

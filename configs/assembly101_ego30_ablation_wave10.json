@@ -1,0 +1,29 @@
+{
+  "protocol": {
+    "source_commit": "the commit containing this protocol",
+    "cache": "data/processed/assembly101_ego30_expanded/index.json",
+    "initial_checkpoint": "artifacts/abl_g0_expanded_procedure_nocrop_s7_32e_20260722.pt",
+    "initial_checkpoint_validation_epoch": 14,
+    "fine_tune_epochs": 16,
+    "seed": 7,
+    "selection_strategy": "operational_harmonic",
+    "selection_constraint": "strict incorrect-event recall > 0, normality AP >= validation prevalence, false alerts <= 2/min",
+    "purpose": "test staged event adaptation without forgetting the mature action representation",
+    "held_out_test_evaluation": false
+  },
+  "comparison": "I0 versus E1 tests staged frozen-action fine-tuning against joint training at fixed procedure-plus-crop architecture",
+  "experiments": [
+    {
+      "id": "I0",
+      "run": "abl_i0_staged_procedure_crops_s7_16e_20260722",
+      "variant": "event_heavy",
+      "seed": 7,
+      "learning_rate": 0.00005,
+      "freeze_action_backbone": true,
+      "procedural_event_context": true,
+      "event_centered_crops_per_event": 2,
+      "event_centered_crop_radius": 128,
+      "factorized_mistake_detection": false
+    }
+  ]
+}

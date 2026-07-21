@@ -260,7 +260,9 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         initialization = torch.load(
             args.init_checkpoint, map_location=device, weights_only=False
         )
-        if initialization.get("model_config") != model_config.to_dict():
+        if not _model_configs_compatible(
+            initialization.get("model_config"), model_config.to_dict()
+        ):
             raise ValueError("Initialization checkpoint model configuration does not match.")
         model.load_state_dict(initialization["model_state"])
         print(f"Initialized model weights from {args.init_checkpoint}", flush=True)
@@ -427,7 +429,9 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         if not (output_dir / "best_checkpoint.pt").exists():
             raise ValueError("Resume output directory is missing best_checkpoint.pt.")
         checkpoint = torch.load(resume_path, map_location=device, weights_only=False)
-        if checkpoint.get("model_config") != model_config.to_dict():
+        if not _model_configs_compatible(
+            checkpoint.get("model_config"), model_config.to_dict()
+        ):
             raise ValueError("Resume checkpoint model configuration does not match this run.")
         if checkpoint.get("loss_config") != asdict(loss_config):
             raise ValueError("Resume checkpoint loss configuration does not match this run.")
@@ -1597,6 +1601,16 @@ def _validation_selection_score(
         - 0.25 * min(metrics["incorrect_false_alerts_per_minute"], 20.0)
     )
     return general + mistake_weight * mistake
+
+
+def _model_configs_compatible(stored: Any, current: dict[str, Any]) -> bool:
+    """Accept legacy checkpoints that predate default-off architecture fields."""
+
+    if not isinstance(stored, dict):
+        return False
+    normalized = dict(stored)
+    normalized.setdefault("factorized_mistake_detection", False)
+    return normalized == current
 
 
 def _validation_selection_result(
