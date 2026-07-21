@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import random
@@ -27,6 +28,52 @@ from aiops.models.stategraph_psr import (
 )
 from aiops.data.procedure_schema import CACHE_SCHEMA_VERSION
 from aiops.training.monitoring import TrainingMonitor
+
+
+def _effective_rare_window_boost(requested: float, rare_per_batch: int) -> float:
+    """Use either guaranteed rare slots or weighted rare sampling, never both."""
+
+    return 1.0 if rare_per_batch > 0 else requested
+
+
+def _initialize_run_directory(args: argparse.Namespace) -> tuple[Path, str]:
+    """Claim a fresh run directory and persist its immutable launch contract."""
+
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = output_dir / "run_manifest.json"
+    configuration = {
+        key: value
+        for key, value in vars(args).items()
+        if key not in {"resume"}
+    }
+    configuration["cache_index"] = str(Path(args.cache_index).resolve())
+    payload = {
+        "format_version": 1,
+        "configuration": configuration,
+    }
+    payload = json.loads(json.dumps(payload, default=str))
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    payload["configuration_sha256"] = digest
+    if args.resume:
+        if not manifest_path.exists():
+            raise ValueError("Resume run is missing immutable run_manifest.json")
+        existing = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if existing != payload:
+            raise ValueError("Resume configuration does not match immutable run manifest")
+    else:
+        existing_entries = list(output_dir.iterdir())
+        if existing_entries:
+            raise FileExistsError(
+                f"Refusing to overwrite non-empty run directory: {output_dir}"
+            )
+        # Exclusive creation prevents two schedulers from claiming the same
+        # directory between the emptiness check and manifest write.
+        with manifest_path.open("x", encoding="utf-8") as stream:
+            json.dump(payload, stream, indent=2, default=str)
+            stream.write("\n")
+    return output_dir, digest
 
 
 class OutcomeAwareBatchSampler:
@@ -111,6 +158,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     from torch.utils.data import DataLoader
 
     set_seed(args.seed)
+    output_dir, run_configuration_sha256 = _initialize_run_directory(args)
     metadata, records = read_cache_index(args.cache_index)
     _validate_cache_schema(metadata, records)
     _validate_records(records)
@@ -178,6 +226,8 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         graph_strength_init=args.graph_strength,
         max_sequence_length=args.max_sequence_length,
         positional_dropout=args.positional_dropout,
+        procedural_event_context=args.procedural_event_context,
+        learned_event_fusion=args.learned_event_fusion,
     )
     loss_config = StateGraphLossConfig(
         step_weight=args.step_weight,
@@ -275,10 +325,18 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         training=True,
         seed=args.seed,
         preload=args.preload_cache,
+        event_centered_crops_per_event=args.event_centered_crops_per_event,
+        event_centered_crop_radius=args.event_centered_crop_radius,
+    )
+    # Guaranteed rare slots already control rare exposure. Applying the global
+    # boost to the remaining slots as well makes the effective probability hard
+    # to interpret and confounds ablations, so use exactly one mechanism.
+    effective_rare_window_boost = _effective_rare_window_boost(
+        args.rare_window_boost, args.rare_windows_per_batch
     )
     sampling_weights = train_dataset.window_sampling_weights(
         incorrect_outcome_index=1,
-        rare_window_boost=args.rare_window_boost,
+        rare_window_boost=effective_rare_window_boost,
     )
     batch_sampler = OutcomeAwareBatchSampler(
         dataset_size=len(train_dataset),
@@ -299,7 +357,10 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         StateGraphCacheDataset(
             val_records,
             sequence_length=args.sequence_length,
-            sequence_stride=args.sequence_length,
+            # Half-overlap gives each retained row useful causal history near a
+            # model-window boundary. Evaluation stitches duplicate rows back to
+            # one recording timeline before scoring.
+            sequence_stride=max(1, args.sequence_length // 2),
             training=False,
             preload=args.preload_cache,
         ),
@@ -329,8 +390,6 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     except (AttributeError, TypeError):  # torch 2.3 compatibility
         scaler = torch.cuda.amp.GradScaler(enabled=use_amp and args.precision == "fp16")
 
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
     history_path = output_dir / "history.jsonl"
     if not args.resume:
         history_path.write_text("", encoding="utf-8")
@@ -596,7 +655,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
             StateGraphCacheDataset(
                 test_records,
                 sequence_length=args.sequence_length,
-                sequence_stride=args.sequence_length,
+                sequence_stride=max(1, args.sequence_length // 2),
                 training=False,
             ),
             batch_size=args.batch_size,
@@ -634,6 +693,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     )
     summary = {
         "architecture": "StateGraph-PSR Lite Stage 1",
+        "run_configuration_sha256": run_configuration_sha256,
         "device": str(device),
         "parameters": sum(parameter.numel() for parameter in model.parameters()),
         "trainable_parameters": sum(
@@ -644,9 +704,14 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         "peak_training_vram_gib": peak_training_vram_gib,
         "maximum_allowed_vram_gib": args.max_vram_gib,
         "train_windows": len(train_dataset),
-        "rare_train_windows": int((sampling_weights > 1.0).sum()),
+        "rare_train_windows": len(train_dataset.rare_window_indices()),
         "rare_window_boost": args.rare_window_boost,
+        "effective_rare_window_boost": effective_rare_window_boost,
         "rare_windows_per_batch": args.rare_windows_per_batch,
+        "incorrect_training_events": train_dataset.incorrect_event_count,
+        "event_centered_crops_per_event": args.event_centered_crops_per_event,
+        "event_centered_crop_radius": args.event_centered_crop_radius,
+        "event_centered_train_windows": len(train_dataset.event_centered_indices()),
         "train_recordings": len(train_records),
         "validation_recordings": len(val_records),
         "test_recordings": len(test_records),
@@ -688,13 +753,11 @@ def evaluate(
     import torch
 
     model.eval()
-    frame_correct = 0
-    frame_total = 0
-    raw_frame_correct = 0
-    seen_action_correct = 0
-    seen_action_total = 0
-    unseen_action_correct = 0
-    unseen_action_total = 0
+    # A recording may be split into several model windows. Metrics must be
+    # computed after placing those windows back on the recording timeline;
+    # otherwise every window boundary becomes an artificial action/event
+    # boundary and overlapping rows are counted more than once.
+    recording_chunks: dict[str, list[dict[str, np.ndarray | int]]] = {}
     edits: list[float] = []
     f1_scores = {0.1: [], 0.25: [], 0.5: []}
     raw_f1_scores = {0.1: [], 0.25: [], 0.5: []}
@@ -730,107 +793,103 @@ def evaluate(
                     normality_anomaly_score, outputs["mistake_action_probability"]
                 )
             state_incorrect_probability = outputs["state_outcome_probabilities"][..., 1]
-            previous_state_incorrect = torch.nn.functional.pad(
-                state_incorrect_probability[:, :-1], (0, 0, 1, 0), value=0.0
+            learned_event_logits = outputs.get("fused_incorrect_logits")
+            incorrect_onset_probability = torch.sigmoid(
+                learned_event_logits
+                if learned_event_logits is not None
+                else outputs["incorrect_onset_logits"]
             )
-            # A probabilistic onset is a positive transition, not p_t*(1-p_t-1):
-            # the latter remains non-zero in a steady state and creates repeated
-            # false alerts.  Positive differencing is causal and becomes quiet
-            # once the predicted incorrect state stabilises.
-            state_incorrect_onset = (
-                state_incorrect_probability - previous_state_incorrect
-            ).clamp_min(0.0)
-            prototype_state_fault_score = torch.sqrt(
-                (state_incorrect_onset * normality_anomaly_score).clamp_min(0.0)
-            )
-            valid = batch["valid_mask"] & (batch["step"] >= 0)
-            frame_correct += int((step_prediction[valid] == batch["step"][valid]).sum().item())
-            raw_frame_correct += int(
-                (raw_step_prediction[valid] == batch["step"][valid]).sum().item()
-            )
-            frame_total += int(valid.sum().item())
             seen_lookup = outputs["seen_action_mask"].bool()
-            target_seen = seen_lookup[batch["step"].clamp_min(0)]
-            seen_mask = valid & target_seen
-            unseen_mask = valid & ~target_seen
-            seen_action_correct += int(
-                (step_prediction[seen_mask] == batch["step"][seen_mask]).sum().item()
-            )
-            seen_action_total += int(seen_mask.sum().item())
-            unseen_action_correct += int(
-                (step_prediction[unseen_mask] == batch["step"][unseen_mask]).sum().item()
-            )
-            unseen_action_total += int(unseen_mask.sum().item())
-            state_valid = batch["state_mask"] & batch["valid_mask"].unsqueeze(-1)
-            if state_valid.any():
-                state_score = state_probabilities[..., 0]
-                # An explicit failed-action class is strong component-specific
-                # evidence for the otherwise extremely rare incorrect state.
-                if "mistake_action_probability" in outputs:
-                    state_score = torch.maximum(
-                        state_score, outputs["mistake_action_probability"]
-                    )
-                state_score_chunks.append(
-                    state_score[state_valid].detach().float().cpu().numpy()
-                )
-                state_truth_chunks.append(
-                    batch["state"][state_valid].detach().cpu().numpy()
-                )
-                state_other_prediction_chunks.append(
-                    (state_probabilities[..., 1:].argmax(dim=-1) + 1)[state_valid]
-                    .detach()
-                    .cpu()
-                    .numpy()
-                )
             for sample_index in range(step_prediction.shape[0]):
                 length = int(batch["valid_mask"][sample_index].sum().item())
-                evaluated_steps += length
-                pred = step_prediction[sample_index, :length].detach().cpu().tolist()
-                raw_pred = raw_step_prediction[sample_index, :length].detach().cpu().tolist()
-                truth = batch["step"][sample_index, :length].detach().cpu().tolist()
-                edits.append(edit_score(pred, truth))
-                for overlap in f1_scores:
-                    f1_scores[overlap].append(segmental_f1(pred, truth, overlap))
-                    raw_f1_scores[overlap].append(segmental_f1(raw_pred, truth, overlap))
-                truth_events = _target_events(
-                    batch["component_outcome"][sample_index, :length].detach().cpu().numpy()
-                )
-                event_scores = (
+                event_score = (
                     completion_score[sample_index, :length].unsqueeze(-1)
                     * component_outcome_probability[sample_index, :length]
                 )
-                event_scores = event_scores.clone()
-                event_scores[..., 1] = torch.maximum(
-                    event_scores[..., 1],
-                    prototype_state_fault_score[sample_index, :length],
-                )
-                event_scores[..., 1] = torch.maximum(
-                    event_scores[..., 1],
-                    torch.sigmoid(outputs["incorrect_onset_logits"])[
-                        sample_index, :length
-                    ]
-                    * normality_anomaly_score[sample_index, :length],
-                )
-                if "mistake_action_onset_score" in outputs:
-                    event_scores[..., 1] = torch.maximum(
-                        event_scores[..., 1],
-                        outputs["mistake_action_onset_score"][sample_index, :length],
+                state_score = state_probabilities[sample_index, :length, :, 0]
+                mistake_probability = outputs.get("mistake_action_probability")
+                if mistake_probability is not None:
+                    state_score = torch.maximum(
+                        state_score, mistake_probability[sample_index, :length]
                     )
-                event_samples.append(
-                    (truth_events, event_scores.detach().float().cpu().numpy())
+                recording_id = str(batch["recording_id"][sample_index])
+                recording_chunks.setdefault(recording_id, []).append(
+                    {
+                        "start": int(batch["start_index"][sample_index]),
+                        "step_prediction": step_prediction[sample_index, :length].detach().cpu().numpy(),
+                        "raw_step_prediction": raw_step_prediction[sample_index, :length].detach().cpu().numpy(),
+                        "step_target": batch["step"][sample_index, :length].detach().cpu().numpy(),
+                        "event_score": event_score.detach().float().cpu().numpy(),
+                        "normality_score": normality_anomaly_score[sample_index, :length].detach().float().cpu().numpy(),
+                        "state_incorrect_probability": state_incorrect_probability[sample_index, :length].detach().float().cpu().numpy(),
+                        "state_score": state_score.detach().float().cpu().numpy(),
+                        "state_other_prediction": (state_probabilities[sample_index, :length, :, 1:].argmax(dim=-1) + 1).detach().cpu().numpy(),
+                        "incorrect_onset_probability": incorrect_onset_probability[sample_index, :length].detach().float().cpu().numpy(),
+                        "mistake_action_onset_score": (
+                            outputs["mistake_action_onset_score"][sample_index, :length].detach().float().cpu().numpy()
+                            if "mistake_action_onset_score" in outputs
+                            else np.zeros_like(state_score.detach().float().cpu().numpy())
+                        ),
+                        "component_outcome": batch["component_outcome"][sample_index, :length].detach().cpu().numpy(),
+                        "state_target": batch["state"][sample_index, :length].detach().cpu().numpy(),
+                        "state_mask": batch["state_mask"][sample_index, :length].detach().cpu().numpy(),
+                        "seen_action_mask": seen_lookup.detach().cpu().numpy(),
+                    }
                 )
-                outcome_targets = batch["component_outcome"][sample_index, :length]
-                normality_mask = (outcome_targets == 0) | (outcome_targets == 1)
-                normality_scores.extend(
-                    normality_anomaly_score[sample_index, :length][normality_mask]
-                    .detach()
-                    .float()
-                    .cpu()
-                    .tolist()
-                )
-                normality_targets.extend(
-                    (outcome_targets[normality_mask] == 1).detach().cpu().int().tolist()
-                )
+
+    frame_correct = frame_total = raw_frame_correct = 0
+    seen_action_correct = seen_action_total = 0
+    unseen_action_correct = unseen_action_total = 0
+    for chunks in recording_chunks.values():
+        recording = _stitch_recording_chunks(chunks)
+        pred = recording["step_prediction"]
+        raw_pred = recording["raw_step_prediction"]
+        truth = recording["step_target"]
+        valid = truth >= 0
+        frame_correct += int((pred[valid] == truth[valid]).sum())
+        raw_frame_correct += int((raw_pred[valid] == truth[valid]).sum())
+        frame_total += int(valid.sum())
+        seen_lookup = recording["seen_action_mask"]
+        target_seen = seen_lookup[np.maximum(truth, 0)].astype(bool)
+        seen_mask = valid & target_seen
+        unseen_mask = valid & ~target_seen
+        seen_action_correct += int((pred[seen_mask] == truth[seen_mask]).sum())
+        seen_action_total += int(seen_mask.sum())
+        unseen_action_correct += int((pred[unseen_mask] == truth[unseen_mask]).sum())
+        unseen_action_total += int(unseen_mask.sum())
+        evaluated_steps += len(truth)
+        pred_list, raw_list, truth_list = pred.tolist(), raw_pred.tolist(), truth.tolist()
+        edits.append(edit_score(pred_list, truth_list))
+        for overlap in f1_scores:
+            f1_scores[overlap].append(segmental_f1(pred_list, truth_list, overlap))
+            raw_f1_scores[overlap].append(segmental_f1(raw_list, truth_list, overlap))
+
+        state_valid = recording["state_mask"].astype(bool)
+        state_score_chunks.append(recording["state_score"][state_valid])
+        state_truth_chunks.append(recording["state_target"][state_valid])
+        state_other_prediction_chunks.append(recording["state_other_prediction"][state_valid])
+
+        normality = recording["normality_score"]
+        outcomes = recording["component_outcome"]
+        normality_mask = (outcomes == 0) | (outcomes == 1)
+        normality_scores.extend(normality[normality_mask].tolist())
+        normality_targets.extend((outcomes[normality_mask] == 1).astype(np.int64).tolist())
+
+        # Compute transitions only after reconstruction, so a model window
+        # boundary cannot create a synthetic incorrect-state onset.
+        state_incorrect = recording["state_incorrect_probability"]
+        previous = np.concatenate((np.zeros_like(state_incorrect[:1]), state_incorrect[:-1]), axis=0)
+        state_onset = np.maximum(state_incorrect - previous, 0.0)
+        prototype_fault = np.sqrt(np.maximum(state_onset * normality, 0.0))
+        event_scores = recording["event_score"].copy()
+        event_scores[..., 1] = np.maximum(event_scores[..., 1], prototype_fault)
+        event_scores[..., 1] = np.maximum(
+            event_scores[..., 1], recording["incorrect_onset_probability"] * normality
+        )
+        event_scores[..., 1] = np.maximum(
+            event_scores[..., 1], recording["mistake_action_onset_score"]
+        )
+        event_samples.append((_target_events(outcomes), event_scores))
     primary_tolerance = max(1, round(1.0 / seconds_per_step))
     if calibrate_events or event_thresholds is None:
         event_thresholds, calibrated_metrics, event_pr_auc = _calibrate_event_thresholds(
@@ -976,6 +1035,59 @@ def evaluate(
 def _target_events(component_outcome: np.ndarray) -> list[tuple[int, int, int]]:
     rows, components = np.where(component_outcome >= 0)
     return [(int(row), int(component), int(component_outcome[row, component])) for row, component in zip(rows, components)]
+
+
+def _stitch_recording_chunks(
+    chunks: list[dict[str, np.ndarray | int]],
+) -> dict[str, np.ndarray]:
+    """Reconstruct one recording, preferring the prediction with most past context.
+
+    Ground-truth and prediction arrays share the same placement rule so metrics
+    count every recording row exactly once. For overlapping causal windows, a
+    later local row has observed more history and is therefore the least
+    boundary-affected prediction available for that global row.
+    """
+
+    if not chunks:
+        raise ValueError("Cannot stitch an empty recording")
+    ordered = sorted(chunks, key=lambda chunk: int(chunk["start"]))
+    temporal_keys = [
+        key
+        for key, value in ordered[0].items()
+        if key not in {"start", "seen_action_mask"} and isinstance(value, np.ndarray)
+    ]
+    if "step_target" not in temporal_keys:
+        raise ValueError("Recording chunks must contain step_target")
+    total_length = max(
+        int(chunk["start"]) + len(np.asarray(chunk["step_target"])) for chunk in ordered
+    )
+    result: dict[str, np.ndarray] = {
+        key: np.empty(
+            (total_length, *np.asarray(ordered[0][key]).shape[1:]),
+            dtype=np.asarray(ordered[0][key]).dtype,
+        )
+        for key in temporal_keys
+    }
+    context = np.full(total_length, -1, dtype=np.int64)
+    covered = np.zeros(total_length, dtype=np.bool_)
+    for chunk in ordered:
+        start = int(chunk["start"])
+        length = len(np.asarray(chunk["step_target"]))
+        rows = start + np.arange(length)
+        local_context = np.arange(length)
+        take = local_context > context[rows]
+        selected_rows = rows[take]
+        for key in temporal_keys:
+            result[key][selected_rows] = np.asarray(chunk[key])[take]
+        context[selected_rows] = local_context[take]
+        covered[selected_rows] = True
+    if not covered.all():
+        missing = np.flatnonzero(~covered)
+        raise ValueError(
+            f"Recording windows leave {len(missing)} uncovered rows; first gap is {int(missing[0])}"
+        )
+    result["seen_action_mask"] = np.asarray(ordered[0]["seen_action_mask"])
+    return result
 
 
 def _class_f1_from_confusion(confusion: np.ndarray, class_index: int) -> float:
@@ -1764,6 +1876,16 @@ def main() -> None:
         default=0.0,
         help="Dropout applied to fixed temporal position features.",
     )
+    parser.add_argument(
+        "--procedural-event-context",
+        action="store_true",
+        help="Fuse causal graph and learned next-action disagreement into the event branch.",
+    )
+    parser.add_argument(
+        "--learned-event-fusion",
+        action="store_true",
+        help="Learn a shared fusion of onset, normality, outcome, state, and action-mistake cues.",
+    )
     parser.add_argument("--graph-strength", type=float, default=0.12)
     parser.add_argument("--learning-rate", type=float, default=3e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-3)
@@ -1781,6 +1903,18 @@ def main() -> None:
         type=int,
         default=1,
         help="Guarantee this many incorrect-event windows in each training batch.",
+    )
+    parser.add_argument(
+        "--event-centered-crops-per-event",
+        type=int,
+        default=0,
+        help="Add this many training-only crops centered near every incorrect event; zero preserves the baseline window set.",
+    )
+    parser.add_argument(
+        "--event-centered-crop-radius",
+        type=int,
+        default=0,
+        help="Maximum deterministic offset, in cached feature rows, around an incorrect event center.",
     )
     parser.add_argument("--val-fraction", type=float, default=0.2)
     parser.add_argument("--num-workers", type=int, default=2)
@@ -1863,6 +1997,12 @@ def main() -> None:
         parser.error("batch size and accumulation steps must be positive")
     if args.rare_window_boost < 1.0:
         parser.error("rare-window-boost must be at least 1")
+    if args.event_centered_crops_per_event < 0:
+        parser.error("event-centered-crops-per-event cannot be negative")
+    if args.event_centered_crop_radius < 0:
+        parser.error("event-centered-crop-radius cannot be negative")
+    if args.event_centered_crop_radius > args.sequence_length // 2:
+        parser.error("event-centered-crop-radius cannot exceed half of sequence-length")
     if args.completion_pos_weight_cap < 1.0:
         parser.error("completion-pos-weight-cap must be at least 1")
     if args.incorrect_pos_weight_cap < 1.0:

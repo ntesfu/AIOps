@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import unittest
 import random
+import tempfile
+from argparse import Namespace
+from pathlib import Path
 
 from aiops.evaluation.temporal_metrics import edit_score, segmental_f1
 import numpy as np
 
 from aiops.training.train_stategraph_psr import (
     OutcomeAwareBatchSampler,
+    _effective_rare_window_boost,
+    _initialize_run_directory,
     _binary_average_precision,
     _calibrate_event_thresholds,
     _capture_rng_state,
@@ -16,6 +21,7 @@ from aiops.training.train_stategraph_psr import (
     _event_metrics_from_samples,
     _macro_f1_from_confusion,
     _restore_rng_state,
+    _stitch_recording_chunks,
     _calibrate_incorrect_state_threshold,
     _match_event_counts,
     _precision_recall_f1,
@@ -25,6 +31,75 @@ from aiops.training.train_stategraph_psr import (
 
 
 class StateGraphMetricsTest(unittest.TestCase):
+    def test_recording_metrics_are_invariant_to_sequence_windows(self) -> None:
+        truth = np.asarray([0, 0, 1, 1, 2, 2, 1, 1], dtype=np.int64)
+        prediction = np.asarray([0, 0, 1, 1, 2, 2, 1, 1], dtype=np.int64)
+        outcomes = np.full((8, 1), -100, dtype=np.int64)
+        outcomes[3, 0] = 1
+        scores = np.zeros((8, 1, 3), dtype=np.float32)
+        scores[3, 0, 1] = 0.9
+        seen = np.ones(3, dtype=np.bool_)
+
+        def chunk(start: int, end: int) -> dict[str, np.ndarray | int]:
+            return {
+                "start": start,
+                "step_target": truth[start:end],
+                "step_prediction": prediction[start:end],
+                "raw_step_prediction": prediction[start:end],
+                "component_outcome": outcomes[start:end],
+                "event_score": scores[start:end],
+                "seen_action_mask": seen,
+            }
+
+        unsplit = _stitch_recording_chunks([chunk(0, 8)])
+        split = _stitch_recording_chunks([chunk(0, 4), chunk(4, 8)])
+        for reconstructed in (unsplit, split):
+            self.assertEqual(
+                edit_score(
+                    reconstructed["step_prediction"].tolist(),
+                    reconstructed["step_target"].tolist(),
+                ),
+                100.0,
+            )
+            self.assertEqual(
+                segmental_f1(
+                    reconstructed["step_prediction"].tolist(),
+                    reconstructed["step_target"].tolist(),
+                    0.5,
+                ),
+                100.0,
+            )
+            samples = [
+                (
+                    [(3, 0, 1)],
+                    reconstructed["event_score"],
+                )
+            ]
+            self.assertEqual(
+                _event_metrics_from_samples(samples, [0.99, 0.5, 0.99], tolerance=0)[1],
+                {"precision": 100.0, "recall": 100.0, "f1": 100.0},
+            )
+        np.testing.assert_array_equal(split["step_prediction"], unsplit["step_prediction"])
+
+    def test_overlapping_windows_prefer_prediction_with_more_causal_context(self) -> None:
+        seen = np.ones(3, dtype=np.bool_)
+        first = {
+            "start": 0,
+            "step_target": np.asarray([0, 0, 1, 1]),
+            "step_prediction": np.asarray([0, 0, 2, 2]),
+            "seen_action_mask": seen,
+        }
+        second = {
+            "start": 2,
+            "step_target": np.asarray([1, 1, 2, 2]),
+            "step_prediction": np.asarray([1, 1, 2, 2]),
+            "seen_action_mask": seen,
+        }
+        stitched = _stitch_recording_chunks([first, second])
+        # Global rows 2 and 3 come from local rows 2/3 of the first window,
+        # not local rows 0/1 of the second window.
+        np.testing.assert_array_equal(stitched["step_prediction"], [0, 0, 2, 2, 2, 2])
+
     def test_training_rng_state_round_trip(self) -> None:
         try:
             import torch
@@ -149,6 +224,39 @@ class StateGraphMetricsTest(unittest.TestCase):
             seed=2,
         )
         self.assertEqual(list(sampler), [[2] * 3])
+
+    def test_guaranteed_rare_slot_does_not_require_weight_boost(self) -> None:
+        sampler = OutcomeAwareBatchSampler(
+            dataset_size=4,
+            batch_size=2,
+            rare_indices=[3],
+            rare_per_batch=1,
+            sampling_weights=np.ones(4),
+            seed=4,
+        )
+        self.assertTrue(all(3 in batch for batch in sampler))
+        self.assertEqual(_effective_rare_window_boost(6.0, rare_per_batch=1), 1.0)
+        self.assertEqual(_effective_rare_window_boost(6.0, rare_per_batch=0), 6.0)
+
+    def test_run_directory_manifest_prevents_colliding_writers(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            args = Namespace(
+                output_dir=str(Path(directory) / "run"),
+                cache_index=str(Path(directory) / "cache.json"),
+                resume=None,
+                seed=7,
+            )
+            output_dir, digest = _initialize_run_directory(args)
+            manifest = output_dir / "run_manifest.json"
+            self.assertTrue(manifest.exists())
+            self.assertEqual(len(digest), 64)
+            with self.assertRaises(FileExistsError):
+                _initialize_run_directory(args)
+            args.resume = str(output_dir / "last_checkpoint.pt")
+            self.assertEqual(_initialize_run_directory(args)[1], digest)
+            args.seed = 8
+            with self.assertRaises(ValueError):
+                _initialize_run_directory(args)
 
     def test_joint_decoder_assigns_one_outcome_and_suppresses_nearby_peak(self) -> None:
         scores = np.zeros((8, 1, 3), dtype=np.float32)

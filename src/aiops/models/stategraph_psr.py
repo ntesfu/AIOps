@@ -58,6 +58,10 @@ class StateGraphPSRConfig:
     # parameters (important when using long cached windows on a 24 GB GPU).
     max_sequence_length: int = 4096
     positional_dropout: float = 0.0
+    # Feed explicit transition/next-action disagreement into the event branch.
+    # This is optional so cached-feature ablations can isolate its contribution.
+    procedural_event_context: bool = False
+    learned_event_fusion: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -391,6 +395,16 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             self.state_head = nn.Linear(config.hidden_dim, config.num_components * 3)
             self.action_event_context = nn.Linear(config.hidden_dim, config.hidden_dim)
             self.state_event_context = nn.Linear(config.num_components * 3, config.hidden_dim)
+            if config.procedural_event_context:
+                self.procedure_event_context = nn.Sequential(
+                    nn.LayerNorm(4 * config.num_completion_components + 2),
+                    nn.Linear(
+                        4 * config.num_completion_components + 2,
+                        config.hidden_dim,
+                    ),
+                    nn.GELU(),
+                    nn.Dropout(config.dropout),
+                )
             self.event_norm = nn.LayerNorm(config.hidden_dim)
             self.completion_head = nn.Linear(config.hidden_dim, config.num_completion_components)
             self.component_outcome_head = nn.Linear(
@@ -399,6 +413,16 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             self.incorrect_onset_head = nn.Linear(
                 config.hidden_dim, config.num_completion_components
             )
+            if config.learned_event_fusion:
+                # Shared across components so every rare mistake teaches the
+                # same calibration rule. Inputs remain interpretable and are
+                # exposed separately for ablation/reporting.
+                self.event_fusion_head = nn.Sequential(
+                    nn.LayerNorm(5),
+                    nn.Linear(5, 16),
+                    nn.GELU(),
+                    nn.Linear(16, 1),
+                )
             self.component_normal_prototypes = nn.Parameter(
                 torch.empty(config.num_completion_components, config.hidden_dim)
             )
@@ -539,6 +563,7 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 )
                 refinement_step_logits.append(raw_step_logits)
             graph_step_logits, step_probabilities = self._apply_graph_filter(raw_step_logits, valid_mask)
+            next_step_logits = self.next_step_head(temporal)
             # Assembly101 explicitly labels failed actions as ``attempt to ...``.
             # Convert that dense action supervision into a component-aware,
             # causal mistake-onset cue instead of asking a sparse 140-event head
@@ -563,6 +588,44 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             mistake_action_onset_score = (
                 mistake_action_probability - previous_mistake_probability
             ).clamp_min(0.0)
+            # Compare observed actions with both the empirical procedure graph
+            # and the learned next-action prediction.  These signals answer a
+            # different question from visual anomaly: is this action plausible
+            # *at this point in the procedure*?  Everything is shifted or based
+            # on current/past evidence, preserving causal inference.
+            initial_action = step_probabilities.new_full(
+                (step_probabilities.shape[0], 1, config.num_steps),
+                1.0 / config.num_steps,
+            )
+            previous_action = torch.cat(
+                [initial_action, step_probabilities[:, :-1]], dim=1
+            )
+            graph_expected = previous_action @ self.transition_matrix
+            previous_next = torch.cat(
+                [initial_action, torch.softmax(next_step_logits[:, :-1], dim=-1)], dim=1
+            )
+            graph_compatibility = (graph_expected * step_probabilities).sum(dim=-1)
+            next_compatibility = (previous_next * step_probabilities).sum(dim=-1)
+            procedure_violation_score = 0.5 * (
+                (1.0 - graph_compatibility) + (1.0 - next_compatibility)
+            )
+            component_action_mass = step_probabilities.new_zeros(
+                *step_probabilities.shape[:-1], config.num_completion_components
+            )
+            component_expected_mass = component_action_mass.clone()
+            if bool(mapped_actions.any()):
+                component_indices = self.action_event_component_indices[mapped_actions]
+                scatter_indices = component_indices.view(1, 1, -1).expand(
+                    *step_probabilities.shape[:-1], -1
+                )
+                component_action_mass.scatter_add_(
+                    -1, scatter_indices, step_probabilities[..., mapped_actions]
+                )
+                component_expected_mass.scatter_add_(
+                    -1,
+                    scatter_indices,
+                    graph_expected[..., mapped_actions].to(component_expected_mass.dtype),
+                )
             event_temporal = temporal + modality_disagreement
             for block in self.event_temporal_blocks:
                 event_temporal = block(event_temporal, valid_mask)
@@ -576,6 +639,21 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 + self.action_event_context(action_context)
                 + self.state_event_context(state_probabilities.flatten(start_dim=-2))
             )
+            if config.procedural_event_context:
+                procedure_features = torch.cat(
+                    [
+                        component_action_mass,
+                        component_expected_mass,
+                        (component_action_mass - component_expected_mass).clamp_min(0.0),
+                        mistake_action_probability,
+                        graph_compatibility.unsqueeze(-1),
+                        next_compatibility.unsqueeze(-1),
+                    ],
+                    dim=-1,
+                )
+                event_features = self.event_norm(
+                    event_features + self.procedure_event_context(procedure_features)
+                )
             normal_reference = action_context.unsqueeze(-2) + self.component_normal_prototypes
             normality_logits = (
                 functional.softplus(self.normality_scale_raw)
@@ -604,6 +682,31 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             component_outcome_logits = component_outcome_logits + state_evidence_strength * torch.log(
                 state_outcome_probabilities.clamp_min(1e-6)
             )
+            incorrect_onset_logits = self.incorrect_onset_head(event_features)
+            fused_incorrect_logits = None
+            if config.learned_event_fusion:
+                outcome_incorrect_logit = (
+                    component_outcome_logits[..., 1]
+                    - torch.logsumexp(
+                        component_outcome_logits[..., [0, 2]], dim=-1
+                    )
+                )
+                state_incorrect_logit = torch.logit(
+                    state_outcome_probabilities[..., 1].clamp(1e-5, 1.0 - 1e-5)
+                )
+                fusion_inputs = torch.stack(
+                    [
+                        incorrect_onset_logits,
+                        -normality_logits,
+                        outcome_incorrect_logit,
+                        state_incorrect_logit,
+                        torch.logit(
+                            mistake_action_onset_score.clamp(1e-5, 1.0 - 1e-5)
+                        ),
+                    ],
+                    dim=-1,
+                )
+                fused_incorrect_logits = self.event_fusion_head(fusion_inputs).squeeze(-1)
             entropy = -(step_probabilities.clamp_min(1e-7).log() * step_probabilities).sum(dim=-1)
             # Entropy is bounded by log(K); this keeps uncertainty in [0, 1].
             normalized_entropy = entropy / math.log(max(config.num_steps, 2))
@@ -620,7 +723,8 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 "event_features": event_features,
                 "completion_logits": self.completion_head(event_features),
                 "component_outcome_logits": component_outcome_logits,
-                "incorrect_onset_logits": self.incorrect_onset_head(event_features),
+                "incorrect_onset_logits": incorrect_onset_logits,
+                "fused_incorrect_logits": fused_incorrect_logits,
                 "mistake_action_probability": mistake_action_probability,
                 "mistake_action_onset_score": mistake_action_onset_score,
                 "normality_logits": normality_logits,
@@ -629,7 +733,8 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 "state_logits": state_logits,
                 "boundary_logits": self.boundary_head(temporal).squeeze(-1),
                 "progress_logits": self.progress_head(temporal).squeeze(-1),
-                "next_step_logits": self.next_step_head(temporal),
+                "next_step_logits": next_step_logits,
+                "procedure_violation_score": procedure_violation_score,
                 "uncertainty": normalized_entropy,
                 "energy": energy,
                 "modality_gates": modality_gates,
@@ -752,8 +857,14 @@ def build_stategraph_loss(config: StateGraphLossConfig):
             incorrect_targets = (outcome_targets == 1).to(
                 outputs["incorrect_onset_logits"].dtype
             )
+            learned_event_logits = outputs.get("fused_incorrect_logits")
+            onset_logits = (
+                learned_event_logits
+                if learned_event_logits is not None
+                else outputs["incorrect_onset_logits"]
+            )
             losses["incorrect_onset"] = self._asymmetric_bce(
-                outputs["incorrect_onset_logits"],
+                onset_logits,
                 incorrect_targets,
                 valid_mask,
                 positive_gamma=0.0,

@@ -18,6 +18,10 @@ init_checkpoint="${INIT_CHECKPOINT:-}"
 freeze_action_backbone="${FREEZE_ACTION_BACKBONE:-0}"
 learning_rate_override="${LEARNING_RATE:-}"
 resume_checkpoint="${RESUME_CHECKPOINT:-}"
+procedural_event_context="${PROCEDURAL_EVENT_CONTEXT:-0}"
+learned_event_fusion="${LEARNED_EVENT_FUSION:-0}"
+event_centered_crops_per_event="${EVENT_CENTERED_CROPS_PER_EVENT:-0}"
+event_centered_crop_radius="${EVENT_CENTERED_CROP_RADIUS:-0}"
 
 case "$variant" in
   base)
@@ -56,6 +60,18 @@ init_args=()
 if [[ -n "$init_checkpoint" ]]; then
   init_args+=(--init-checkpoint "$init_checkpoint")
 fi
+
+procedure_args=()
+if [[ "$procedural_event_context" == "1" ]]; then
+  procedure_args+=(--procedural-event-context)
+fi
+if [[ "$learned_event_fusion" == "1" ]]; then
+  procedure_args+=(--learned-event-fusion)
+fi
+procedure_args+=(
+  --event-centered-crops-per-event "$event_centered_crops_per_event"
+  --event-centered-crop-radius "$event_centered_crop_radius"
+)
 if [[ "$freeze_action_backbone" == "1" ]]; then
   init_args+=(--freeze-action-backbone)
 fi
@@ -96,4 +112,5 @@ export PYTHONPATH=".deps:src${PYTHONPATH:+:${PYTHONPATH}}"
   "${losses[@]}" \
   "${resume_args[@]}" \
   "${init_args[@]}" \
+  "${procedure_args[@]}" \
   "${test_args[@]}"

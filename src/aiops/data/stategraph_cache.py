@@ -136,9 +136,19 @@ class StateGraphCacheDataset:
         training: bool = False,
         seed: int = 7,
         preload: bool = False,
+        event_centered_crops_per_event: int = 0,
+        event_centered_crop_radius: int = 0,
     ) -> None:
         if sequence_length <= 0 or sequence_stride <= 0:
             raise ValueError("sequence_length and sequence_stride must be positive")
+        if event_centered_crops_per_event < 0:
+            raise ValueError("event_centered_crops_per_event cannot be negative")
+        if event_centered_crop_radius < 0:
+            raise ValueError("event_centered_crop_radius cannot be negative")
+        if event_centered_crops_per_event and not training:
+            raise ValueError("event-centered crops are training-only")
+        if event_centered_crop_radius > sequence_length // 2:
+            raise ValueError("event_centered_crop_radius cannot exceed half of sequence_length")
         self.records = records
         self.sequence_length = sequence_length
         self.sequence_stride = sequence_stride
@@ -155,6 +165,8 @@ class StateGraphCacheDataset:
                     )
         self.windows: list[tuple[int, int]] = []
         self.incorrect_event_windows: set[int] = set()
+        self.event_centered_window_indices: set[int] = set()
+        self.incorrect_event_count = 0
         for record_index, record in enumerate(records):
             with self._open_record(record_index) as arrays:
                 length = int(arrays["step"].shape[0])
@@ -166,6 +178,35 @@ class StateGraphCacheDataset:
                 if not starts or starts[-1] != final_start:
                     starts.append(final_start)
                 self.windows.extend((record_index, start) for start in starts)
+            with self._open_record(record_index) as arrays:
+                # Keep one entry per supervised component event. Multiple
+                # incorrect components at the same timestamp are distinct
+                # targets and intentionally receive distinct crop slots.
+                event_rows = np.where(arrays["component_outcome"] == 1)[0]
+            self.incorrect_event_count += len(event_rows)
+            if event_centered_crops_per_event:
+                if event_centered_crops_per_event == 1:
+                    offsets = np.asarray([0], dtype=np.int64)
+                else:
+                    offsets = np.rint(
+                        np.linspace(
+                            -event_centered_crop_radius,
+                            event_centered_crop_radius,
+                            event_centered_crops_per_event,
+                        )
+                    ).astype(np.int64)
+                for event_row in event_rows:
+                    for offset in offsets:
+                        start = int(
+                            np.clip(
+                                int(event_row) - sequence_length // 2 + int(offset),
+                                0,
+                                max(0, length - sequence_length),
+                            )
+                        )
+                        window_index = len(self.windows)
+                        self.windows.append((record_index, start))
+                        self.event_centered_window_indices.add(window_index)
         for window_index, (record_index, start) in enumerate(self.windows):
             with self._open_record(record_index) as arrays:
                 end = min(len(arrays["component_outcome"]), start + self.sequence_length)
@@ -247,6 +288,11 @@ class StateGraphCacheDataset:
         """Return windows containing a supervised incorrect completion event."""
 
         return sorted(self.incorrect_event_windows)
+
+    def event_centered_indices(self) -> list[int]:
+        """Return the synthetic, training-only crops centered near incorrect events."""
+
+        return sorted(self.event_centered_window_indices)
 
 
 def pad_stategraph_batch(samples: list[dict[str, Any]]) -> dict[str, Any]:

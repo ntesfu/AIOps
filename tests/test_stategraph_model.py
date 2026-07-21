@@ -43,6 +43,8 @@ class StateGraphModelTest(unittest.TestCase):
             num_event_blocks=2,
             dropout=0.0,
             max_dilation=2,
+            procedural_event_context=True,
+            learned_event_fusion=True,
         )
         transition = torch.tensor([[1.0, 1.0, 0.0], [0.0, 1.0, 1.0], [0.0, 0.0, 1.0]])
         model = build_stategraph_psr(config, transition).eval()
@@ -65,6 +67,8 @@ class StateGraphModelTest(unittest.TestCase):
         self.assertEqual(tuple(output["completion_logits"].shape), (2, 7, 2))
         self.assertEqual(tuple(output["component_outcome_logits"].shape), (2, 7, 2, 3))
         self.assertEqual(tuple(output["incorrect_onset_logits"].shape), (2, 7, 2))
+        self.assertEqual(tuple(output["fused_incorrect_logits"].shape), (2, 7, 2))
+        self.assertEqual(tuple(output["procedure_violation_score"].shape), (2, 7))
         self.assertEqual(tuple(output["mistake_action_probability"].shape), (2, 7, 2))
         self.assertEqual(tuple(output["mistake_action_onset_score"].shape), (2, 7, 2))
         self.assertTrue(bool((output["mistake_action_probability"] >= 0).all()))
@@ -94,6 +98,10 @@ class StateGraphModelTest(unittest.TestCase):
         torch.testing.assert_close(
             output["component_outcome_logits"][:, :4],
             changed_output["component_outcome_logits"][:, :4],
+        )
+        torch.testing.assert_close(
+            output["fused_incorrect_logits"][:, :4],
+            changed_output["fused_incorrect_logits"][:, :4],
         )
 
         targets = {
