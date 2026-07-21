@@ -222,7 +222,11 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         _class_weights(train_records, "component_outcome", model_config.num_event_outcomes)
     ).to(device)
     state_class_weights = torch.from_numpy(
-        _state_class_weights(train_records, model_config.num_components)
+        _state_class_weights(
+            train_records,
+            model_config.num_components,
+            power=args.state_class_weight_power,
+        )
     ).to(device)
     incorrect_pos_weights = torch.from_numpy(
         _outcome_pos_weights(
@@ -566,6 +570,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         "overfit_recording_ids": overfit_recordings,
         "completion_pos_weight_cap": args.completion_pos_weight_cap,
         "step_class_weight_power": args.step_class_weight_power,
+        "state_class_weight_power": args.state_class_weight_power,
         "action_factorization": factorization,
         "event_state_mapping": event_state_mapping,
         "model_config": model_config.to_dict(),
@@ -1208,7 +1213,10 @@ def _completion_pos_weights(
 
 
 def _state_class_weights(
-    records: list[StateGraphCacheRecord], components: int, cap: float = 12.0
+    records: list[StateGraphCacheRecord],
+    components: int,
+    cap: float = 12.0,
+    power: float = 0.5,
 ) -> np.ndarray:
     """Per-component state balancing without letting rare faults explode gradients."""
     counts = np.ones((components, 3), dtype=np.float64)
@@ -1221,7 +1229,7 @@ def _state_class_weights(
             counts[component] += np.bincount(labels, minlength=3)
     # Inverse square root is more stable than full inverse frequency for the
     # very scarce incorrect state, while still countering pending-state scale.
-    weights = np.sqrt(counts.sum(axis=1, keepdims=True) / (3.0 * counts))
+    weights = (counts.sum(axis=1, keepdims=True) / (3.0 * counts)) ** power
     weights = np.clip(weights, 0.25, cap)
     weights /= weights.mean(axis=1, keepdims=True)
     return weights.astype(np.float32)
@@ -1608,6 +1616,12 @@ def main() -> None:
         help="Maximum per-component positive BCE weight for sparse completion events.",
     )
     parser.add_argument("--state-weight", type=float, default=0.8)
+    parser.add_argument(
+        "--state-class-weight-power",
+        type=float,
+        default=0.5,
+        help="Exponent on per-component inverse state frequency; 1.0 emphasizes rare faults.",
+    )
     parser.add_argument("--boundary-weight", type=float, default=0.25)
     parser.add_argument("--next-step-weight", type=float, default=0.3)
     parser.add_argument("--smoothing-weight", type=float, default=0.12)
@@ -1649,6 +1663,8 @@ def main() -> None:
         parser.error("max-vram-gib must be positive")
     if not 0.0 <= args.step_class_weight_power <= 1.0:
         parser.error("step-class-weight-power must be in [0, 1]")
+    if not 0.0 <= args.state_class_weight_power <= 1.0:
+        parser.error("state-class-weight-power must be in [0, 1]")
     if not 0.0 <= args.graph_strength <= 1.0:
         parser.error("graph-strength must be a probability in [0, 1]")
     if not 0 <= args.rare_windows_per_batch <= args.batch_size:

@@ -8,6 +8,8 @@ evaluate_test="${EVALUATE_TEST:-0}"
 calibration_interval="${CALIBRATION_INTERVAL:-4}"
 step_class_weight_power="${STEP_CLASS_WEIGHT_POWER:-1.0}"
 focal_gamma="${FOCAL_GAMMA:-1.5}"
+state_class_weight_power="${STATE_CLASS_WEIGHT_POWER:-0.5}"
+incorrect_pos_weight_cap="${INCORRECT_POS_WEIGHT_CAP:-100.0}"
 
 case "$variant" in
   base)
@@ -45,6 +47,7 @@ export PYTHONPATH=".deps:src${PYTHONPATH:+:${PYTHONPATH}}"
   --sequence-stride 384 \
   --step-class-weight-power "$step_class_weight_power" \
   --focal-gamma "$focal_gamma" \
+  --state-class-weight-power "$state_class_weight_power" \
   --attention-every 2 \
   --num-heads 8 \
   --num-action-refinement-stages 2 \
@@ -55,7 +58,7 @@ export PYTHONPATH=".deps:src${PYTHONPATH:+:${PYTHONPATH}}"
   --rare-window-boost 6.0 \
   --rare-windows-per-batch 2 \
   --normality-error-weight 10.0 \
-  --incorrect-pos-weight-cap 100.0 \
+  --incorrect-pos-weight-cap "$incorrect_pos_weight_cap" \
   --incorrect-selection-weight 1.0 \
   --calibration-interval "$calibration_interval" \
   --num-workers 4 \

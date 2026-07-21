@@ -698,11 +698,13 @@ def build_stategraph_loss(config: StateGraphLossConfig):
             incorrect_targets = (outcome_targets == 1).to(
                 outputs["incorrect_onset_logits"].dtype
             )
-            losses["incorrect_onset"] = self._focal_bce(
+            losses["incorrect_onset"] = self._asymmetric_bce(
                 outputs["incorrect_onset_logits"],
                 incorrect_targets,
                 valid_mask,
-                config.focal_gamma,
+                positive_gamma=0.0,
+                negative_gamma=config.asl_negative_gamma,
+                clip=config.asl_clip,
                 pos_weight=incorrect_pos_weights,
             )
 
