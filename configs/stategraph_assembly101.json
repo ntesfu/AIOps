@@ -2,19 +2,21 @@
   "name": "StateGraph-PSR Assembly101 Stage 1",
   "dataset": "Assembly101 part-to-part mistake benchmark",
   "data": {
-    "selection_manifest": "data/raw/assembly101/subset_manifest.json",
-    "cache_index": "data/processed/assembly101_stategraph/index.json",
+    "selection_manifest": "data/raw/assembly101/ego30_manifest.json",
+    "cache_index": "data/processed/assembly101_ego30_stategraph/index.json",
     "split": "actor-disjoint 40 train / 10 validation / 10 test recordings",
-    "camera": "C10095 fixed RGB",
+    "camera": "e1 egocentric monochrome",
     "annotation_fps": 30,
-    "mirror_fps": 1,
+    "source_fps": 60,
     "license": "CC BY-NC 4.0"
   },
   "features": {
-    "appearance": "frozen ConvNeXt-Tiny ImageNet-1K, 768-d",
-    "motion": "causal adjacent ConvNeXt feature difference, 768-d",
+    "appearance": "central-frame feature from genuine 30-fps ego clips",
+    "motion": "frozen Swin3D-S Kinetics-400, causal 32-frame clips at 30 fps, 768-d",
     "sensor": "unavailable and masked",
-    "stride_frames": 30
+    "clip_frames": 32,
+    "stride_frames": 8,
+    "model_observations_per_second": 3.75
   },
   "model": {
     "hidden_dim": 256,
