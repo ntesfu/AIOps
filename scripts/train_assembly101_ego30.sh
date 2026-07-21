@@ -22,6 +22,7 @@ procedural_event_context="${PROCEDURAL_EVENT_CONTEXT:-0}"
 learned_event_fusion="${LEARNED_EVENT_FUSION:-0}"
 event_centered_crops_per_event="${EVENT_CENTERED_CROPS_PER_EVENT:-0}"
 event_centered_crop_radius="${EVENT_CENTERED_CROP_RADIUS:-0}"
+seed="${SEED:-7}"
 
 case "$variant" in
   base)
@@ -107,7 +108,7 @@ export PYTHONPATH=".deps:src${PYTHONPATH:+:${PYTHONPATH}}"
   --calibration-interval "$calibration_interval" \
   --num-workers 4 \
   --preload-cache \
-  --seed 7 \
+  --seed "$seed" \
   "${architecture[@]}" \
   "${losses[@]}" \
   "${resume_args[@]}" \

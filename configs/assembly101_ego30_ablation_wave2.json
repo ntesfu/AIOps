@@ -1,0 +1,51 @@
+{
+  "protocol": {
+    "source_commit": "pending",
+    "selection_split": "actor-disjoint validation only",
+    "test_split_policy": "sealed until the combined architecture is selected",
+    "screening_epochs": 12,
+    "purpose": "isolate procedure/crop interaction and measure seed robustness"
+  },
+  "experiments": [
+    {
+      "id": "B0",
+      "run": "abl_b0_procedure_nocrop_s7_12e_20260722",
+      "factor": "procedure context without event-centered crops",
+      "seed": 7,
+      "event_centered_crops_per_event": 0,
+      "procedural_event_context": true,
+      "learned_event_fusion": false
+    },
+    {
+      "id": "B1",
+      "run": "abl_b1_procedure_onecrop_s7_12e_20260722",
+      "factor": "one event-centered crop per mistake",
+      "compare_to": "B0",
+      "seed": 7,
+      "event_centered_crops_per_event": 1,
+      "event_centered_crop_radius": 64,
+      "procedural_event_context": true,
+      "learned_event_fusion": false
+    },
+    {
+      "id": "B2",
+      "run": "abl_b2_procedure_twocrop_s17_12e_20260722",
+      "factor": "two-crop procedural candidate, seed 17",
+      "seed": 17,
+      "event_centered_crops_per_event": 2,
+      "event_centered_crop_radius": 128,
+      "procedural_event_context": true,
+      "learned_event_fusion": false
+    },
+    {
+      "id": "B3",
+      "run": "abl_b3_procedure_twocrop_s27_12e_20260722",
+      "factor": "two-crop procedural candidate, seed 27",
+      "seed": 27,
+      "event_centered_crops_per_event": 2,
+      "event_centered_crop_radius": 128,
+      "procedural_event_context": true,
+      "learned_event_fusion": false
+    }
+  ]
+}
