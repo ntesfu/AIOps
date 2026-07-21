@@ -7,6 +7,7 @@
     "total_training_epochs": 80,
     "seed": 17,
     "maximum_vram_gib": 23,
+    "supersedes_aborted_pilot": "final_j0_action_pretrain_s17_64e_20260722 stopped after epoch 11 when completed wave-10 attribution favored procedural context",
     "test_policy": "evaluate the held-out test exactly once after both stages and validation-only model selection complete"
   },
   "architecture": {
@@ -14,29 +15,31 @@
     "hidden_dim": 384,
     "num_temporal_blocks": 10,
     "num_event_blocks": 6,
-    "procedural_event_context": false,
+    "procedural_event_context": true,
     "factorized_mistake_detection": false,
-    "reason": "crop-only staged adaptation replicated across seeds; procedural and factorized variants did not improve the same action/mistake balance"
+    "reason": "staging plus crops replicated across seeds; under fixed staged training, procedural context raised exact event F1 and sharply reduced matched delay, while factorization regressed the balance"
   },
   "stages": [
     {
       "id": "J0",
-      "run": "final_j0_action_pretrain_s17_64e_20260722",
+      "run": "final_j0p_procedure_pretrain_s17_64e_20260722",
       "epochs": 64,
       "learning_rate": 0.0002,
       "event_centered_crops_per_event": 0,
+      "procedural_event_context": true,
       "freeze_action_backbone": false,
       "selection_strategy": "action_only",
       "evaluate_test": false
     },
     {
       "id": "J1",
-      "run": "final_j1_staged_crops_s17_16e_20260722",
+      "run": "final_j1p_procedure_staged_crops_s17_16e_20260722",
       "epochs": 16,
       "learning_rate": 0.00005,
-      "initial_checkpoint": "artifacts/final_j0_action_pretrain_s17_64e_20260722.pt",
+      "initial_checkpoint": "artifacts/final_j0p_procedure_pretrain_s17_64e_20260722.pt",
       "event_centered_crops_per_event": 2,
       "event_centered_crop_radius": 128,
+      "procedural_event_context": true,
       "freeze_action_backbone": true,
       "selection_strategy": "operational_harmonic",
       "selection_constraint": "strict incorrect-event recall > 0, normality AP >= validation prevalence, false alerts <= 2/min",
