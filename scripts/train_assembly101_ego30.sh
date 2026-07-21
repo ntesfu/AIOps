@@ -23,6 +23,7 @@ learned_event_fusion="${LEARNED_EVENT_FUSION:-0}"
 event_centered_crops_per_event="${EVENT_CENTERED_CROPS_PER_EVENT:-0}"
 event_centered_crop_radius="${EVENT_CENTERED_CROP_RADIUS:-0}"
 seed="${SEED:-7}"
+cache_index="${CACHE_INDEX:-data/processed/assembly101_ego30_stategraph/index.json}"
 incorrect_hard_negative_ratio="${INCORRECT_HARD_NEGATIVE_RATIO:-0}"
 max_incorrect_false_alerts_per_minute="${MAX_INCORRECT_FALSE_ALERTS_PER_MINUTE:-}"
 
@@ -86,7 +87,7 @@ fi
 
 export PYTHONPATH=".deps:src${PYTHONPATH:+:${PYTHONPATH}}"
 .venv/bin/python -m aiops.training.train_stategraph_psr \
-  --cache-index data/processed/assembly101_ego30_stategraph/index.json \
+  --cache-index "$cache_index" \
   --output-dir "runs/${run_name}" \
   --export-checkpoint "artifacts/${run_name}.pt" \
   --epochs "$epochs" \
