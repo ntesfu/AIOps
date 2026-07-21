@@ -53,6 +53,20 @@ def test_dense_targets_are_causal_and_preserve_fault_then_recovery(tmp_path: Pat
     assert targets["state"][:, 0].tolist() == [1, 0, 0, 1, 1]
 
 
+def test_components_absent_from_recording_are_not_supervised_as_pending(tmp_path: Path):
+    path = tmp_path / "nusar-2021_action_both_9033-c02a_9033_user_id_2021.csv"
+    path.write_text("30,60,attach,wheel,chassis,mistake,\n", encoding="utf-8")
+    targets = dense_assembly_targets(
+        np.asarray([0, 30, 60]),
+        read_mistake_segments(path),
+        {"__background__": 0, "attach:wheel": 1},
+        {"wheel": 0, "bucket": 1},
+        background_index=0,
+    )
+    assert targets["state_mask"][:, 0].all()
+    assert not targets["state_mask"][:, 1].any()
+
+
 def test_complete_coarse_actions_replace_sparse_mistake_action_labels(tmp_path: Path):
     mistake = tmp_path / "nusar-2021_action_both_9033-c02a_9033_user_id_2021.csv"
     mistake.write_text("60,90,attach,wheel,chassis,mistake,\n", encoding="utf-8")

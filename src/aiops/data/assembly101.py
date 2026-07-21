@@ -169,7 +169,14 @@ def dense_assembly_targets(
     completion = np.zeros((length, components), dtype=np.float32)
     outcome = np.full((length, components), -100, dtype=np.int64)
     state = np.ones((length, components), dtype=np.int64)
-    state_mask = np.ones((length, components), dtype=np.bool_)
+    # Global component vocabulary spans many different toys. Components absent
+    # from this recording are unknown, not "not completed"; supervising them
+    # as pending overwhelms the rare incorrect/correct states and teaches toy
+    # identity instead of assembly state.
+    active_components = {component_to_index[segment.subject] for segment in ordered}
+    state_mask = np.zeros((length, components), dtype=np.bool_)
+    if active_components:
+        state_mask[:, sorted(active_components)] = True
     current_state = np.ones(components, dtype=np.int64)
     cursor = 0
 

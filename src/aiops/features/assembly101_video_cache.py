@@ -269,6 +269,62 @@ def merge_shard_indexes(output_dir: str | Path, manifest_path: str | Path) -> di
     }
 
 
+def relabel_cache(index_path: str | Path, manifest_path: str | Path) -> dict[str, Any]:
+    """Rebuild all targets without rerunning expensive frozen visual backbones."""
+    index_file = Path(index_path)
+    index = json.loads(index_file.read_text(encoding="utf-8"))
+    metadata = index["metadata"]
+    manifest_file = Path(manifest_path)
+    manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+    by_id = {row["recording_id"]: row for row in manifest["records"]}
+    action_to_index = {
+        name: index for index, name in enumerate(metadata["action_ids"])
+    }
+    component_to_index = {
+        name: index for index, name in enumerate(metadata["state_components"])
+    }
+    data_root = manifest_file.parent
+    annotation_root = data_root / "official_hf" / "annotations" / "coarse-annotations" / "coarse_labels"
+    mistake_root = data_root / "annotations" / "mistake-detection"
+    updated = 0
+    for number, record in enumerate(index["records"], 1):
+        rid = record["recording_id"]
+        row = by_id[rid]
+        path = index_file.parent / record["path"]
+        print(f"[{number}/{len(index['records'])}] relabel {rid}", flush=True)
+        with np.load(path, allow_pickle=False) as arrays:
+            cached = {name: arrays[name].copy() for name in arrays.files}
+        sampled_frames = np.rint(cached["timestamps"] * float(metadata["fps"])).astype(
+            np.int64
+        )
+        targets = dense_assembly_targets(
+            sampled_frames,
+            read_mistake_segments(mistake_root / f"{rid}.csv"),
+            action_to_index,
+            component_to_index,
+            background_index=action_to_index[metadata["background_action_id"]],
+            action_segments=read_coarse_action_segments(
+                [annotation_root / name for name in row["coarse_label_files"]]
+            ),
+        )
+        temporary = path.with_name(path.stem + ".relabel.npz")
+        save_cache_record(
+            temporary,
+            motion=cached["motion"],
+            appearance=cached["appearance"],
+            sensor=cached["sensor"],
+            modality_mask=cached["modality_mask"],
+            timestamps=cached["timestamps"],
+            motion_aux=cached.get("motion_aux"),
+            **targets,
+        )
+        temporary.replace(path)
+        updated += 1
+    metadata["targets_relabelled"] = True
+    index_file.write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
+    return {"index": str(index_file), "updated": updated}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build genuine 30-fps Assembly101 ego cache.")
     parser.add_argument("--manifest", default="data/raw/assembly101/ego30_manifest.json")
