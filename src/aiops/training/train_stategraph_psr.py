@@ -537,6 +537,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                 calibrate_events=calibrate_events,
                 state_incorrect_threshold=state_incorrect_threshold,
                 calibrate_state=calibrate_events,
+                max_incorrect_false_alerts_per_minute=args.max_incorrect_false_alerts_per_minute,
             )
             event_thresholds = [
                 metrics["correct_event_threshold"],
@@ -641,6 +642,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         seconds_per_step=seconds_per_step,
         calibrate_events=True,
         calibrate_state=True,
+        max_incorrect_false_alerts_per_minute=args.max_incorrect_false_alerts_per_minute,
     )
     validation_event_thresholds = [
         final_metrics["correct_event_threshold"],
@@ -750,6 +752,7 @@ def evaluate(
     calibrate_latency: bool = False,
     state_incorrect_threshold: float | None = None,
     calibrate_state: bool = True,
+    max_incorrect_false_alerts_per_minute: float | None = None,
 ) -> dict[str, float]:
     import torch
 
@@ -898,6 +901,8 @@ def evaluate(
             outcomes=3,
             tolerance=primary_tolerance,
             seconds_per_step=seconds_per_step,
+            max_incorrect_false_alerts_per_minute=max_incorrect_false_alerts_per_minute,
+            total_duration_seconds=evaluated_steps * seconds_per_step,
         )
     else:
         calibrated_metrics = _event_metrics_from_samples(
@@ -925,6 +930,8 @@ def evaluate(
                 outcomes=3,
                 tolerance=tolerance,
                 seconds_per_step=seconds_per_step,
+                max_incorrect_false_alerts_per_minute=max_incorrect_false_alerts_per_minute,
+                total_duration_seconds=evaluated_steps * seconds_per_step,
             )
         else:
             latency_thresholds = list(event_thresholds)
@@ -1302,6 +1309,8 @@ def _calibrate_event_thresholds(
     outcomes: int,
     tolerance: int = 1,
     seconds_per_step: float = 0.5,
+    max_incorrect_false_alerts_per_minute: float | None = None,
+    total_duration_seconds: float | None = None,
 ) -> tuple[list[float], dict[Any, dict[str, float]], list[float]]:
     """Select validation thresholds and event-level PR-AUC independently by outcome."""
 
@@ -1330,7 +1339,31 @@ def _calibrate_event_thresholds(
                 seconds_per_step=seconds_per_step,
             )[outcome]
             curve.append((metrics["recall"], metrics["precision"], float(threshold)))
-            if metrics["f1"] > best_f1:
+            eligible = True
+            if outcome == 1 and max_incorrect_false_alerts_per_minute is not None:
+                if total_duration_seconds is None:
+                    raise ValueError(
+                        "total_duration_seconds is required for false-alert constrained calibration"
+                    )
+                diagnostics = _event_timing_diagnostics(
+                    samples,
+                    candidate,
+                    outcome=1,
+                    total_duration_seconds=total_duration_seconds,
+                    seconds_per_step=seconds_per_step,
+                    match_tolerance=tolerance,
+                )
+                eligible = (
+                    diagnostics["false_alerts_per_minute"]
+                    <= max_incorrect_false_alerts_per_minute + 1e-12
+                )
+            if eligible and (
+                metrics["f1"] > best_f1 + 1e-12
+                or (
+                    abs(metrics["f1"] - best_f1) <= 1e-12
+                    and float(threshold) > best_threshold
+                )
+            ):
                 best_f1 = metrics["f1"]
                 best_threshold = float(threshold)
         thresholds.append(best_threshold)
@@ -1987,6 +2020,12 @@ def main() -> None:
         help="Causally repeat sparse event labels over this many following feature rows for training only.",
     )
     parser.add_argument("--incorrect-selection-weight", type=float, default=0.75)
+    parser.add_argument(
+        "--max-incorrect-false-alerts-per-minute",
+        type=float,
+        default=None,
+        help="Optional validation-only hard constraint when calibrating the incorrect-event threshold.",
+    )
     parser.add_argument("--gpu-log-interval", type=int, default=10)
     parser.add_argument(
         "--calibration-interval",
@@ -2016,6 +2055,11 @@ def main() -> None:
         parser.error("incorrect-pos-weight-cap must be at least 1")
     if args.incorrect_hard_negative_ratio < 0:
         parser.error("incorrect-hard-negative-ratio cannot be negative")
+    if (
+        args.max_incorrect_false_alerts_per_minute is not None
+        and args.max_incorrect_false_alerts_per_minute < 0
+    ):
+        parser.error("max-incorrect-false-alerts-per-minute cannot be negative")
     if args.state_class_weight_cap < 1.0:
         parser.error("state-class-weight-cap must be at least 1")
     if args.max_vram_gib <= 0:

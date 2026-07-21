@@ -238,6 +238,25 @@ class StateGraphMetricsTest(unittest.TestCase):
         self.assertEqual(_effective_rare_window_boost(6.0, rare_per_batch=1), 1.0)
         self.assertEqual(_effective_rare_window_boost(6.0, rare_per_batch=0), 6.0)
 
+    def test_event_calibration_can_enforce_false_alert_budget(self) -> None:
+        scores = np.zeros((20, 1, 3), dtype=np.float32)
+        scores[5, 0, 1] = 0.6  # true event
+        scores[15, 0, 1] = 0.9  # unavoidable higher-scoring false event
+        samples = [([(5, 0, 1)], scores)]
+        unconstrained, _, _ = _calibrate_event_thresholds(
+            samples, outcomes=3, tolerance=0, seconds_per_step=3.0
+        )
+        constrained, _, _ = _calibrate_event_thresholds(
+            samples,
+            outcomes=3,
+            tolerance=0,
+            seconds_per_step=3.0,
+            max_incorrect_false_alerts_per_minute=0.0,
+            total_duration_seconds=60.0,
+        )
+        self.assertLessEqual(unconstrained[1], 0.6)
+        self.assertGreater(constrained[1], 0.9)
+
     def test_run_directory_manifest_prevents_colliding_writers(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             args = Namespace(

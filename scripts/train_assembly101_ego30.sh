@@ -24,6 +24,7 @@ event_centered_crops_per_event="${EVENT_CENTERED_CROPS_PER_EVENT:-0}"
 event_centered_crop_radius="${EVENT_CENTERED_CROP_RADIUS:-0}"
 seed="${SEED:-7}"
 incorrect_hard_negative_ratio="${INCORRECT_HARD_NEGATIVE_RATIO:-0}"
+max_incorrect_false_alerts_per_minute="${MAX_INCORRECT_FALSE_ALERTS_PER_MINUTE:-}"
 
 case "$variant" in
   base)
@@ -74,6 +75,11 @@ procedure_args+=(
   --event-centered-crops-per-event "$event_centered_crops_per_event"
   --event-centered-crop-radius "$event_centered_crop_radius"
 )
+if [[ -n "$max_incorrect_false_alerts_per_minute" ]]; then
+  procedure_args+=(
+    --max-incorrect-false-alerts-per-minute "$max_incorrect_false_alerts_per_minute"
+  )
+fi
 if [[ "$freeze_action_backbone" == "1" ]]; then
   init_args+=(--freeze-action-backbone)
 fi

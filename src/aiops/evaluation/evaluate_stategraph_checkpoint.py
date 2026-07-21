@@ -39,6 +39,7 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--sequence-length", type=int, default=256)
     parser.add_argument("--num-workers", type=int, default=2)
+    parser.add_argument("--max-incorrect-false-alerts-per-minute", type=float, default=None)
     args = parser.parse_args()
 
     import torch
@@ -58,7 +59,7 @@ def main() -> None:
         StateGraphCacheDataset(
             selected,
             sequence_length=args.sequence_length,
-            sequence_stride=args.sequence_length,
+            sequence_stride=max(1, args.sequence_length // 2),
             training=False,
         ),
         batch_size=args.batch_size,
@@ -91,6 +92,7 @@ def main() -> None:
             else None
         ),
         calibrate_state=args.split == "val",
+        max_incorrect_false_alerts_per_minute=args.max_incorrect_false_alerts_per_minute,
     )
     payload = {
         "checkpoint": str(Path(args.checkpoint).resolve()),
