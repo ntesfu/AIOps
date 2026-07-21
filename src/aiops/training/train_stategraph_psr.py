@@ -1134,8 +1134,22 @@ def _action_factorization(
     descriptions = list(metadata.get("action_descriptions", action_ids))
     if len(descriptions) != num_steps:
         descriptions = action_ids
+    taxonomy = metadata.get("action_taxonomy", [])
+    official_factors = {
+        str(row["action_cls"]).strip().lower(): (
+            str(row["verb_cls"]).strip().lower().replace(" ", "_"),
+            str(row["noun_cls"]).strip().lower().replace(" ", "_"),
+        )
+        for row in taxonomy
+        if all(key in row for key in ("action_cls", "verb_cls", "noun_cls"))
+    }
     factors: list[tuple[str, str]] = []
-    for description in descriptions:
+    taxonomy_hits = 0
+    for action_id, description in zip(action_ids, descriptions):
+        if action_id.lower() in official_factors:
+            factors.append(official_factors[action_id.lower()])
+            taxonomy_hits += 1
+            continue
         tokens = [token for token in re.split(r"[^a-z0-9]+", description.lower()) if token]
         verb = tokens[0] if tokens else "unknown"
         object_name = "_".join(tokens[1:]) if len(tokens) > 1 else "none"
@@ -1156,6 +1170,9 @@ def _action_factorization(
         "verb_indices": [verb_to_index[verb] for verb, _ in factors],
         "object_indices": [object_to_index[object_name] for _, object_name in factors],
         "seen_mask": [bool(count) for count in counts],
+        "factor_source": (
+            "official_action_taxonomy" if taxonomy_hits == max(0, num_steps - 1) else "mixed"
+        ),
         "unseen_train_actions": [
             action_ids[index] for index, count in enumerate(counts) if count == 0
         ],

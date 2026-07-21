@@ -93,7 +93,17 @@ def audit_stategraph_cache(index_path: str | Path) -> dict[str, Any]:
             if count == 0
         ]
         descriptions = list(metadata.get("action_descriptions", action_names))
-        factors = [_action_factors(description) for description in descriptions]
+        taxonomy = {
+            str(row.get("action_cls", "")).strip().lower(): (
+                str(row.get("verb_cls", "")).strip().lower(),
+                str(row.get("noun_cls", "")).strip().lower(),
+            )
+            for row in metadata.get("action_taxonomy", [])
+        }
+        factors = [
+            taxonomy.get(action.lower(), _action_factors(description))
+            for action, description in zip(action_names, descriptions)
+        ]
         seen_verbs = {
             factors[index][0]
             for index, count in enumerate(action_counts[train_split])
