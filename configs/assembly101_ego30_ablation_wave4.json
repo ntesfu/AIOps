@@ -1,6 +1,6 @@
 {
   "protocol": {
-    "source_commit": "pending",
+    "source_commit": "16a034b",
     "selection_split": "actor-disjoint validation only",
     "test_split_policy": "sealed until final selection",
     "epochs": 32,
