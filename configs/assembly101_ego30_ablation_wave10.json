@@ -4,7 +4,8 @@
     "cache": "data/processed/assembly101_ego30_expanded/index.json",
     "initial_checkpoints": [
       "artifacts/abl_g0_expanded_procedure_nocrop_s7_32e_20260722.pt",
-      "artifacts/abl_e0_expanded_base_s7_32e_20260722.pt"
+      "artifacts/abl_e0_expanded_base_s7_32e_20260722.pt",
+      "artifacts/abl_f0_expanded_base_s17_32e_20260722.pt"
     ],
     "fine_tune_epochs": 16,
     "seed": 7,
@@ -16,7 +17,8 @@
   "comparisons": {
     "I0_vs_E1": "staged frozen-action fine-tuning versus joint training at fixed procedure-plus-crop architecture",
     "I1_vs_G1": "staged frozen-action fine-tuning versus joint training at fixed crop-only architecture",
-    "I0_vs_I1": "procedural-context effect under fixed staged training"
+    "I0_vs_I1": "procedural-context effect under fixed staged training",
+    "I2_vs_I1": "seed-17 replication of staged crop-only adaptation"
   },
   "experiments": [
     {
@@ -40,6 +42,20 @@
       "initial_checkpoint": "artifacts/abl_e0_expanded_base_s7_32e_20260722.pt",
       "initial_checkpoint_validation_epoch": 14,
       "seed": 7,
+      "learning_rate": 0.00005,
+      "freeze_action_backbone": true,
+      "procedural_event_context": false,
+      "event_centered_crops_per_event": 2,
+      "event_centered_crop_radius": 128,
+      "factorized_mistake_detection": false
+    },
+    {
+      "id": "I2",
+      "run": "abl_i2_staged_crops_s17_16e_20260722",
+      "variant": "event_heavy",
+      "initial_checkpoint": "artifacts/abl_f0_expanded_base_s17_32e_20260722.pt",
+      "initial_checkpoint_validation_epoch": 26,
+      "seed": 17,
       "learning_rate": 0.00005,
       "freeze_action_backbone": true,
       "procedural_event_context": false,
