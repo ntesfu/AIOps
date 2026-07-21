@@ -54,6 +54,7 @@ export PYTHONPATH=".deps:src${PYTHONPATH:+:${PYTHONPATH}}"
   --incorrect-selection-weight 1.0 \
   --calibration-interval 4 \
   --num-workers 4 \
+  --preload-cache \
   --seed 7 \
   "${architecture[@]}" \
   "${losses[@]}" \

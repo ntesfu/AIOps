@@ -232,6 +232,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         sequence_stride=args.sequence_stride,
         training=True,
         seed=args.seed,
+        preload=args.preload_cache,
     )
     sampling_weights = train_dataset.window_sampling_weights(
         incorrect_outcome_index=1,
@@ -258,6 +259,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
             sequence_length=args.sequence_length,
             sequence_stride=args.sequence_length,
             training=False,
+            preload=args.preload_cache,
         ),
         batch_size=args.batch_size,
         shuffle=False,
@@ -1541,6 +1543,11 @@ def main() -> None:
     )
     parser.add_argument("--val-fraction", type=float, default=0.2)
     parser.add_argument("--num-workers", type=int, default=2)
+    parser.add_argument(
+        "--preload-cache",
+        action="store_true",
+        help="Load compressed feature records once before worker fork to avoid repeated NFS decompression.",
+    )
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--evaluate-test", action="store_true")
     parser.add_argument(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -134,6 +135,7 @@ class StateGraphCacheDataset:
         sequence_stride: int = 192,
         training: bool = False,
         seed: int = 7,
+        preload: bool = False,
     ) -> None:
         if sequence_length <= 0 or sequence_stride <= 0:
             raise ValueError("sequence_length and sequence_stride must be positive")
@@ -142,10 +144,18 @@ class StateGraphCacheDataset:
         self.sequence_stride = sequence_stride
         self.training = training
         self.seed = seed
+        self._preloaded: list[dict[str, np.ndarray]] | None = None
+        if preload:
+            self._preloaded = []
+            for record in records:
+                with np.load(record.path, allow_pickle=False) as arrays:
+                    self._preloaded.append(
+                        {name: arrays[name].copy() for name in arrays.files}
+                    )
         self.windows: list[tuple[int, int]] = []
         self.incorrect_event_windows: set[int] = set()
         for record_index, record in enumerate(records):
-            with np.load(record.path, allow_pickle=False) as arrays:
+            with self._open_record(record_index) as arrays:
                 length = int(arrays["step"].shape[0])
             if length <= sequence_length:
                 self.windows.append((record_index, 0))
@@ -156,7 +166,7 @@ class StateGraphCacheDataset:
                     starts.append(final_start)
                 self.windows.extend((record_index, start) for start in starts)
         for window_index, (record_index, start) in enumerate(self.windows):
-            with np.load(self.records[record_index].path, allow_pickle=False) as arrays:
+            with self._open_record(record_index) as arrays:
                 end = min(len(arrays["component_outcome"]), start + self.sequence_length)
                 if (arrays["component_outcome"][start:end] == 1).any():
                     self.incorrect_event_windows.add(window_index)
@@ -164,10 +174,18 @@ class StateGraphCacheDataset:
     def __len__(self) -> int:
         return len(self.windows)
 
+    @contextmanager
+    def _open_record(self, record_index: int):
+        if self._preloaded is not None:
+            yield self._preloaded[record_index]
+            return
+        with np.load(self.records[record_index].path, allow_pickle=False) as arrays:
+            yield arrays
+
     def __getitem__(self, index: int) -> dict[str, Any]:
         record_index, start = self.windows[index]
         record = self.records[record_index]
-        with np.load(record.path, allow_pickle=False) as arrays:
+        with self._open_record(record_index) as arrays:
             length = int(arrays["step"].shape[0])
             if (
                 self.training
@@ -178,7 +196,8 @@ class StateGraphCacheDataset:
                 jitter = int(rng.integers(-self.sequence_stride // 4, self.sequence_stride // 4 + 1))
                 start = int(np.clip(start + jitter, 0, length - self.sequence_length))
             end = min(length, start + self.sequence_length)
-            sample = {name: arrays[name][start:end].copy() for name in arrays.files}
+            names = arrays.files if hasattr(arrays, "files") else arrays.keys()
+            sample = {name: arrays[name][start:end].copy() for name in names}
         sample["recording_id"] = record.recording_id
         sample["start_index"] = start
         return sample
@@ -193,7 +212,7 @@ class StateGraphCacheDataset:
             raise ValueError("rare_window_boost must be at least 1")
         labels: dict[int, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
         for record_index, record in enumerate(self.records):
-            with np.load(record.path, allow_pickle=False) as arrays:
+            with self._open_record(record_index) as arrays:
                 labels[record_index] = (
                     arrays["component_outcome"].copy(),
                     arrays["state"].copy(),
