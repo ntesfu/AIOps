@@ -25,6 +25,20 @@ def test_committed_ego30_manifest_is_actor_disjoint_and_one_view(tmp_path: Path)
     assert payload["sampling"]["annotation_and_decode_fps"] == 30
 
 
+def test_manifest_can_add_mistake_rich_training_actors_without_split_leakage(tmp_path: Path):
+    payload = build_manifest(
+        Path("data/raw/assembly101/subset_manifest.json"),
+        Path("data/raw/assembly101/official_hf/annotations"),
+        tmp_path / "expanded.json",
+        additional_train_actors=3,
+    )
+    added = set(payload["selection"]["additional_train_actors"])
+    assert len(added) == 3
+    assert added <= set(payload["selection"]["actors"]["train"])
+    assert added.isdisjoint(payload["selection"]["actors"]["val"])
+    assert added.isdisjoint(payload["selection"]["actors"]["test"])
+
+
 def test_cache_shards_merge_only_when_manifest_is_complete(tmp_path: Path):
     metadata = {
         "schema_version": 1,

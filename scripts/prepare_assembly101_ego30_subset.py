@@ -46,6 +46,7 @@ def build_manifest(
     annotation_root: Path,
     output: Path,
     max_per_actor: int = 10,
+    additional_train_actors: int = 0,
 ) -> dict:
     old = json.loads(old_manifest.read_text(encoding="utf-8"))
     actor_split = {row["actor_id"]: row["split"] for row in old["records"]}
@@ -59,14 +60,14 @@ def build_manifest(
     for mistake_path in sorted(mistake_root.glob("*.csv")):
         rid = mistake_path.stem
         actor = rid.split("_user_id_", 1)[0].rsplit("_", 1)[-1]
-        if actor not in actor_split or rid not in views or rid not in coarse:
+        if rid not in views or rid not in coarse:
             continue
         rows = max(0, len(mistake_path.read_text(encoding="utf-8").splitlines()) - 1)
         camera = views[rid][0]
         candidates[actor].append(
             {
                 "recording_id": rid,
-                "split": actor_split[actor],
+                "split": actor_split.get(actor, "train"),
                 "actor_id": actor,
                 "toy_id": rid.split("-", 1)[-1].split("_", 1)[0][:-1],
                 "mistake_annotation_rows": rows,
@@ -78,8 +79,17 @@ def build_manifest(
             }
         )
 
+    new_actor_ranking = sorted(
+        (actor for actor in candidates if actor not in actor_split),
+        key=lambda actor: (
+            -sum(row["mistake_annotation_rows"] for row in candidates[actor]),
+            actor,
+        ),
+    )
+    selected_new_actors = set(new_actor_ranking[:additional_train_actors])
+    selected_actors = set(actor_split) | selected_new_actors
     records = []
-    for actor in sorted(actor_split):
+    for actor in sorted(selected_actors):
         # Retain prior recordings where possible; fill the expansion with the
         # most mistake-rich recordings, then break ties deterministically.
         ranked = sorted(
@@ -107,6 +117,7 @@ def build_manifest(
         "selection": {
             "actor_disjoint": True,
             "max_recordings_per_actor": max_per_actor,
+            "additional_train_actors": sorted(selected_new_actors),
             "actors": {split: sorted({r["actor_id"] for r in records if r["split"] == split}) for split in ("train", "val", "test")},
             "recordings": dict(counts),
         },
@@ -140,12 +151,22 @@ def main() -> None:
     parser.add_argument("--annotation-root", default="data/raw/assembly101/official_hf/annotations")
     parser.add_argument("--output", default="data/raw/assembly101/ego30_manifest.json")
     parser.add_argument("--max-per-actor", type=int, default=10)
+    parser.add_argument(
+        "--additional-train-actors",
+        type=int,
+        default=0,
+        help="Add this many highest-mistake actors to train while preserving existing val/test actors.",
+    )
     parser.add_argument("--download", action="store_true")
     parser.add_argument("--download-splits", nargs="*", choices=("train", "val", "test"))
     parser.add_argument("--workers", type=int, default=8)
     args = parser.parse_args()
     payload = build_manifest(
-        Path(args.old_manifest), Path(args.annotation_root), Path(args.output), args.max_per_actor
+        Path(args.old_manifest),
+        Path(args.annotation_root),
+        Path(args.output),
+        args.max_per_actor,
+        args.additional_train_actors,
     )
     print(json.dumps({"selection": payload["selection"], "output": args.output}, indent=2))
     if args.download:

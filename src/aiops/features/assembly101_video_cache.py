@@ -109,6 +109,14 @@ def build_video_cache(args: argparse.Namespace) -> dict[str, Any]:
     }
     components = sorted({segment.subject for values in all_mistakes.values() for segment in values})
     component_to_index = {name: index for index, name in enumerate(components)}
+    source_cache: dict[str, Path] = {}
+    if args.source_cache_index:
+        source_index_path = Path(args.source_cache_index)
+        source_payload = json.loads(source_index_path.read_text(encoding="utf-8"))
+        source_cache = {
+            record["recording_id"]: (source_index_path.parent / record["path"]).resolve()
+            for record in source_payload["records"]
+        }
 
     motion_extractor = Swin3DFeatureExtractor(args.device, args.precision)
     appearance_extractor = BatchedConvNeXtExtractor(args.device, args.precision)
@@ -124,15 +132,31 @@ def build_video_cache(args: argparse.Namespace) -> dict[str, Any]:
             with np.load(destination, allow_pickle=False) as arrays:
                 length = len(arrays["step"])
         else:
-            motion, appearance, sampled_frames = _extract_recording(
-                data_root / row["video_relative_path"],
-                motion_extractor,
-                appearance_extractor,
-                target_fps=args.target_fps,
-                clip_frames=args.clip_frames,
-                stride_frames=args.stride_frames,
-                batch_size=args.feature_batch_size,
-            )
+            cached_source = source_cache.get(rid)
+            if cached_source is not None:
+                with np.load(cached_source, allow_pickle=False) as arrays:
+                    motion = arrays["motion"].copy()
+                    appearance = arrays["appearance"].copy()
+                    sensor = arrays["sensor"].copy()
+                    modality_mask = arrays["modality_mask"].copy()
+                    timestamps = arrays["timestamps"].copy()
+                sampled_frames = np.rint(timestamps * args.target_fps).astype(np.int64)
+            else:
+                motion, appearance, sampled_frames = _extract_recording(
+                    data_root / row["video_relative_path"],
+                    motion_extractor,
+                    appearance_extractor,
+                    target_fps=args.target_fps,
+                    clip_frames=args.clip_frames,
+                    stride_frames=args.stride_frames,
+                    batch_size=args.feature_batch_size,
+                )
+                length = len(sampled_frames)
+                sensor = np.zeros((length, 1), dtype=np.float32)
+                modality_mask = np.column_stack(
+                    (np.ones((length, 2), dtype=np.bool_), np.zeros(length, dtype=np.bool_))
+                )
+                timestamps = sampled_frames.astype(np.float32) / args.target_fps
             coarse_paths = [
                 annotation_root / "coarse-annotations" / "coarse_labels" / name
                 for name in row["coarse_label_files"]
@@ -150,11 +174,9 @@ def build_video_cache(args: argparse.Namespace) -> dict[str, Any]:
                 destination,
                 motion=motion,
                 appearance=appearance,
-                sensor=np.zeros((length, 1), dtype=np.float32),
-                modality_mask=np.column_stack(
-                    (np.ones((length, 2), dtype=np.bool_), np.zeros(length, dtype=np.bool_))
-                ),
-                timestamps=sampled_frames.astype(np.float32) / args.target_fps,
+                sensor=sensor,
+                modality_mask=modality_mask,
+                timestamps=timestamps,
                 **targets,
             )
         if motion_extractor.device.type == "cuda":
@@ -340,6 +362,11 @@ def main() -> None:
     parser.add_argument("--max-recordings", type=int)
     parser.add_argument("--recording-id", action="append")
     parser.add_argument("--skip-existing", action="store_true")
+    parser.add_argument(
+        "--source-cache-index",
+        default=None,
+        help="Reuse visual features for matching recording IDs while rebuilding labels for this manifest.",
+    )
     args = parser.parse_args()
     if not 0 <= args.shard_index < args.num_shards:
         parser.error("--shard-index must be in [0, --num-shards)")
