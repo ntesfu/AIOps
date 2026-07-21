@@ -21,6 +21,7 @@ from aiops.training.train_stategraph_psr import (
     _class_f1_from_confusion,
     _event_timing_diagnostics,
     _event_metrics_from_samples,
+    _factorized_mistake_diagnostics,
     _macro_f1_from_confusion,
     _restore_rng_state,
     _stitch_recording_chunks,
@@ -33,6 +34,41 @@ from aiops.training.train_stategraph_psr import (
 
 
 class StateGraphMetricsTest(unittest.TestCase):
+    def test_factorized_diagnostics_separate_timing_and_component_selection(self) -> None:
+        outcomes = np.full((4, 3), -100, dtype=np.int64)
+        outcomes[1, 2] = 1
+        outcomes[3, 0] = 1
+        diagnostics = _factorized_mistake_diagnostics(
+            [
+                {
+                    "component_outcome": outcomes,
+                    "any_mistake_onset_probability": np.asarray(
+                        [0.1, 0.9, 0.2, 0.8], dtype=np.float32
+                    ),
+                    "incorrect_component_probabilities": np.asarray(
+                        [
+                            [0.4, 0.3, 0.3],
+                            [0.1, 0.2, 0.7],
+                            [0.2, 0.6, 0.2],
+                            [0.1, 0.8, 0.1],
+                        ],
+                        dtype=np.float32,
+                    ),
+                }
+            ]
+        )
+        self.assertEqual(diagnostics["any_mistake_onset_average_precision"], 100.0)
+        self.assertEqual(diagnostics["mistake_component_top1_accuracy"], 50.0)
+        self.assertEqual(diagnostics["mistake_component_onset_rows"], 2.0)
+
+    def test_factorized_diagnostics_are_unavailable_for_legacy_outputs(self) -> None:
+        diagnostics = _factorized_mistake_diagnostics(
+            [{"component_outcome": np.full((3, 1), -100, dtype=np.int64)}]
+        )
+        self.assertTrue(np.isnan(diagnostics["any_mistake_onset_average_precision"]))
+        self.assertTrue(np.isnan(diagnostics["mistake_component_top1_accuracy"]))
+        self.assertEqual(diagnostics["mistake_component_onset_rows"], 0.0)
+
     @staticmethod
     def _selection_metrics(**overrides):
         metrics = {

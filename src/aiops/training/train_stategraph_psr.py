@@ -888,8 +888,7 @@ def evaluate(
                         state_score, mistake_probability[sample_index, :length]
                     )
                 recording_id = str(batch["recording_id"][sample_index])
-                recording_chunks.setdefault(recording_id, []).append(
-                    {
+                chunk: dict[str, np.ndarray | int] = {
                         "start": int(batch["start_index"][sample_index]),
                         "step_prediction": step_prediction[sample_index, :length].detach().cpu().numpy(),
                         "raw_step_prediction": raw_step_prediction[sample_index, :length].detach().cpu().numpy(),
@@ -910,13 +909,33 @@ def evaluate(
                         "state_mask": batch["state_mask"][sample_index, :length].detach().cpu().numpy(),
                         "seen_action_mask": seen_lookup.detach().cpu().numpy(),
                     }
+                any_mistake_logits = outputs.get("any_mistake_onset_logits")
+                component_probabilities = outputs.get(
+                    "incorrect_component_probabilities"
                 )
+                if (
+                    any_mistake_logits is not None
+                    and component_probabilities is not None
+                ):
+                    chunk["any_mistake_onset_probability"] = torch.sigmoid(
+                        any_mistake_logits[sample_index, :length]
+                    ).detach().float().cpu().numpy()
+                    chunk["incorrect_component_probabilities"] = (
+                        component_probabilities[sample_index, :length]
+                        .detach()
+                        .float()
+                        .cpu()
+                        .numpy()
+                    )
+                recording_chunks.setdefault(recording_id, []).append(chunk)
 
     frame_correct = frame_total = raw_frame_correct = 0
     seen_action_correct = seen_action_total = 0
     unseen_action_correct = unseen_action_total = 0
+    reconstructed_recordings: list[dict[str, np.ndarray]] = []
     for chunks in recording_chunks.values():
         recording = _stitch_recording_chunks(chunks)
+        reconstructed_recordings.append(recording)
         pred = recording["step_prediction"]
         raw_pred = recording["raw_step_prediction"]
         truth = recording["step_target"]
@@ -1018,6 +1037,9 @@ def evaluate(
     incorrect_metrics = calibrated_metrics[1]
     remove_metrics = calibrated_metrics[2]
     normality_ap = _binary_average_precision(normality_scores, normality_targets)
+    factorized_diagnostics = _factorized_mistake_diagnostics(
+        reconstructed_recordings
+    )
     incorrect_diagnostics = _event_timing_diagnostics(
         event_samples,
         event_thresholds,
@@ -1091,6 +1113,7 @@ def evaluate(
         "fixed_0.1_completion_event_f1": fixed_metrics["all"]["f1"],
         "fixed_0.1_incorrect_event_f1": fixed_metrics[1]["f1"],
         "normality_incorrect_average_precision": normality_ap,
+        **factorized_diagnostics,
         "normality_incorrect_prevalence": (
             100.0 * sum(normality_targets) / len(normality_targets)
             if normality_targets
@@ -1119,6 +1142,53 @@ def evaluate(
 def _target_events(component_outcome: np.ndarray) -> list[tuple[int, int, int]]:
     rows, components = np.where(component_outcome >= 0)
     return [(int(row), int(component), int(component_outcome[row, component])) for row, component in zip(rows, components)]
+
+
+def _factorized_mistake_diagnostics(
+    recordings: list[dict[str, np.ndarray]],
+) -> dict[str, float]:
+    """Measure temporal detection and conditional localization independently."""
+
+    available = bool(recordings) and all(
+        "any_mistake_onset_probability" in recording
+        and "incorrect_component_probabilities" in recording
+        for recording in recordings
+    )
+    if not available:
+        return {
+            "any_mistake_onset_average_precision": float("nan"),
+            "mistake_component_top1_accuracy": float("nan"),
+            "mistake_component_onset_rows": 0.0,
+        }
+
+    any_scores: list[float] = []
+    any_targets: list[int] = []
+    selector_correct = 0
+    selector_total = 0
+    for recording in recordings:
+        outcomes = recording["component_outcome"]
+        incorrect = outcomes == 1
+        row_targets = incorrect.any(axis=-1)
+        any_scores.extend(
+            recording["any_mistake_onset_probability"].astype(float).tolist()
+        )
+        any_targets.extend(row_targets.astype(np.int64).tolist())
+        probabilities = recording["incorrect_component_probabilities"]
+        for row in np.flatnonzero(row_targets):
+            predicted_component = int(probabilities[row].argmax())
+            selector_correct += int(bool(incorrect[row, predicted_component]))
+            selector_total += 1
+    return {
+        "any_mistake_onset_average_precision": _binary_average_precision(
+            any_scores, any_targets
+        ),
+        "mistake_component_top1_accuracy": (
+            100.0 * selector_correct / selector_total
+            if selector_total
+            else float("nan")
+        ),
+        "mistake_component_onset_rows": float(selector_total),
+    }
 
 
 def _stitch_recording_chunks(
