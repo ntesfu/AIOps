@@ -35,7 +35,7 @@
     },
     {
       "id": "I1",
-      "run": "abl_i1_staged_crops_s7_16e_20260722",
+      "run": "abl_i1_staged_crops_s7_16e_v2_20260722",
       "variant": "event_heavy",
       "initial_checkpoint": "artifacts/abl_e0_expanded_base_s7_32e_20260722.pt",
       "initial_checkpoint_validation_epoch": 14,
