@@ -29,6 +29,8 @@ class StateGraphModelTest(unittest.TestCase):
             action_verb_indices=(0, 0, 1),
             action_object_indices=(0, 1, 1),
             seen_action_mask=(True, True, False),
+            mistake_action_mask=(False, True, False),
+            action_event_component_indices=(0, 1, -1),
             event_state_indices=(0, 1),
             num_completion_components=2,
             num_components=2,
@@ -63,6 +65,9 @@ class StateGraphModelTest(unittest.TestCase):
         self.assertEqual(tuple(output["completion_logits"].shape), (2, 7, 2))
         self.assertEqual(tuple(output["component_outcome_logits"].shape), (2, 7, 2, 3))
         self.assertEqual(tuple(output["incorrect_onset_logits"].shape), (2, 7, 2))
+        self.assertEqual(tuple(output["mistake_action_probability"].shape), (2, 7, 2))
+        self.assertEqual(tuple(output["mistake_action_onset_score"].shape), (2, 7, 2))
+        self.assertTrue(bool((output["mistake_action_probability"] >= 0).all()))
         self.assertEqual(tuple(output["normality_logits"].shape), (2, 7, 2))
         self.assertEqual(tuple(output["state_outcome_probabilities"].shape), (2, 7, 2, 3))
         self.assertEqual(output["event_state_indices"].tolist(), [0, 1])

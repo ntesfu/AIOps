@@ -72,6 +72,12 @@ def main() -> None:
         event_thresholds=checkpoint.get("event_thresholds"),
         calibrate_events=args.split == "val",
         calibrate_latency=args.split == "val",
+        state_incorrect_threshold=(
+            checkpoint.get("validation_metrics", {}).get("state_incorrect_threshold")
+            if args.split == "test"
+            else None
+        ),
+        calibrate_state=args.split == "val",
     )
     payload = {
         "checkpoint": str(Path(args.checkpoint).resolve()),

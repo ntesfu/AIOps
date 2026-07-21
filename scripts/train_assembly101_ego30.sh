@@ -9,7 +9,10 @@ calibration_interval="${CALIBRATION_INTERVAL:-4}"
 step_class_weight_power="${STEP_CLASS_WEIGHT_POWER:-1.0}"
 focal_gamma="${FOCAL_GAMMA:-1.5}"
 state_class_weight_power="${STATE_CLASS_WEIGHT_POWER:-0.5}"
+state_class_weight_cap="${STATE_CLASS_WEIGHT_CAP:-12.0}"
 incorrect_pos_weight_cap="${INCORRECT_POS_WEIGHT_CAP:-100.0}"
+incorrect_selection_weight="${INCORRECT_SELECTION_WEIGHT:-1.0}"
+resume_checkpoint="${RESUME_CHECKPOINT:-}"
 
 case "$variant" in
   base)
@@ -35,6 +38,11 @@ if [[ "$evaluate_test" == "1" ]]; then
   test_args+=(--evaluate-test)
 fi
 
+resume_args=()
+if [[ -n "$resume_checkpoint" ]]; then
+  resume_args+=(--resume "$resume_checkpoint")
+fi
+
 export PYTHONPATH=".deps:src${PYTHONPATH:+:${PYTHONPATH}}"
 .venv/bin/python -m aiops.training.train_stategraph_psr \
   --cache-index data/processed/assembly101_ego30_stategraph/index.json \
@@ -48,6 +56,7 @@ export PYTHONPATH=".deps:src${PYTHONPATH:+:${PYTHONPATH}}"
   --step-class-weight-power "$step_class_weight_power" \
   --focal-gamma "$focal_gamma" \
   --state-class-weight-power "$state_class_weight_power" \
+  --state-class-weight-cap "$state_class_weight_cap" \
   --attention-every 2 \
   --num-heads 8 \
   --num-action-refinement-stages 2 \
@@ -59,11 +68,12 @@ export PYTHONPATH=".deps:src${PYTHONPATH:+:${PYTHONPATH}}"
   --rare-windows-per-batch 2 \
   --normality-error-weight 10.0 \
   --incorrect-pos-weight-cap "$incorrect_pos_weight_cap" \
-  --incorrect-selection-weight 1.0 \
+  --incorrect-selection-weight "$incorrect_selection_weight" \
   --calibration-interval "$calibration_interval" \
   --num-workers 4 \
   --preload-cache \
   --seed 7 \
   "${architecture[@]}" \
   "${losses[@]}" \
+  "${resume_args[@]}" \
   "${test_args[@]}"

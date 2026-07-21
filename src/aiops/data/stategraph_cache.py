@@ -144,6 +144,7 @@ class StateGraphCacheDataset:
         self.sequence_stride = sequence_stride
         self.training = training
         self.seed = seed
+        self.epoch = 0
         self._preloaded: list[dict[str, np.ndarray]] | None = None
         if preload:
             self._preloaded = []
@@ -174,6 +175,13 @@ class StateGraphCacheDataset:
     def __len__(self) -> int:
         return len(self.windows)
 
+    def set_epoch(self, epoch: int) -> None:
+        """Select a deterministic but different temporal crop set each epoch."""
+
+        if epoch < 0:
+            raise ValueError("epoch must be non-negative")
+        self.epoch = int(epoch)
+
     @contextmanager
     def _open_record(self, record_index: int):
         if self._preloaded is not None:
@@ -192,7 +200,13 @@ class StateGraphCacheDataset:
                 and length > self.sequence_length
                 and index not in self.incorrect_event_windows
             ):
-                rng = np.random.default_rng(self.seed + index)
+                # Workers are recreated for each DataLoader iteration, so the
+                # epoch set by the trainer is copied into every worker. Large
+                # coprime multipliers prevent adjacent indices/epochs from
+                # receiving correlated crops while retaining exact resume.
+                rng = np.random.default_rng(
+                    self.seed + 1_000_003 * self.epoch + 9_176 * index
+                )
                 jitter = int(rng.integers(-self.sequence_stride // 4, self.sequence_stride // 4 + 1))
                 start = int(np.clip(start + jitter, 0, length - self.sequence_length))
             end = min(length, start + self.sequence_length)

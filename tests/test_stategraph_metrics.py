@@ -16,6 +16,7 @@ from aiops.training.train_stategraph_psr import (
     _event_metrics_from_samples,
     _macro_f1_from_confusion,
     _restore_rng_state,
+    _calibrate_incorrect_state_threshold,
     _match_event_counts,
     _precision_recall_f1,
     _predicted_events,
@@ -64,6 +65,14 @@ class StateGraphMetricsTest(unittest.TestCase):
         confusion = np.asarray([[2, 0, 0], [0, 1, 1], [0, 0, 2]])
         self.assertEqual(_class_f1_from_confusion(confusion, 0), 100.0)
         self.assertAlmostEqual(_macro_f1_from_confusion(confusion), (100 + 66.6666667 + 80) / 3)
+
+    def test_rare_state_threshold_is_calibrated_below_argmax(self) -> None:
+        scores = np.asarray([0.40, 0.35, 0.20, 0.10])
+        truth = np.asarray([0, 0, 1, 2])
+        other = np.asarray([1, 1, 1, 2])
+        threshold, confusion = _calibrate_incorrect_state_threshold(scores, truth, other)
+        self.assertLess(threshold, 0.5)
+        self.assertEqual(_class_f1_from_confusion(confusion, 0), 100.0)
 
     def test_event_metric_uses_component_and_temporal_tolerance(self) -> None:
         truth = [(5, 0, 1), (5, 1, 1)]
@@ -159,6 +168,18 @@ class StateGraphMetricsTest(unittest.TestCase):
             install_minimum_distance=2,
         )
         self.assertIn((2, 0, 1), predictions)
+
+    def test_incorrect_attempt_and_nearby_correct_retry_are_both_retained(self) -> None:
+        scores = np.zeros((12, 1, 3), dtype=np.float32)
+        scores[3, 0, 1] = 0.8
+        scores[7, 0, 0] = 0.9
+        predictions = _predicted_events_from_scores(
+            scores,
+            [0.5, 0.5, 0.5],
+            minimum_distance=8,
+            install_minimum_distance=12,
+        )
+        self.assertEqual(predictions, [(3, 0, 1), (7, 0, 0)])
 
     def test_binary_average_precision_rewards_ranked_faults(self) -> None:
         perfect = _binary_average_precision([0.9, 0.8, 0.2], [1, 1, 0])

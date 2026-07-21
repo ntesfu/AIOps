@@ -34,6 +34,8 @@ class StateGraphPSRConfig:
     action_object_indices: tuple[int, ...] = ()
     seen_action_mask: tuple[bool, ...] = ()
     active_action_mask: tuple[bool, ...] = ()
+    mistake_action_mask: tuple[bool, ...] = ()
+    action_event_component_indices: tuple[int, ...] = ()
     event_state_indices: tuple[int, ...] = ()
     num_completion_components: int = 1
     num_event_outcomes: int = 3
@@ -112,6 +114,18 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             raise ValueError("seen_action_mask must contain one entry per action.")
         if config.active_action_mask and len(config.active_action_mask) != config.num_steps:
             raise ValueError("active_action_mask must contain one entry per action.")
+        if config.mistake_action_mask and len(config.mistake_action_mask) != config.num_steps:
+            raise ValueError("mistake_action_mask must contain one entry per action.")
+        if config.action_event_component_indices:
+            if len(config.action_event_component_indices) != config.num_steps:
+                raise ValueError(
+                    "action_event_component_indices must contain one entry per action."
+                )
+            if any(
+                index < -1 or index >= config.num_completion_components
+                for index in config.action_event_component_indices
+            ):
+                raise ValueError("action_event_component_indices contains an invalid component.")
     if config.event_state_indices:
         if len(config.event_state_indices) != config.num_completion_components:
             raise ValueError("event_state_indices must contain one state index per event component.")
@@ -335,6 +349,20 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             self.register_buffer("action_object_indices", object_indices)
             self.register_buffer("seen_action_mask", seen_mask)
             self.register_buffer("active_action_mask", active_mask)
+            mistake_action_mask = (
+                torch.as_tensor(config.mistake_action_mask, dtype=torch.float32)
+                if config.mistake_action_mask
+                else torch.zeros(config.num_steps, dtype=torch.float32)
+            )
+            action_event_component_indices = (
+                torch.as_tensor(config.action_event_component_indices, dtype=torch.long)
+                if config.action_event_component_indices
+                else torch.full((config.num_steps,), -1, dtype=torch.long)
+            )
+            self.register_buffer("mistake_action_mask", mistake_action_mask)
+            self.register_buffer(
+                "action_event_component_indices", action_event_component_indices
+            )
             event_state_indices = (
                 torch.as_tensor(config.event_state_indices, dtype=torch.long)
                 if config.event_state_indices
@@ -511,6 +539,30 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 )
                 refinement_step_logits.append(raw_step_logits)
             graph_step_logits, step_probabilities = self._apply_graph_filter(raw_step_logits, valid_mask)
+            # Assembly101 explicitly labels failed actions as ``attempt to ...``.
+            # Convert that dense action supervision into a component-aware,
+            # causal mistake-onset cue instead of asking a sparse 140-event head
+            # to relearn the same semantics independently.
+            mapped_actions = self.action_event_component_indices >= 0
+            mistake_action_probability = step_probabilities.new_zeros(
+                *step_probabilities.shape[:-1], config.num_completion_components
+            )
+            if bool(mapped_actions.any()):
+                mistake_mass = (
+                    step_probabilities[..., mapped_actions]
+                    * self.mistake_action_mask[mapped_actions]
+                )
+                scatter_indices = self.action_event_component_indices[mapped_actions]
+                scatter_indices = scatter_indices.view(1, 1, -1).expand_as(mistake_mass)
+                mistake_action_probability.scatter_add_(
+                    -1, scatter_indices, mistake_mass
+                )
+            previous_mistake_probability = functional.pad(
+                mistake_action_probability[:, :-1], (0, 0, 1, 0), value=0.0
+            )
+            mistake_action_onset_score = (
+                mistake_action_probability - previous_mistake_probability
+            ).clamp_min(0.0)
             event_temporal = temporal + modality_disagreement
             for block in self.event_temporal_blocks:
                 event_temporal = block(event_temporal, valid_mask)
@@ -569,6 +621,8 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 "completion_logits": self.completion_head(event_features),
                 "component_outcome_logits": component_outcome_logits,
                 "incorrect_onset_logits": self.incorrect_onset_head(event_features),
+                "mistake_action_probability": mistake_action_probability,
+                "mistake_action_onset_score": mistake_action_onset_score,
                 "normality_logits": normality_logits,
                 "state_outcome_probabilities": state_outcome_probabilities,
                 "event_state_indices": self.event_state_indices,

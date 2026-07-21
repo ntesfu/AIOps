@@ -159,6 +159,10 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         action_object_indices=tuple(factorization["object_indices"]),
         seen_action_mask=tuple(factorization["seen_mask"]),
         active_action_mask=tuple(active_action_mask),
+        mistake_action_mask=tuple(factorization["mistake_action_mask"]),
+        action_event_component_indices=tuple(
+            factorization["action_event_component_indices"]
+        ),
         event_state_indices=tuple(event_state_mapping["indices"]),
         num_completion_components=train_records[0].num_completion_components,
         num_event_outcomes=len(metadata["event_outcomes"]),
@@ -225,6 +229,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         _state_class_weights(
             train_records,
             model_config.num_components,
+            cap=args.state_class_weight_cap,
             power=args.state_class_weight_power,
         )
     ).to(device)
@@ -306,6 +311,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     patience_left = args.patience
     global_update = 0
     event_thresholds: list[float] | None = None
+    state_incorrect_threshold: float | None = None
     fps = float(metadata.get("fps", 10.0))
     stride_frames = float(metadata.get("stride_frames", 5.0))
     seconds_per_step = stride_frames / fps if fps > 0 and stride_frames > 0 else 0.5
@@ -331,6 +337,9 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         patience_left = int(training_state.get("patience_left", patience_left))
         global_update = int(training_state.get("global_update", global_update))
         event_thresholds = training_state.get("event_thresholds", event_thresholds)
+        state_incorrect_threshold = training_state.get(
+            "state_incorrect_threshold", state_incorrect_threshold
+        )
         batch_sampler.epoch = int(training_state.get("batch_sampler_epoch", batch_sampler.epoch))
         _restore_rng_state(checkpoint.get("rng_state"))
         print(f"Resuming {resume_path} at epoch {start_epoch}", flush=True)
@@ -342,6 +351,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
 
     try:
         for epoch in range(start_epoch, args.epochs + 1):
+            train_dataset.set_epoch(epoch)
             model.train()
             optimizer.zero_grad(set_to_none=True)
             running: dict[str, list[float]] = {}
@@ -407,12 +417,15 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                 seconds_per_step=seconds_per_step,
                 event_thresholds=event_thresholds,
                 calibrate_events=calibrate_events,
+                state_incorrect_threshold=state_incorrect_threshold,
+                calibrate_state=calibrate_events,
             )
             event_thresholds = [
                 metrics["correct_event_threshold"],
                 metrics["incorrect_event_threshold"],
                 metrics["remove_event_threshold"],
             ]
+            state_incorrect_threshold = metrics["state_incorrect_threshold"]
             peak_training_vram_gib = max(
                 peak_training_vram_gib,
                 _enforce_vram_limit(
@@ -472,6 +485,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                 "patience_left": patience_left,
                 "global_update": global_update,
                 "event_thresholds": event_thresholds,
+                "state_incorrect_threshold": state_incorrect_threshold,
                 "batch_sampler_epoch": batch_sampler.epoch,
             }
             _save_checkpoint(
@@ -508,11 +522,15 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         model_config.num_components,
         seconds_per_step=seconds_per_step,
         calibrate_events=True,
+        calibrate_state=True,
     )
     validation_event_thresholds = [
         final_metrics["correct_event_threshold"],
         final_metrics["incorrect_event_threshold"],
         final_metrics["remove_event_threshold"],
+    ]
+    validation_state_incorrect_threshold = final_metrics[
+        "state_incorrect_threshold"
     ]
     test_metrics = None
     if test_records and args.evaluate_test:
@@ -538,6 +556,8 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
             seconds_per_step=seconds_per_step,
             event_thresholds=validation_event_thresholds,
             calibrate_events=False,
+            state_incorrect_threshold=validation_state_incorrect_threshold,
+            calibrate_state=False,
         )
     export_path = (
         Path(args.export_checkpoint)
@@ -571,6 +591,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         "completion_pos_weight_cap": args.completion_pos_weight_cap,
         "step_class_weight_power": args.step_class_weight_power,
         "state_class_weight_power": args.state_class_weight_power,
+        "state_class_weight_cap": args.state_class_weight_cap,
         "action_factorization": factorization,
         "event_state_mapping": event_state_mapping,
         "model_config": model_config.to_dict(),
@@ -598,6 +619,8 @@ def evaluate(
     event_thresholds: list[float] | None = None,
     calibrate_events: bool = True,
     calibrate_latency: bool = False,
+    state_incorrect_threshold: float | None = None,
+    calibrate_state: bool = True,
 ) -> dict[str, float]:
     import torch
 
@@ -615,9 +638,9 @@ def evaluate(
     event_samples: list[tuple[list[tuple[int, int, int]], np.ndarray]] = []
     normality_scores: list[float] = []
     normality_targets: list[int] = []
-    state_correct = 0
-    state_total = 0
-    state_confusion = np.zeros((3, 3), dtype=np.int64)
+    state_score_chunks: list[np.ndarray] = []
+    state_truth_chunks: list[np.ndarray] = []
+    state_other_prediction_chunks: list[np.ndarray] = []
     evaluated_steps = 0
     with torch.inference_mode():
         for batch in loader:
@@ -637,8 +660,12 @@ def evaluate(
             component_outcome_probability = torch.softmax(
                 outputs["component_outcome_logits"], dim=-1
             )
-            state_prediction = outputs["state_logits"].argmax(dim=-1)
+            state_probabilities = torch.softmax(outputs["state_logits"], dim=-1)
             normality_anomaly_score = torch.sigmoid(-outputs["normality_logits"])
+            if "mistake_action_probability" in outputs:
+                normality_anomaly_score = torch.maximum(
+                    normality_anomaly_score, outputs["mistake_action_probability"]
+                )
             state_incorrect_probability = outputs["state_outcome_probabilities"][..., 1]
             previous_state_incorrect = torch.nn.functional.pad(
                 state_incorrect_probability[:, :-1], (0, 0, 1, 0), value=0.0
@@ -672,14 +699,26 @@ def evaluate(
             )
             unseen_action_total += int(unseen_mask.sum().item())
             state_valid = batch["state_mask"] & batch["valid_mask"].unsqueeze(-1)
-            state_correct += int((state_prediction[state_valid] == batch["state"][state_valid]).sum().item())
-            state_total += int(state_valid.sum().item())
             if state_valid.any():
-                state_truth = batch["state"][state_valid].detach().cpu().numpy()
-                state_pred = state_prediction[state_valid].detach().cpu().numpy()
-                state_confusion += np.bincount(
-                    3 * state_truth + state_pred, minlength=9
-                ).reshape(3, 3)
+                state_score = state_probabilities[..., 0]
+                # An explicit failed-action class is strong component-specific
+                # evidence for the otherwise extremely rare incorrect state.
+                if "mistake_action_probability" in outputs:
+                    state_score = torch.maximum(
+                        state_score, outputs["mistake_action_probability"]
+                    )
+                state_score_chunks.append(
+                    state_score[state_valid].detach().float().cpu().numpy()
+                )
+                state_truth_chunks.append(
+                    batch["state"][state_valid].detach().cpu().numpy()
+                )
+                state_other_prediction_chunks.append(
+                    (state_probabilities[..., 1:].argmax(dim=-1) + 1)[state_valid]
+                    .detach()
+                    .cpu()
+                    .numpy()
+                )
             for sample_index in range(step_prediction.shape[0]):
                 length = int(batch["valid_mask"][sample_index].sum().item())
                 evaluated_steps += length
@@ -708,6 +747,11 @@ def evaluate(
                         sample_index, :length
                     ],
                 )
+                if "mistake_action_onset_score" in outputs:
+                    event_scores[..., 1] = torch.maximum(
+                        event_scores[..., 1],
+                        outputs["mistake_action_onset_score"][sample_index, :length],
+                    )
                 event_samples.append(
                     (truth_events, event_scores.detach().float().cpu().numpy())
                 )
@@ -786,6 +830,26 @@ def evaluate(
     incorrect_normality = [
         score for score, target in zip(normality_scores, normality_targets) if target == 1
     ]
+    state_scores = np.concatenate(state_score_chunks) if state_score_chunks else np.empty(0)
+    state_truth = np.concatenate(state_truth_chunks) if state_truth_chunks else np.empty(0, dtype=np.int64)
+    state_other_prediction = (
+        np.concatenate(state_other_prediction_chunks)
+        if state_other_prediction_chunks
+        else np.empty(0, dtype=np.int64)
+    )
+    if calibrate_state or state_incorrect_threshold is None:
+        state_incorrect_threshold, state_confusion = _calibrate_incorrect_state_threshold(
+            state_scores, state_truth, state_other_prediction
+        )
+    else:
+        state_confusion = _state_confusion_at_threshold(
+            state_scores,
+            state_truth,
+            state_other_prediction,
+            state_incorrect_threshold,
+        )
+    state_total = int(state_confusion.sum())
+    state_correct = int(np.trace(state_confusion))
     return {
         "frame_accuracy": 100.0 * frame_correct / max(frame_total, 1),
         "raw_frame_accuracy": 100.0 * raw_frame_correct / max(frame_total, 1),
@@ -834,6 +898,7 @@ def evaluate(
         "state_accuracy": 100.0 * state_correct / max(state_total, 1),
         "state_macro_f1": _macro_f1_from_confusion(state_confusion),
         "state_incorrect_f1": _class_f1_from_confusion(state_confusion, 0),
+        "state_incorrect_threshold": float(state_incorrect_threshold),
         "incorrect_detection_delay_steps": incorrect_diagnostics["mean_delay_steps"],
         "incorrect_detection_delay_seconds": incorrect_diagnostics["mean_delay_steps"]
         * seconds_per_step,
@@ -862,6 +927,50 @@ def _macro_f1_from_confusion(confusion: np.ndarray) -> float:
     if not supported:
         return 0.0
     return float(np.mean([_class_f1_from_confusion(confusion, index) for index in supported]))
+
+
+def _state_confusion_at_threshold(
+    incorrect_scores: np.ndarray,
+    truth: np.ndarray,
+    other_prediction: np.ndarray,
+    threshold: float,
+) -> np.ndarray:
+    prediction = np.where(incorrect_scores >= threshold, 0, other_prediction)
+    return np.bincount(3 * truth + prediction, minlength=9).reshape(3, 3)
+
+
+def _calibrate_incorrect_state_threshold(
+    incorrect_scores: np.ndarray,
+    truth: np.ndarray,
+    other_prediction: np.ndarray,
+) -> tuple[float, np.ndarray]:
+    """Tune the rare incorrect-state decision on validation only.
+
+    Argmax is poorly calibrated when incorrect states occupy under one percent
+    of component rows. A compact fixed grid is deterministic, inexpensive, and
+    yields a threshold that can be frozen for actor-held-out testing.
+    """
+
+    if not len(truth):
+        return 0.5, np.zeros((3, 3), dtype=np.int64)
+    best_threshold = 0.5
+    best_confusion = _state_confusion_at_threshold(
+        incorrect_scores, truth, other_prediction, best_threshold
+    )
+    best_f1 = _class_f1_from_confusion(best_confusion, 0)
+    for threshold in np.linspace(0.01, 0.99, 99):
+        confusion = _state_confusion_at_threshold(
+            incorrect_scores, truth, other_prediction, float(threshold)
+        )
+        f1 = _class_f1_from_confusion(confusion, 0)
+        # Prefer the higher threshold on ties to reduce false incorrect states.
+        if f1 > best_f1 + 1e-12 or (
+            abs(f1 - best_f1) <= 1e-12 and threshold > best_threshold
+        ):
+            best_f1 = f1
+            best_threshold = float(threshold)
+            best_confusion = confusion
+    return best_threshold, best_confusion
 
 
 def _event_timing_diagnostics(
@@ -932,23 +1041,22 @@ def _predicted_events_from_scores(
     install_minimum_distance: int | None = None,
     seconds_per_step: float = 0.5,
 ) -> list[tuple[int, int, int]]:
-    """Propose outcome-specific peaks, then keep one outcome per nearby event.
+    """Propose and suppress peaks independently for each event outcome.
 
     A peak in the sum over outcomes can be controlled by the majority ``correct``
     curve and hide a smaller, temporally sharper fault peak.  We therefore form
-    candidates per outcome and perform cross-outcome temporal suppression using
-    score relative to that outcome's calibrated threshold. Defaults come from
-    the minimum training-only same-component gaps: 4.0 seconds for any event
-    and 14.5 seconds between installation outcomes. They are converted into
-    cache steps so changing visual sampling rate cannot change decoder timing.
+    candidates per outcome. NMS is deliberately outcome-specific: Assembly101
+    commonly records an incorrect installation attempt followed shortly by a
+    correct retry, so suppressing nearby peaks *across* outcomes erases exactly
+    the mistake events we need to detect. ``install_minimum_distance`` remains
+    accepted for checkpoint/tool compatibility but is no longer used for
+    cross-outcome suppression. Durations are converted into cache steps so
+    changing visual sampling rate cannot change decoder timing.
     """
 
     if seconds_per_step <= 0:
         raise ValueError("seconds_per_step must be positive")
     minimum_distance = minimum_distance or max(1, round(4.0 / seconds_per_step))
-    install_minimum_distance = install_minimum_distance or max(
-        1, round(14.5 / seconds_per_step)
-    )
     events: list[tuple[int, int, int]] = []
     for component in range(event_scores.shape[1]):
         candidates: list[tuple[float, float, int, int]] = []
@@ -969,11 +1077,11 @@ def _predicted_events_from_scores(
         for _, _, row, outcome in sorted(candidates, reverse=True):
             near_start = max(0, row - minimum_distance + 1)
             near_end = min(event_scores.shape[0], row + minimum_distance)
-            conflicts = bool(selected_mask[:, near_start:near_end].any())
-            if not conflicts and outcome in (0, 1):
-                install_start = max(0, row - install_minimum_distance + 1)
-                install_end = min(event_scores.shape[0], row + install_minimum_distance)
-                conflicts = bool(selected_mask[:2, install_start:install_end].any())
+            conflicts = bool(selected_mask[outcome, near_start:near_end].any())
+            # At a single timestamp/component only one mutually exclusive
+            # outcome can occur. Nearby timestamps, however, may be a failed
+            # attempt and its successful retry and must both survive.
+            conflicts = conflicts or bool(selected_mask[:, row].any())
             if not conflicts:
                 selected_mask[outcome, row] = True
                 events.append((row, component, outcome))
@@ -1177,6 +1285,11 @@ def _action_factorization(
     object_names = sorted({object_name for _, object_name in factors})
     verb_to_index = {name: index for index, name in enumerate(verb_names)}
     object_to_index = {name: index for index, name in enumerate(object_names)}
+    completion_names = [
+        str(name).strip().lower().replace(" ", "_")
+        for name in metadata.get("completion_components", [])
+    ]
+    completion_lookup = {name: index for index, name in enumerate(completion_names)}
     counts = np.zeros(num_steps, dtype=np.int64)
     for record in records:
         with np.load(record.path, allow_pickle=False) as arrays:
@@ -1188,6 +1301,10 @@ def _action_factorization(
         "object_names": object_names,
         "verb_indices": [verb_to_index[verb] for verb, _ in factors],
         "object_indices": [object_to_index[object_name] for _, object_name in factors],
+        "mistake_action_mask": [verb.startswith("attempt_to_") for verb, _ in factors],
+        "action_event_component_indices": [
+            completion_lookup.get(object_name, -1) for _, object_name in factors
+        ],
         "seen_mask": [bool(count) for count in counts],
         "factor_source": (
             "official_action_taxonomy" if taxonomy_hits == max(0, num_steps - 1) else "mixed"
@@ -1518,9 +1635,12 @@ def _restore_rng_state(state: dict[str, Any] | None) -> None:
 
     random.setstate(state["python"])
     np.random.set_state(state["numpy"])
-    torch.random.set_rng_state(state["torch"])
+    # ``torch.load(..., map_location=device)`` also maps RNG byte tensors to
+    # CUDA.  The default CPU generator only accepts a CPU ByteTensor, so move
+    # checkpointed generator states back before restoring an exact resume.
+    torch.random.set_rng_state(state["torch"].cpu())
     if torch.cuda.is_available() and "cuda" in state:
-        torch.cuda.set_rng_state_all(state["cuda"])
+        torch.cuda.set_rng_state_all([rng_state.cpu() for rng_state in state["cuda"]])
 
 
 def main() -> None:
@@ -1622,6 +1742,12 @@ def main() -> None:
         default=0.5,
         help="Exponent on per-component inverse state frequency; 1.0 emphasizes rare faults.",
     )
+    parser.add_argument(
+        "--state-class-weight-cap",
+        type=float,
+        default=12.0,
+        help="Cap before normalizing per-component inverse state weights.",
+    )
     parser.add_argument("--boundary-weight", type=float, default=0.25)
     parser.add_argument("--next-step-weight", type=float, default=0.3)
     parser.add_argument("--smoothing-weight", type=float, default=0.12)
@@ -1659,6 +1785,8 @@ def main() -> None:
         parser.error("completion-pos-weight-cap must be at least 1")
     if args.incorrect_pos_weight_cap < 1.0:
         parser.error("incorrect-pos-weight-cap must be at least 1")
+    if args.state_class_weight_cap < 1.0:
+        parser.error("state-class-weight-cap must be at least 1")
     if args.max_vram_gib <= 0:
         parser.error("max-vram-gib must be positive")
     if not 0.0 <= args.step_class_weight_power <= 1.0:
