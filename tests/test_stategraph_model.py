@@ -182,6 +182,21 @@ class StateGraphModelTest(unittest.TestCase):
         self.assertEqual(expanded_outcomes[0, :, 0].tolist(), [-100, 1, 1, 2, 2, -100])
         self.assertEqual(expanded_completion[0, :, 0].tolist(), [0, 1, 0, 1, 0, 0])
 
+    def test_hard_negative_mask_keeps_all_positives_and_top_negatives(self) -> None:
+        import torch
+
+        criterion = build_stategraph_loss(StateGraphLossConfig())
+        logits = torch.tensor([[[0.0, 4.0], [3.0, 2.0], [1.0, -1.0]]])
+        targets = torch.zeros_like(logits)
+        targets[0, 0, 0] = 1.0
+        mask = criterion._hard_negative_mask(
+            logits, targets, torch.ones(1, 3, dtype=torch.bool), ratio=2.0
+        )
+        self.assertTrue(bool(mask[0, 0, 0]))
+        self.assertEqual(int(mask.sum()), 3)
+        self.assertTrue(bool(mask[0, 0, 1]))
+        self.assertTrue(bool(mask[0, 1, 0]))
+
 
 if __name__ == "__main__":
     unittest.main()

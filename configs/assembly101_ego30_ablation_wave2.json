@@ -1,6 +1,6 @@
 {
   "protocol": {
-    "source_commit": "pending",
+    "source_commit": "2a87057",
     "selection_split": "actor-disjoint validation only",
     "test_split_policy": "sealed until the combined architecture is selected",
     "screening_epochs": 12,

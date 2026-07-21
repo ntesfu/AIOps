@@ -87,6 +87,9 @@ class StateGraphLossConfig:
     asl_clip: float = 0.05
     normality_error_weight: float = 8.0
     event_label_horizon: int = 2
+    # Zero preserves dense-negative BCE. A positive value keeps every mistake
+    # target and only this many highest-scoring negatives per positive.
+    incorrect_hard_negative_ratio: float = 0.0
 
 
 def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | None = None):
@@ -792,20 +795,49 @@ def build_stategraph_loss(config: StateGraphLossConfig):
         ):
             if not valid_mask.any():
                 return logits.sum() * 0.0
-            selected_logits = logits[valid_mask]
-            selected_targets = targets[valid_mask]
-            probabilities = torch.sigmoid(selected_logits)
+            expanded_mask = valid_mask
+            while expanded_mask.ndim < logits.ndim:
+                expanded_mask = expanded_mask.unsqueeze(-1)
+            expanded_mask = expanded_mask.expand_as(logits)
+            probabilities = torch.sigmoid(logits)
             positive_probability = probabilities.clamp(1e-8, 1.0 - 1e-8)
             negative_probability = (1.0 - probabilities + clip).clamp(max=1.0)
-            positive_loss = selected_targets * torch.log(positive_probability)
-            negative_loss = (1.0 - selected_targets) * torch.log(
+            positive_loss = targets * torch.log(positive_probability)
+            negative_loss = (1.0 - targets) * torch.log(
                 negative_probability.clamp_min(1e-8)
             )
             if pos_weight is not None:
-                positive_loss = positive_loss * pos_weight
+                weight_shape = [1] * (logits.ndim - 1) + [pos_weight.shape[0]]
+                positive_loss = positive_loss * pos_weight.view(*weight_shape)
             positive_focus = (1.0 - positive_probability) ** positive_gamma
             negative_focus = (1.0 - negative_probability) ** negative_gamma
-            return -(positive_focus * positive_loss + negative_focus * negative_loss).mean()
+            loss = -(positive_focus * positive_loss + negative_focus * negative_loss)
+            return loss[expanded_mask].mean()
+
+        @staticmethod
+        def _hard_negative_mask(logits, targets, valid_mask, ratio: float):
+            """Keep all positives and the hardest declared number of negatives."""
+
+            expanded_valid = valid_mask.unsqueeze(-1).expand_as(targets)
+            if ratio <= 0:
+                return expanded_valid
+            positive = expanded_valid & (targets > 0.5)
+            negative = expanded_valid & ~positive
+            positive_count = int(positive.sum().item())
+            negative_count = int(negative.sum().item())
+            if negative_count == 0:
+                return positive
+            keep_count = min(
+                negative_count,
+                max(1, int(math.ceil(max(positive_count, 1) * ratio))),
+            )
+            negative_indices = negative.nonzero(as_tuple=False)
+            negative_scores = logits.detach()[negative]
+            hardest = torch.topk(negative_scores, keep_count, sorted=False).indices
+            selected = positive.clone()
+            chosen = negative_indices[hardest]
+            selected[chosen[:, 0], chosen[:, 1], chosen[:, 2]] = True
+            return selected
 
         def forward(
             self,
@@ -866,7 +898,12 @@ def build_stategraph_loss(config: StateGraphLossConfig):
             losses["incorrect_onset"] = self._asymmetric_bce(
                 onset_logits,
                 incorrect_targets,
-                valid_mask,
+                self._hard_negative_mask(
+                    onset_logits,
+                    incorrect_targets,
+                    valid_mask,
+                    config.incorrect_hard_negative_ratio,
+                ),
                 positive_gamma=0.0,
                 negative_gamma=config.asl_negative_gamma,
                 clip=config.asl_clip,

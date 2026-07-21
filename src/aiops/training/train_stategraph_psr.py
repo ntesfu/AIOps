@@ -248,6 +248,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         asl_clip=args.asl_clip,
         normality_error_weight=args.normality_error_weight,
         event_label_horizon=args.event_label_horizon,
+        incorrect_hard_negative_ratio=args.incorrect_hard_negative_ratio,
     )
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     model = build_stategraph_psr(model_config, transition_matrix).to(device)
@@ -1974,6 +1975,12 @@ def main() -> None:
     parser.add_argument("--normality-error-weight", type=float, default=8.0)
     parser.add_argument("--incorrect-pos-weight-cap", type=float, default=100.0)
     parser.add_argument(
+        "--incorrect-hard-negative-ratio",
+        type=float,
+        default=0.0,
+        help="Keep all mistake positives and this many hardest negatives per positive; zero keeps every negative.",
+    )
+    parser.add_argument(
         "--event-label-horizon",
         type=int,
         default=2,
@@ -2007,6 +2014,8 @@ def main() -> None:
         parser.error("completion-pos-weight-cap must be at least 1")
     if args.incorrect_pos_weight_cap < 1.0:
         parser.error("incorrect-pos-weight-cap must be at least 1")
+    if args.incorrect_hard_negative_ratio < 0:
+        parser.error("incorrect-hard-negative-ratio cannot be negative")
     if args.state_class_weight_cap < 1.0:
         parser.error("state-class-weight-cap must be at least 1")
     if args.max_vram_gib <= 0:

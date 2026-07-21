@@ -23,6 +23,7 @@ learned_event_fusion="${LEARNED_EVENT_FUSION:-0}"
 event_centered_crops_per_event="${EVENT_CENTERED_CROPS_PER_EVENT:-0}"
 event_centered_crop_radius="${EVENT_CENTERED_CROP_RADIUS:-0}"
 seed="${SEED:-7}"
+incorrect_hard_negative_ratio="${INCORRECT_HARD_NEGATIVE_RATIO:-0}"
 
 case "$variant" in
   base)
@@ -102,6 +103,7 @@ export PYTHONPATH=".deps:src${PYTHONPATH:+:${PYTHONPATH}}"
   --rare-windows-per-batch 2 \
   --normality-error-weight 10.0 \
   --incorrect-pos-weight-cap "$incorrect_pos_weight_cap" \
+  --incorrect-hard-negative-ratio "$incorrect_hard_negative_ratio" \
   --asl-negative-gamma "$asl_negative_gamma" \
   --asl-clip "$asl_clip" \
   --incorrect-selection-weight "$incorrect_selection_weight" \
