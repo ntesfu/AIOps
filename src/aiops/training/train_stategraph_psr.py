@@ -179,6 +179,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         step_weight=args.step_weight,
         completion_weight=args.completion_weight,
         component_outcome_weight=args.component_outcome_weight,
+        incorrect_onset_weight=args.incorrect_onset_weight,
         state_weight=args.state_weight,
         boundary_weight=args.boundary_weight,
         next_step_weight=args.next_step_weight,
@@ -210,6 +211,14 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     ).to(device)
     state_class_weights = torch.from_numpy(
         _state_class_weights(train_records, model_config.num_components)
+    ).to(device)
+    incorrect_pos_weights = torch.from_numpy(
+        _outcome_pos_weights(
+            train_records,
+            model_config.num_completion_components,
+            outcome_index=1,
+            cap=args.incorrect_pos_weight_cap,
+        )
     ).to(device)
 
     train_dataset = StateGraphCacheDataset(
@@ -337,6 +346,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                         completion_pos_weights=completion_pos_weights,
                         component_outcome_class_weights=component_outcome_weights,
                         state_class_weights=state_class_weights,
+                        incorrect_pos_weights=incorrect_pos_weights,
                     )
                     scaled_loss = losses["total"] / args.accumulation_steps
                 scaler.scale(scaled_loss).backward()
@@ -656,6 +666,12 @@ def evaluate(
                 event_scores[..., 1] = torch.maximum(
                     event_scores[..., 1],
                     prototype_state_fault_score[sample_index, :length],
+                )
+                event_scores[..., 1] = torch.maximum(
+                    event_scores[..., 1],
+                    torch.sigmoid(outputs["incorrect_onset_logits"])[
+                        sample_index, :length
+                    ],
                 )
                 event_samples.append(
                     (truth_events, event_scores.detach().float().cpu().numpy())
@@ -1142,6 +1158,23 @@ def _state_class_weights(
     return weights.astype(np.float32)
 
 
+def _outcome_pos_weights(
+    records: list[StateGraphCacheRecord],
+    components: int,
+    outcome_index: int,
+    cap: float = 100.0,
+) -> np.ndarray:
+    positive = np.ones(components, dtype=np.float64)
+    total_rows = 0
+    for record in records:
+        with np.load(record.path, allow_pickle=False) as arrays:
+            outcomes = arrays["component_outcome"].astype(np.int64)
+        positive += (outcomes == outcome_index).sum(axis=0)
+        total_rows += len(outcomes)
+    negative = np.maximum(float(total_rows) - positive, 1.0)
+    return np.clip(negative / positive, 1.0, cap).astype(np.float32)
+
+
 def _infer_event_state_mapping(
     records: list[StateGraphCacheRecord],
     event_components: int,
@@ -1468,6 +1501,7 @@ def main() -> None:
     parser.add_argument("--step-weight", type=float, default=1.0)
     parser.add_argument("--completion-weight", type=float, default=0.45)
     parser.add_argument("--component-outcome-weight", type=float, default=0.7)
+    parser.add_argument("--incorrect-onset-weight", type=float, default=0.7)
     parser.add_argument(
         "--completion-pos-weight-cap",
         type=float,
@@ -1487,6 +1521,7 @@ def main() -> None:
     parser.add_argument("--asl-negative-gamma", type=float, default=4.0)
     parser.add_argument("--asl-clip", type=float, default=0.05)
     parser.add_argument("--normality-error-weight", type=float, default=8.0)
+    parser.add_argument("--incorrect-pos-weight-cap", type=float, default=100.0)
     parser.add_argument(
         "--event-label-horizon",
         type=int,

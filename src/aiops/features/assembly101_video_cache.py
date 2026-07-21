@@ -208,6 +208,67 @@ def build_video_cache(args: argparse.Namespace) -> dict[str, Any]:
     return {"index": str(index_path), "recordings": len(cache_records), "peak_vram_gib": peak_gib}
 
 
+def merge_shard_indexes(output_dir: str | Path, manifest_path: str | Path) -> dict[str, Any]:
+    output = Path(output_dir)
+    shards = sorted(output.glob("index.shard-*-of-*.json"))
+    if not shards:
+        raise FileNotFoundError(f"No shard indexes found in {output}")
+    payloads = [json.loads(path.read_text(encoding="utf-8")) for path in shards]
+    reference = dict(payloads[0]["metadata"])
+    invariant_keys = (
+        "schema_version",
+        "dataset",
+        "manifest_selection",
+        "label_contract",
+        "event_outcomes",
+        "completion_components",
+        "state_components",
+        "action_ids",
+        "fps",
+        "stride_frames",
+        "clip_frames",
+        "camera",
+        "feature_backends",
+    )
+    for payload in payloads[1:]:
+        for key in invariant_keys:
+            if payload["metadata"].get(key) != reference.get(key):
+                raise ValueError(f"Shard metadata mismatch for {key!r}")
+    rows = [row for payload in payloads for row in payload["records"]]
+    ids = [row["recording_id"] for row in rows]
+    if len(ids) != len(set(ids)):
+        raise ValueError("Shard indexes contain duplicate recording IDs")
+    manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+    expected = {row["recording_id"] for row in manifest["records"]}
+    missing = expected - set(ids)
+    unexpected = set(ids) - expected
+    if missing or unexpected:
+        raise ValueError(
+            f"Cache/manifest mismatch: {len(missing)} missing and {len(unexpected)} unexpected"
+        )
+    for row in rows:
+        cache_path = output / row["path"]
+        if not cache_path.is_file():
+            raise FileNotFoundError(f"Indexed cache record is missing: {cache_path}")
+    metadata = reference
+    metadata.pop("shard", None)
+    metadata["peak_feature_vram_gib"] = max(
+        float(payload["metadata"].get("peak_feature_vram_gib", 0.0)) for payload in payloads
+    )
+    metadata["extraction_shards"] = len(shards)
+    rows.sort(key=lambda row: (row["split"], row["recording_id"]))
+    destination = output / "index.json"
+    destination.write_text(
+        json.dumps({"metadata": metadata, "records": rows}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "index": str(destination),
+        "recordings": len(rows),
+        "peak_vram_gib": metadata["peak_feature_vram_gib"],
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build genuine 30-fps Assembly101 ego cache.")
     parser.add_argument("--manifest", default="data/raw/assembly101/ego30_manifest.json")

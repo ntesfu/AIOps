@@ -66,6 +66,7 @@ class StateGraphLossConfig:
     step_weight: float = 1.0
     completion_weight: float = 0.45
     component_outcome_weight: float = 0.7
+    incorrect_onset_weight: float = 0.7
     state_weight: float = 0.8
     boundary_weight: float = 0.25
     next_step_weight: float = 0.3
@@ -367,6 +368,9 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             self.component_outcome_head = nn.Linear(
                 config.hidden_dim, config.num_completion_components * config.num_event_outcomes
             )
+            self.incorrect_onset_head = nn.Linear(
+                config.hidden_dim, config.num_completion_components
+            )
             self.component_normal_prototypes = nn.Parameter(
                 torch.empty(config.num_completion_components, config.hidden_dim)
             )
@@ -564,6 +568,7 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 "event_features": event_features,
                 "completion_logits": self.completion_head(event_features),
                 "component_outcome_logits": component_outcome_logits,
+                "incorrect_onset_logits": self.incorrect_onset_head(event_features),
                 "normality_logits": normality_logits,
                 "state_outcome_probabilities": state_outcome_probabilities,
                 "event_state_indices": self.event_state_indices,
@@ -652,6 +657,7 @@ def build_stategraph_loss(config: StateGraphLossConfig):
             completion_pos_weights=None,
             component_outcome_class_weights=None,
             state_class_weights=None,
+            incorrect_pos_weights=None,
         ):
             valid_mask = targets["valid_mask"].bool()
             step_targets = targets["step"]
@@ -688,6 +694,16 @@ def build_stategraph_loss(config: StateGraphLossConfig):
                 outcome_targets,
                 config.focal_gamma,
                 component_outcome_class_weights,
+            )
+            incorrect_targets = (outcome_targets == 1).to(
+                outputs["incorrect_onset_logits"].dtype
+            )
+            losses["incorrect_onset"] = self._focal_bce(
+                outputs["incorrect_onset_logits"],
+                incorrect_targets,
+                valid_mask,
+                config.focal_gamma,
+                pos_weight=incorrect_pos_weights,
             )
 
             state_targets = targets["state"]
@@ -833,6 +849,7 @@ def build_stategraph_loss(config: StateGraphLossConfig):
                 config.step_weight * losses["step"]
                 + config.completion_weight * losses["completion"]
                 + config.component_outcome_weight * losses["component_outcome"]
+                + config.incorrect_onset_weight * losses["incorrect_onset"]
                 + config.state_weight * losses["state"]
                 + config.boundary_weight * losses["boundary"]
                 + config.next_step_weight * losses["next_step"]
