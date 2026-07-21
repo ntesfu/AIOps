@@ -6,6 +6,8 @@ epochs="${EPOCHS:-16}"
 run_name="${RUN_NAME:-ego30_${variant}_${epochs}ep}"
 evaluate_test="${EVALUATE_TEST:-0}"
 calibration_interval="${CALIBRATION_INTERVAL:-4}"
+step_class_weight_power="${STEP_CLASS_WEIGHT_POWER:-1.0}"
+focal_gamma="${FOCAL_GAMMA:-1.5}"
 
 case "$variant" in
   base)
@@ -41,6 +43,8 @@ export PYTHONPATH=".deps:src${PYTHONPATH:+:${PYTHONPATH}}"
   --precision bf16 \
   --sequence-length 512 \
   --sequence-stride 384 \
+  --step-class-weight-power "$step_class_weight_power" \
+  --focal-gamma "$focal_gamma" \
   --attention-every 2 \
   --num-heads 8 \
   --num-action-refinement-stages 2 \

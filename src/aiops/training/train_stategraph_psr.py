@@ -203,7 +203,14 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     peak_training_vram_gib = _enforce_vram_limit(
         torch, device, args.max_vram_gib, phase="initialization"
     )
-    step_weights = torch.from_numpy(_class_weights(train_records, "step", num_steps)).to(device)
+    step_weights = torch.from_numpy(
+        _class_weights(
+            train_records,
+            "step",
+            num_steps,
+            power=args.step_class_weight_power,
+        )
+    ).to(device)
     completion_pos_weights = torch.from_numpy(
         _completion_pos_weights(
             train_records,
@@ -558,6 +565,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         "test_recordings": len(test_records),
         "overfit_recording_ids": overfit_recordings,
         "completion_pos_weight_cap": args.completion_pos_weight_cap,
+        "step_class_weight_power": args.step_class_weight_power,
         "action_factorization": factorization,
         "event_state_mapping": event_state_mapping,
         "model_config": model_config.to_dict(),
@@ -1117,14 +1125,19 @@ def _validation_selection_score(
     return general + mistake_weight * mistake
 
 
-def _class_weights(records: list[StateGraphCacheRecord], field: str, classes: int) -> np.ndarray:
+def _class_weights(
+    records: list[StateGraphCacheRecord],
+    field: str,
+    classes: int,
+    power: float = 1.0,
+) -> np.ndarray:
     counts = np.ones(classes, dtype=np.float64)
     for record in records:
         with np.load(record.path, allow_pickle=False) as arrays:
             labels = arrays[field].reshape(-1)
         labels = labels[(labels >= 0) & (labels < classes)]
         counts += np.bincount(labels, minlength=classes)
-    weights = counts.sum() / (classes * counts)
+    weights = (counts.sum() / (classes * counts)) ** power
     return np.clip(weights, 0.25, 12.0).astype(np.float32)
 
 
@@ -1579,6 +1592,12 @@ def main() -> None:
         help="Train and validate on this train-split recording for an intentional wiring test; repeat for 2-4 IDs.",
     )
     parser.add_argument("--step-weight", type=float, default=1.0)
+    parser.add_argument(
+        "--step-class-weight-power",
+        type=float,
+        default=1.0,
+        help="Exponent on inverse-frequency action weights; 0.5 is a softer square-root balance.",
+    )
     parser.add_argument("--completion-weight", type=float, default=0.45)
     parser.add_argument("--component-outcome-weight", type=float, default=0.7)
     parser.add_argument("--incorrect-onset-weight", type=float, default=0.7)
@@ -1628,6 +1647,8 @@ def main() -> None:
         parser.error("incorrect-pos-weight-cap must be at least 1")
     if args.max_vram_gib <= 0:
         parser.error("max-vram-gib must be positive")
+    if not 0.0 <= args.step_class_weight_power <= 1.0:
+        parser.error("step-class-weight-power must be in [0, 1]")
     if not 0.0 <= args.graph_strength <= 1.0:
         parser.error("graph-strength must be a probability in [0, 1]")
     if not 0 <= args.rare_windows_per_batch <= args.batch_size:
