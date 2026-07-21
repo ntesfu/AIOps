@@ -1,41 +1,69 @@
-# Assembly101 StateGraph-PSR methodology
+# Assembly101 ego-30 StateGraph-PSR methodology
 
-## Scope and provenance
+## Provenance
 
-The complete Assembly101 visual release is hosted in the gated `cvml-nus/assembly101` Hugging Face repository. The training host had no accepted Hugging Face credentials, so this experiment uses a public, derived frame mirror: `kimihiroh/promqa-assembly-frames`, pinned to revision `da4deb832d0e39b4b309eb2260bbb41932d64621`. Labels come only from the official `assembly-101/assembly101-mistake-detection` repository at revision `6f3a953267ffb86cdeabf6751af05a75a011a4f8`.
+The experiment uses the authenticated official Hugging Face dataset
+`cvml-nus/assembly101`, pinned to revision
+`bfc15ea5e3f0bc8f8c232af6c1b45aa137a9d967`. The deterministic manifest is
+`data/raw/assembly101/ego30_manifest.json`; it selects 98 `e1` egocentric videos
+and records source paths, actors, and split membership. Assembly101 is CC BY-NC
+4.0 and this work is for non-commercial research.
 
-The committed `data/raw/assembly101/subset_manifest.json` records URLs, expected byte sizes, LFS SHA-256 object IDs, split membership, and source revisions. `scripts/download_assembly101_subset.py` downloads all official mistake CSVs and the selected visual archives, resumes interrupted transfers, and rejects files that fail size or SHA-256 verification.
+## Split and controls
 
-Assembly101 is CC BY-NC 4.0. This pipeline and its resulting model are for non-commercial research.
+- Train actors: 9021, 9022, 9023, 9025, 9035, 9044, 9045, 9054.
+- Validation actors: 9031, 9074.
+- Test actors: 9013, 9083.
+- Recordings: 73 train, 15 validation, 10 test.
+- Only the `e1` egocentric view is used.
+- Test is evaluated only after architecture selection and validation threshold
+  calibration; test thresholds are never recalibrated.
 
-## Selection and split
+## Sampling and representation
 
-- 60 recordings from the public mirror's 227-recording intersection with the 328 official mistake-annotated sequences.
-- One consistent fixed RGB camera, `C10095`, at one frame per second.
-- Actor-disjoint split: 40 train recordings from 8 actors, 10 validation recordings from 2 actors, and 10 test recordings from 2 actors.
-- 728 annotated action segments: 511 correct, 142 mistakes, and 75 corrections.
-- Train/validation/test contain 98/20/24 mistake segments and 56/9/10 correction segments respectively.
-- Validation includes four action compositions absent from train; test includes five. This is reported separately rather than silently folded into seen-class accuracy.
+Official ego videos are 60 fps and annotations use a 30 fps frame clock. The
+decoder selects the nearest source frame at each point on that 30 fps clock and
+rejects sources below 30 fps. A causal clip contains the current frame and 31
+past frames. Features are cached every 8 annotation frames, yielding 3.75 model
+observations per second while the video backbone still sees genuine 30 fps
+motion.
 
-The mirror is a fixed-view derivative, not the official egocentric stream. Conclusions therefore apply to procedural state and mistake modeling under this view and should not be presented as an official Assembly101 benchmark result.
+The motion stream is a frozen Kinetics-400 Swin3D-S embedding. The appearance
+stream is a frozen ConvNeXt-Tiny embedding of the current clip frame. Both are
+768-dimensional. Resizing is performed once per decoded frame before overlap
+reuse. Cache generation is sharded and resumable, and merge validates schema,
+shard uniqueness, shapes, and metadata.
 
-## Label mapping
+## Labels
 
-The official part-to-part rows provide 30 fps start/end timestamps, a verb, two working objects, `correct` / `mistake` / `correction`, and an optional mistake remark. Mirror frame numbers are one-frame-per-second indices, so the adapter converts them to the official 30 fps clock before alignment.
+The model predicts the complete official 203-class coarse action taxonomy,
+including background. Official verb and noun columns provide compositional
+action factors, including multiword verbs such as `attempt to attach`.
 
-- Action class: coarse `verb + subject part` (87 classes including background in this subset).
-- State/completion component: subject part (55 components).
-- Correct attachment or positioning: `correct` completion and persistent `correct` state.
-- Mistaken action: `incorrect` completion and, for attachment/position mistakes, persistent `incorrect` state.
-- Corrective detach: `remove` event followed by `not_completed` state.
-- Unnecessary detach remains an `incorrect` event, followed by the physically accurate `not_completed` state.
+Completion events have three outcomes: correct, incorrect, and remove. There
+are 59 aligned completion/state components. Persistent state classes are
+incorrect, pending, and correct. Components not relevant to a recording are
+masked instead of being falsely labelled pending.
 
-Sub-second corrections occasionally share a one-second mirror frame with the preceding mistake. The adapter preserves their causal order by assigning the later event to the next available row rather than overwriting either label.
+## Training and evaluation
 
-## Visual representation and evaluation controls
+Training uses actor-disjoint validation, deterministic epoch-varying temporal
+crops, square-root action balancing, outcome-aware rare-window batches, focal
+action/state losses, and asymmetric sparse-event losses. The model has a hard
+23 GiB process VRAM guard.
 
-ConvNeXt-Tiny ImageNet-1K features are extracted once from every available frame. The appearance stream uses the frozen 768-dimensional embedding; the motion stream uses its causal adjacent-frame difference. No visual feature is synthesized from labels. Sensor input is masked because this mirror has no hand, gaze, depth, or pose streams.
+Mistake evidence combines four causal signals: completion/outcome probability,
+positive transitions in component state, component-normality evidence, and
+component-mapped probability of official `attempt to ...` actions. Event NMS is
+per outcome so a failed installation and nearby successful retry cannot erase
+one another. Event thresholds and the rare incorrect-state threshold are
+calibrated on validation and frozen for test.
 
-Model selection uses validation action segmentation and incorrect-event F1. Event thresholds are calibrated on validation only and then frozen for the actor-held-out test split. The exported checkpoint contains those thresholds. The standalone evaluator refuses test evaluation when a checkpoint lacks validation-calibrated thresholds.
+The primary point-event metric requires the correct component and a timestamp
+within approximately one second. Wider ±2 s and ±4 s diagnostics are also
+reported. Mistake-normality average precision measures ranking incorrect versus
+correct install events and must be reported separately from exact point-event
+F1.
 
-Final metrics and the exact 80-epoch command are recorded in `docs/assembly101_stategraph_80epoch_report.md` after training.
+See `docs/assembly101_stategraph_80epoch_report.md` for the final command,
+metrics, limitations, checkpoint hash, and VRAM measurement.

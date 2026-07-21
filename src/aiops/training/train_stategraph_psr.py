@@ -330,17 +330,46 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         model.load_state_dict(checkpoint["model_state"])
         optimizer.load_state_dict(checkpoint["optimizer_state"])
         scheduler.load_state_dict(checkpoint["scheduler_state"])
-        training_state = checkpoint.get("training_state", {})
+        training_state = checkpoint.get("training_state") or {}
         start_epoch = int(checkpoint["epoch"]) + 1
-        best_score = float(training_state.get("best_score", best_score))
-        best_metrics = training_state.get("best_metrics", best_metrics)
+        checkpoint_metrics = checkpoint.get("metrics")
+        if training_state:
+            best_score = float(training_state.get("best_score", best_score))
+            best_metrics = training_state.get("best_metrics", best_metrics)
+        elif checkpoint_metrics:
+            # A best checkpoint intentionally omits mutable training state. It
+            # can still recover an interrupted run: its own calibrated metrics
+            # are authoritative for selection, while optimizer/scheduler state
+            # is already stored alongside the weights.
+            best_metrics = checkpoint_metrics
+            best_score = _validation_selection_score(
+                checkpoint_metrics, mistake_weight=args.incorrect_selection_weight
+            )
         patience_left = int(training_state.get("patience_left", patience_left))
-        global_update = int(training_state.get("global_update", global_update))
-        event_thresholds = training_state.get("event_thresholds", event_thresholds)
-        state_incorrect_threshold = training_state.get(
-            "state_incorrect_threshold", state_incorrect_threshold
+        global_update = int(
+            training_state.get("global_update", max(0, scheduler.last_epoch))
         )
-        batch_sampler.epoch = int(training_state.get("batch_sampler_epoch", batch_sampler.epoch))
+        fallback_event_thresholds = (
+            [
+                checkpoint_metrics["correct_event_threshold"],
+                checkpoint_metrics["incorrect_event_threshold"],
+                checkpoint_metrics["remove_event_threshold"],
+            ]
+            if checkpoint_metrics
+            else event_thresholds
+        )
+        event_thresholds = training_state.get(
+            "event_thresholds", fallback_event_thresholds
+        )
+        state_incorrect_threshold = training_state.get(
+            "state_incorrect_threshold",
+            checkpoint_metrics.get("state_incorrect_threshold")
+            if checkpoint_metrics
+            else state_incorrect_threshold,
+        )
+        batch_sampler.epoch = int(
+            training_state.get("batch_sampler_epoch", checkpoint["epoch"])
+        )
         _restore_rng_state(checkpoint.get("rng_state"))
         print(f"Resuming {resume_path} at epoch {start_epoch}", flush=True)
     if start_epoch > args.epochs:
@@ -745,7 +774,8 @@ def evaluate(
                     event_scores[..., 1],
                     torch.sigmoid(outputs["incorrect_onset_logits"])[
                         sample_index, :length
-                    ],
+                    ]
+                    * normality_anomaly_score[sample_index, :length],
                 )
                 if "mistake_action_onset_score" in outputs:
                     event_scores[..., 1] = torch.maximum(
@@ -1130,7 +1160,11 @@ def _calibrate_event_thresholds(
 
     grid = np.unique(
         np.concatenate(
-            [np.linspace(0.01, 0.2, 20), np.linspace(0.225, 0.9, 28)]
+            [
+                np.linspace(0.01, 0.2, 20),
+                np.linspace(0.225, 0.9, 28),
+                np.asarray([0.925, 0.95, 0.975, 0.99, 0.995, 0.999]),
+            ]
         )
     )
     thresholds: list[float] = []

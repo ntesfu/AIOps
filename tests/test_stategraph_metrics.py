@@ -99,6 +99,16 @@ class StateGraphMetricsTest(unittest.TestCase):
             _event_metrics_from_samples(samples, thresholds)[1]["recall"], 100.0
         )
 
+    def test_event_calibration_can_reject_high_confidence_false_peak(self) -> None:
+        scores = np.zeros((16, 1, 3), dtype=np.float32)
+        scores[2, 0, 1] = 0.98
+        scores[13, 0, 1] = 0.95
+        thresholds, metrics, _ = _calibrate_event_thresholds(
+            [([(2, 0, 1)], scores)], outcomes=3
+        )
+        self.assertGreater(thresholds[1], 0.95)
+        self.assertEqual(metrics[1]["f1"], 100.0)
+
     def test_latency_metric_reports_delayed_but_component_correct_fault(self) -> None:
         scores = np.zeros((8, 1, 3), dtype=np.float32)
         scores[5, 0, 1] = 0.8

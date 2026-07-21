@@ -1,66 +1,117 @@
-# Assembly101 StateGraph-PSR: 80-epoch report
+# Assembly101 ego-30 StateGraph-PSR: 80-epoch report
 
 ## Result
 
-The selected StateGraph-PSR model completed all 80 epochs on an NVIDIA RTX 5000 Ada (32 GB). The validation-selected epoch is 67. On the actor-held-out test split, the model obtains **46.82% frame accuracy**, **27.24 edit**, **13.91 F1@50**, and **45.43% state macro-F1** across 87 action classes and 55 component states.
+The selected model completed 80 epochs on the official Assembly101 egocentric
+videos. Validation selected epoch 78. The experiment uses 203 official coarse
+action classes, 59 component states, a real temporal video backbone, and an
+actor-disjoint 73/15/10 recording split.
 
-This is a reasonable research architecture for the next iteration: it generalizes procedural actions and coarse component state substantially beyond trivial 87-way chance performance, fits comfortably on the available GPU, and exports to a 21 MB BF16 checkpoint. It is not yet a satisfactory exact mistake-alert system: test mistake normality AP is 20.19%, exact incorrect-event F1 is 0.37%, and false alerts are 13.12/minute.
+On the held-out test actors it obtains **9.71% frame accuracy**, **4.35 edit**,
+**1.22 F1@50**, **43.58% state macro-F1**, and **33.26% mistake-normality AP**.
+This is a material improvement over the 16-epoch selected architecture on the
+same hard task for validation frame accuracy (11.13% to 14.97%), F1@50 (1.37 to
+2.74), and state macro-F1 (39.78% to 44.15%).
 
-## Architecture selection
+Exact component-and-time mistake alerts are not solved: validation incorrect
+event F1 is 0.68%, and held-out test incorrect-event F1 is 0%. The checkpoint
+does produce useful actor-held-out mistake ranking (33.26% normality AP versus
+23.30% incorrect prevalence among install events) and 1.11% incorrect-state
+F1, but it is not suitable for deployment as a point-alert detector.
 
-Two 12-epoch pilots used identical cached ConvNeXt-Tiny appearance and causal feature-difference inputs.
+## Data and temporal sampling
 
-| Candidate | Parameters | Best val frame acc. | Best val edit | Best val F1@50 | Peak val state macro-F1 |
-|---|---:|---:|---:|---:|---:|
-| Compact temporal baseline | 1.37 M | 41.68% | 10.99 | 7.44 | 40.07% |
-| Selected graph + refinement model | 10.79 M | 42.39% | 13.99 | 7.12 | 41.11% |
+- Official source: `cvml-nus/assembly101`, revision
+  `bfc15ea5e3f0bc8f8c232af6c1b45aa137a9d967`.
+- 98 one-view `e1` egocentric MP4 recordings (5.79 GiB).
+- Actor-disjoint split: 73 train, 15 validation, 10 test recordings.
+- Raw video is 60 fps and is decoded on the official 30 fps annotation clock.
+- Each causal Swin3D clip contains 32 genuine frames at 30 fps (1.07 seconds).
+- Features are emitted every 8 annotation frames, or 3.75 observations/second.
+- 166,682 cached rows: 128,295 train, 24,319 validation, 14,068 test.
+- Sparse events: train `[630 correct, 140 incorrect, 62 remove]`, validation
+  `[132, 35, 17]`, test `[79, 24, 10]`.
+- Test actors and test labels were not used for architecture, threshold, or
+  checkpoint selection. Validation thresholds were frozen before test.
 
-The selected model uses a 256-dimensional causal temporal trunk with eight dilated blocks, attention every two blocks, eight heads, one four-block action-refinement stage, four event blocks, and a differentiable procedure graph initialized at strength 0.12. It has 10,793,341 trainable parameters. The larger candidate was selected for stronger temporal consistency and state reasoning, and its benefit became clear during longer training.
+## Selected architecture
 
-## Dataset and controls
+The 34,804,103-parameter model uses:
 
-- 60 recordings and 28,035 sampled frames; 40/10/10 train/validation/test recordings.
-- Actor-disjoint splits prevent identity leakage.
-- One consistent fixed RGB camera (`C10095`) sampled at 1 fps.
-- Official mistake-detection annotations: 511 correct, 142 incorrect, and 75 correction segments.
-- Frozen ConvNeXt-Tiny ImageNet-1K embeddings (768 appearance + 768 causal difference dimensions).
-- Thresholds calibrated only on validation and frozen before the single test evaluation.
-- Dataset mirror and annotation sources are revision-pinned and every downloaded archive is SHA-256 verified.
+- frozen Kinetics-400 Swin3D-S causal motion features (768 dimensions);
+- frozen ConvNeXt-Tiny current-frame appearance features (768 dimensions);
+- a 384-dimensional causal temporal trunk with 10 dilated blocks and attention
+  every second block;
+- two four-block action-refinement stages;
+- a six-block event branch that retains modality disagreement;
+- official verb/noun factorization across all 203 actions;
+- component-aware fusion of official `attempt to ...` action probability into
+  mistake-state and mistake-onset evidence;
+- a differentiable first-order procedure graph;
+- outcome-specific event NMS, allowing a failed attempt and nearby successful
+  retry to coexist;
+- validation-calibrated event and rare-state thresholds;
+- epoch-dependent, deterministic temporal crop augmentation.
 
-See [the methodology](assembly101_stategraph_methodology.md) and the committed subset manifest for complete provenance. This fixed-view derivative is not the official egocentric Assembly101 release, so these numbers are not an official Assembly101 benchmark.
+Square-root action weights were more stable than full inverse-frequency action
+weights. Sparse incorrect onsets use asymmetric BCE and mistake-heavy windows
+are guaranteed in every training batch. Checkpoint selection weights mistake
+quality twice while penalizing false alerts.
 
-## Final metrics
+## Metrics
 
-| Metric | Validation (epoch 67) | Test |
+| Metric | Validation (epoch 78) | Actor-held-out test |
 |---|---:|---:|
-| Frame accuracy | 50.06% | 46.82% |
-| Seen-action accuracy | 50.58% | 47.86% |
-| Edit | 29.72 | 27.24 |
-| F1@10 | 27.32 | 23.88 |
-| F1@25 | 23.77 | 19.01 |
-| F1@50 | 16.28 | 13.91 |
-| State accuracy | 96.37% | 96.73% |
-| State macro-F1 | 43.42% | 45.43% |
-| Mistake normality AP | 32.81% | 20.19% |
-| Exact incorrect-event F1 | 0.00% | 0.37% |
-| Incorrect recall within 4 s | 15.63% | 29.17% |
-| False alerts/minute | 16.18 | 13.12 |
+| Frame accuracy | 14.97% | 9.71% |
+| Edit | 5.96 | 4.35 |
+| F1@10 | 5.64% | 3.77% |
+| F1@25 | 4.32% | 2.40% |
+| F1@50 | 2.74% | 1.22% |
+| State accuracy | 66.73% | 68.57% |
+| State macro-F1 | 44.15% | 43.58% |
+| Incorrect-state F1 | 0.39% | 1.11% |
+| Mistake-normality AP | 24.56% | 33.26% |
+| Exact incorrect-event F1 | 0.68% | 0.00% |
+| Incorrect-event F1 at ±4 s | 1.36% | 0.00% |
+| False alerts/minute | 2.03 | 2.53 |
 
-The accuracy gap from validation to test is modest, supporting useful actor generalization. The high state accuracy is class-imbalanced, so macro-F1 is the more informative state result. Event-level scores expose the primary limitation: reducing 30 fps event annotations to a 1 fps visual mirror makes exact sparse timing difficult, and only 142 mistake segments exist across all splits.
-
-Five test action compositions (105 frames) are absent from training and zero-shot composition accuracy is 0%. These examples were deliberately retained and reported rather than leaking test identities or actions into training.
+The older fixed-camera 1 fps experiment used only 87 derived action classes,
+so its much larger raw accuracy is not an apples-to-apples baseline. This run
+uses the complete 203-class official coarse taxonomy, genuine 30 fps temporal
+clips, one egocentric view, and stricter actor isolation.
 
 ## Reproduction and artifact
 
-Run `scripts/train_assembly101_80ep.sh` after downloading and caching the pinned subset. It fixes the seed, model, optimizer, sampling, split, and 80-epoch schedule used here.
+```bash
+EPOCHS=80 \
+RUN_NAME=ego30_taxonomy_fusion_selected_80ep \
+EVALUATE_TEST=1 \
+CALIBRATION_INTERVAL=2 \
+STEP_CLASS_WEIGHT_POWER=0.5 \
+FOCAL_GAMMA=1.0 \
+STATE_CLASS_WEIGHT_POWER=0.5 \
+STATE_CLASS_WEIGHT_CAP=12 \
+INCORRECT_POS_WEIGHT_CAP=500 \
+INCORRECT_SELECTION_WEIGHT=2.0 \
+bash scripts/train_assembly101_ego30.sh event_heavy
+```
 
-- Checkpoint: `artifacts/stategraph_assembly101_80ep_bf16.pt`
-- Size: 21,751,479 bytes (about 20.7 MiB)
-- SHA-256: `d45fa88e777bd32bc03762f262cd06797beac5c5c442ce0724c7108c8b782196`
-- Selected checkpoint epoch: 67
+- Checkpoint: `artifacts/ego30_taxonomy_fusion_selected_80ep.pt`
+- Size: approximately 67 MiB
+- SHA-256: `ea1041054777e5ba4e410cb8284b56c34630c4dd98422b78bcea00a0205014b0`
+- Selected epoch: 78
+- Peak PyTorch reserved VRAM: 2.742 GiB (hard limit: 23 GiB)
+- Full suite at publication: 52 tests passing
 
-The exported checkpoint contains BF16 model weights, the full model configuration, dataset label metadata, transition matrix, validation-frozen event thresholds, and validation/test metrics. It excludes optimizer state and raw data.
+The BF16 inference artifact contains model weights, architecture configuration,
+label metadata, transition matrix, validation-frozen thresholds, and both
+validation and test metrics. Optimizer state and raw videos are excluded.
 
-## Recommended next work
+## Remaining limitation
 
-The architecture is adequate; data resolution is now the bottleneck. The highest-value improvement is access to the full-resolution Assembly101 videos (preferably egocentric views), followed by a temporal video encoder and event-centered sampling. Exact mistake alerts should not be deployed from this checkpoint. The current model is useful for action/state research, reproducible baselines, and testing those improvements.
+Action and state generalization improve throughout the long schedule, but the
+140 training mistake onsets are insufficient for component-exact point alerts
+on unseen actors. The next high-value experiment is mistake-centered clip
+pretraining or a larger mistake-bearing training subset, not simply a larger
+temporal head. Report normality AP and state F1 alongside exact event F1; the
+exact alert metric must not be hidden by the stronger ranking result.
