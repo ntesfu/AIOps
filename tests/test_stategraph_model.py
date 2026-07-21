@@ -132,7 +132,15 @@ class StateGraphModelTest(unittest.TestCase):
             "boundary": torch.randint(0, 2, (2, 7)).float(),
             "next_step": torch.randint(0, 3, (2, 7)),
         }
+        targets["component_outcome"][0, 0, 0] = 1
         loss = build_stategraph_loss(StateGraphLossConfig())(output, targets, transition)
+        weighted_loss = build_stategraph_loss(
+            StateGraphLossConfig(any_mistake_pos_weight=5.0)
+        )(output, targets, transition)
+        self.assertGreater(
+            float(weighted_loss["any_mistake_onset"]),
+            float(loss["any_mistake_onset"]),
+        )
         self.assertTrue(bool(torch.isfinite(loss["total"])))
         self.assertIn("progress", loss)
         self.assertIn("normality", loss)

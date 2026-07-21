@@ -252,6 +252,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         incorrect_hard_negative_ratio=args.incorrect_hard_negative_ratio,
         any_mistake_weight=args.any_mistake_weight,
         mistake_component_weight=args.mistake_component_weight,
+        any_mistake_pos_weight=args.any_mistake_pos_weight,
     )
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     model = build_stategraph_psr(model_config, transition_matrix).to(device)
@@ -2266,6 +2267,12 @@ def main() -> None:
         help="Relative conditional component-localization loss inside the factorized onset objective.",
     )
     parser.add_argument(
+        "--any-mistake-pos-weight",
+        type=float,
+        default=1.0,
+        help="Positive-class multiplier for factorized any-mistake timing; tune as an explicit ablation.",
+    )
+    parser.add_argument(
         "--event-label-horizon",
         type=int,
         default=2,
@@ -2327,6 +2334,8 @@ def main() -> None:
         parser.error("incorrect-hard-negative-ratio cannot be negative")
     if args.any_mistake_weight < 0 or args.mistake_component_weight < 0:
         parser.error("factorized mistake loss weights cannot be negative")
+    if args.any_mistake_pos_weight <= 0:
+        parser.error("any-mistake-pos-weight must be positive")
     if (
         args.max_incorrect_false_alerts_per_minute is not None
         and args.max_incorrect_false_alerts_per_minute < 0

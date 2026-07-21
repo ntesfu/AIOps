@@ -96,6 +96,7 @@ class StateGraphLossConfig:
     incorrect_hard_negative_ratio: float = 0.0
     any_mistake_weight: float = 1.0
     mistake_component_weight: float = 1.0
+    any_mistake_pos_weight: float = 1.0
 
 
 def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | None = None):
@@ -793,6 +794,8 @@ def build_stategraph_loss(config: StateGraphLossConfig):
     torch, nn, functional = _load_torch()
     if config.any_mistake_weight < 0 or config.mistake_component_weight < 0:
         raise ValueError("Factorized mistake loss weights cannot be negative.")
+    if config.any_mistake_pos_weight <= 0:
+        raise ValueError("Factorized any-mistake positive weight must be positive.")
 
     class StateGraphMultiTaskLoss(nn.Module):
         def __init__(self) -> None:
@@ -945,6 +948,11 @@ def build_stategraph_loss(config: StateGraphLossConfig):
                     positive_gamma=0.0,
                     negative_gamma=config.asl_negative_gamma,
                     clip=config.asl_clip,
+                    pos_weight=torch.as_tensor(
+                        [config.any_mistake_pos_weight],
+                        dtype=any_mistake_logits.dtype,
+                        device=any_mistake_logits.device,
+                    ),
                 )
                 selector_mask = valid_mask & component_positive.any(dim=-1)
                 if selector_mask.any():
