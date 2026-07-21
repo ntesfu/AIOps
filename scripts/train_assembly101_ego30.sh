@@ -5,6 +5,7 @@ variant="${1:-base}"
 epochs="${EPOCHS:-16}"
 run_name="${RUN_NAME:-ego30_${variant}_${epochs}ep}"
 evaluate_test="${EVALUATE_TEST:-0}"
+calibration_interval="${CALIBRATION_INTERVAL:-4}"
 
 case "$variant" in
   base)
@@ -52,7 +53,7 @@ export PYTHONPATH=".deps:src${PYTHONPATH:+:${PYTHONPATH}}"
   --normality-error-weight 10.0 \
   --incorrect-pos-weight-cap 100.0 \
   --incorrect-selection-weight 1.0 \
-  --calibration-interval 4 \
+  --calibration-interval "$calibration_interval" \
   --num-workers 4 \
   --preload-cache \
   --seed 7 \

@@ -419,6 +419,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                 metrics, mistake_weight=args.incorrect_selection_weight
             )
             row["selection_score"] = score
+            row["selection_eligible"] = calibrate_events
             with history_path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(row) + "\n")
             monitor.log_scalars("train_epoch", train_loss, epoch)
@@ -434,7 +435,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
             monitor.log_system(global_update, device)
             print(json.dumps(row), flush=True)
 
-            if score > best_score:
+            if calibrate_events and score > best_score:
                 best_score = score
                 best_metrics = metrics
                 patience_left = args.patience
@@ -1347,7 +1348,11 @@ def _validate_cache_schema(metadata: dict[str, Any], records: list[StateGraphCac
             f"Regenerate the cache with schema v{CACHE_SCHEMA_VERSION}; the old cache treats PSR completion IDs "
             "as mutually-exclusive steps and loses simultaneous events."
         )
-    if metadata.get("label_contract") != "action_segmentation_plus_multicomponent_completion":
+    accepted_contracts = {
+        "action_segmentation_plus_multicomponent_completion",
+        "complete_coarse_action_plus_part_to_part_mistake_and_state",
+    }
+    if metadata.get("label_contract") not in accepted_contracts:
         raise ValueError("Cache is missing the corrected action/completion label contract.")
     if not records or records[0].num_completion_components <= 0:
         raise ValueError("Cache does not declare completion components.")
