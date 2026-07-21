@@ -198,6 +198,11 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     model = build_stategraph_psr(model_config, transition_matrix).to(device)
     criterion = build_stategraph_loss(loss_config).to(device)
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
+    peak_training_vram_gib = _enforce_vram_limit(
+        torch, device, args.max_vram_gib, phase="initialization"
+    )
     step_weights = torch.from_numpy(_class_weights(train_records, "step", num_steps)).to(device)
     completion_pos_weights = torch.from_numpy(
         _completion_pos_weights(
@@ -362,6 +367,12 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                     optimizer.zero_grad(set_to_none=True)
                     scheduler.step()
                     global_update += 1
+                    peak_training_vram_gib = max(
+                        peak_training_vram_gib,
+                        _enforce_vram_limit(
+                            torch, device, args.max_vram_gib, phase="training"
+                        ),
+                    )
                     update_values = {
                         name: float(values[-1]) for name, values in running.items()
                     }
@@ -389,6 +400,12 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                 metrics["incorrect_event_threshold"],
                 metrics["remove_event_threshold"],
             ]
+            peak_training_vram_gib = max(
+                peak_training_vram_gib,
+                _enforce_vram_limit(
+                    torch, device, args.max_vram_gib, phase="validation"
+                ),
+            )
             row = {
                 "epoch": epoch,
                 "train_loss": train_loss,
@@ -527,6 +544,8 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         "architecture": "StateGraph-PSR Lite Stage 1",
         "device": str(device),
         "parameters": sum(parameter.numel() for parameter in model.parameters()),
+        "peak_training_vram_gib": peak_training_vram_gib,
+        "maximum_allowed_vram_gib": args.max_vram_gib,
         "train_windows": len(train_dataset),
         "rare_train_windows": int((sampling_weights > 1.0).sum()),
         "rare_window_boost": args.rare_window_boost,
@@ -688,24 +707,34 @@ def evaluate(
                 normality_targets.extend(
                     (outcome_targets[normality_mask] == 1).detach().cpu().int().tolist()
                 )
+    primary_tolerance = max(1, round(1.0 / seconds_per_step))
     if calibrate_events or event_thresholds is None:
         event_thresholds, calibrated_metrics, event_pr_auc = _calibrate_event_thresholds(
-            event_samples, outcomes=3, seconds_per_step=seconds_per_step
+            event_samples,
+            outcomes=3,
+            tolerance=primary_tolerance,
+            seconds_per_step=seconds_per_step,
         )
     else:
         calibrated_metrics = _event_metrics_from_samples(
-            event_samples, event_thresholds, seconds_per_step=seconds_per_step
+            event_samples,
+            event_thresholds,
+            tolerance=primary_tolerance,
+            seconds_per_step=seconds_per_step,
         )
         event_pr_auc = [float("nan")] * 3
     fixed_metrics = _event_metrics_from_samples(
-        event_samples, [0.1, 0.1, 0.1], seconds_per_step=seconds_per_step
+        event_samples,
+        [0.1, 0.1, 0.1],
+        tolerance=primary_tolerance,
+        seconds_per_step=seconds_per_step,
     )
-    # Keep the strict +/-1 cache-step metric for model selection.  Wider windows
-    # are diagnostics for alert latency and annotation quantisation; calibrating
-    # them independently prevents a strict-window threshold from hiding delayed
-    # but otherwise useful fault evidence.
+    # Keep the primary event metric at +/-1 second regardless of cache sampling
+    # rate. Wider 2 s/4 s windows diagnose latency; calibrating them independently
+    # prevents a strict-window threshold from hiding delayed but useful evidence.
     latency_metrics: dict[int, tuple[list[float], dict[Any, dict[str, float]]]] = {}
-    for tolerance in (2, 4):
+    for tolerance_seconds in (2, 4):
+        tolerance = max(1, round(tolerance_seconds / seconds_per_step))
         if calibrate_events and calibrate_latency:
             latency_thresholds, metrics_at_tolerance, _ = _calibrate_event_thresholds(
                 event_samples,
@@ -721,7 +750,7 @@ def evaluate(
                 tolerance=tolerance,
                 seconds_per_step=seconds_per_step,
             )
-        latency_metrics[tolerance] = (latency_thresholds, metrics_at_tolerance)
+        latency_metrics[tolerance_seconds] = (latency_thresholds, metrics_at_tolerance)
     all_event_metrics = calibrated_metrics["all"]
     correct_metrics = calibrated_metrics[0]
     incorrect_metrics = calibrated_metrics[1]
@@ -733,6 +762,7 @@ def evaluate(
         outcome=1,
         total_duration_seconds=evaluated_steps * seconds_per_step,
         seconds_per_step=seconds_per_step,
+        match_tolerance=primary_tolerance,
     )
     correct_normality = [
         score for score, target in zip(normality_scores, normality_targets) if target == 0
@@ -760,12 +790,13 @@ def evaluate(
         "incorrect_event_precision": incorrect_metrics["precision"],
         "incorrect_event_recall": incorrect_metrics["recall"],
         "incorrect_event_f1": incorrect_metrics["f1"],
-        "incorrect_event_f1_tol2": latency_metrics[2][1][1]["f1"],
-        "incorrect_event_recall_tol2": latency_metrics[2][1][1]["recall"],
-        "incorrect_event_threshold_tol2": latency_metrics[2][0][1],
-        "incorrect_event_f1_tol4": latency_metrics[4][1][1]["f1"],
-        "incorrect_event_recall_tol4": latency_metrics[4][1][1]["recall"],
-        "incorrect_event_threshold_tol4": latency_metrics[4][0][1],
+        "event_match_tolerance_seconds": primary_tolerance * seconds_per_step,
+        "incorrect_event_f1_tol2s": latency_metrics[2][1][1]["f1"],
+        "incorrect_event_recall_tol2s": latency_metrics[2][1][1]["recall"],
+        "incorrect_event_threshold_tol2s": latency_metrics[2][0][1],
+        "incorrect_event_f1_tol4s": latency_metrics[4][1][1]["f1"],
+        "incorrect_event_recall_tol4s": latency_metrics[4][1][1]["recall"],
+        "incorrect_event_threshold_tol4s": latency_metrics[4][0][1],
         "remove_event_precision": remove_metrics["precision"],
         "remove_event_recall": remove_metrics["recall"],
         "remove_event_f1": remove_metrics["f1"],
@@ -823,6 +854,7 @@ def _event_timing_diagnostics(
     outcome: int,
     total_duration_seconds: float,
     seconds_per_step: float = 0.5,
+    match_tolerance: int = 1,
 ) -> dict[str, float]:
     """Report causal alert delay and strict false-alert rate for one outcome."""
 
@@ -839,7 +871,9 @@ def _event_timing_diagnostics(
             if event[2] == outcome
         ]
         predicted_total += len(predicted)
-        strict_true_positives += _match_event_counts(truth, predicted, tolerance=1)["tp"]
+        strict_true_positives += _match_event_counts(
+            truth, predicted, tolerance=match_tolerance
+        )["tp"]
         unmatched = set(range(len(predicted)))
         for true_row, true_component, _ in sorted(truth):
             candidates = [
@@ -904,26 +938,28 @@ def _predicted_events_from_scores(
         candidates: list[tuple[float, float, int, int]] = []
         for outcome, threshold in enumerate(thresholds):
             scores = event_scores[:, component, outcome]
-            for row, score in enumerate(scores):
-                previous = scores[row - 1] if row > 0 else -np.inf
-                following = scores[row + 1] if row + 1 < len(scores) else -np.inf
-                if score < previous or score <= following or score < float(threshold):
-                    continue
-                calibrated_confidence = float(score) / max(float(threshold), 1e-6)
-                candidates.append((calibrated_confidence, float(score), row, outcome))
-        selected: list[tuple[int, int]] = []
-        for _, _, row, outcome in sorted(candidates, reverse=True):
-            conflicts = any(
-                abs(row - selected_row)
-                < (
-                    install_minimum_distance
-                    if outcome in (0, 1) and selected_outcome in (0, 1)
-                    else minimum_distance
-                )
-                for selected_row, selected_outcome in selected
+            previous = np.concatenate((np.asarray([-np.inf]), scores[:-1]))
+            following = np.concatenate((scores[1:], np.asarray([-np.inf])))
+            peak_rows = np.flatnonzero(
+                (scores >= previous)
+                & (scores > following)
+                & (scores >= float(threshold))
             )
+            for row in peak_rows:
+                score = float(scores[row])
+                calibrated_confidence = float(score) / max(float(threshold), 1e-6)
+                candidates.append((calibrated_confidence, score, int(row), outcome))
+        selected_mask = np.zeros((event_scores.shape[2], event_scores.shape[0]), dtype=np.bool_)
+        for _, _, row, outcome in sorted(candidates, reverse=True):
+            near_start = max(0, row - minimum_distance + 1)
+            near_end = min(event_scores.shape[0], row + minimum_distance)
+            conflicts = bool(selected_mask[:, near_start:near_end].any())
+            if not conflicts and outcome in (0, 1):
+                install_start = max(0, row - install_minimum_distance + 1)
+                install_end = min(event_scores.shape[0], row + install_minimum_distance)
+                conflicts = bool(selected_mask[:2, install_start:install_end].any())
             if not conflicts:
-                selected.append((row, outcome))
+                selected_mask[outcome, row] = True
                 events.append((row, component, outcome))
     return sorted(events)
 
@@ -1416,6 +1452,20 @@ def _capture_rng_state() -> dict[str, Any]:
     return state
 
 
+def _enforce_vram_limit(torch, device, limit_gib: float, phase: str) -> float:
+    if device.type != "cuda":
+        return 0.0
+    peak = max(
+        torch.cuda.max_memory_allocated(device),
+        torch.cuda.max_memory_reserved(device),
+    ) / 2**30
+    if peak >= limit_gib:
+        raise RuntimeError(
+            f"{phase} exceeded the process VRAM limit: {peak:.2f} GiB >= {limit_gib:.2f} GiB"
+        )
+    return float(peak)
+
+
 def _restore_rng_state(state: dict[str, Any] | None) -> None:
     if not state:
         return
@@ -1443,6 +1493,7 @@ def main() -> None:
         help="Resume exactly from a last_checkpoint.pt produced by this run.",
     )
     parser.add_argument("--device", default=None)
+    parser.add_argument("--max-vram-gib", type=float, default=23.0)
     parser.add_argument("--precision", choices=["fp32", "bf16", "fp16"], default="bf16")
     parser.add_argument("--epochs", type=int, default=80)
     parser.add_argument("--patience", type=int, default=15)
@@ -1544,6 +1595,10 @@ def main() -> None:
         parser.error("rare-window-boost must be at least 1")
     if args.completion_pos_weight_cap < 1.0:
         parser.error("completion-pos-weight-cap must be at least 1")
+    if args.incorrect_pos_weight_cap < 1.0:
+        parser.error("incorrect-pos-weight-cap must be at least 1")
+    if args.max_vram_gib <= 0:
+        parser.error("max-vram-gib must be positive")
     if not 0.0 <= args.graph_strength <= 1.0:
         parser.error("graph-strength must be a probability in [0, 1]")
     if not 0 <= args.rare_windows_per_batch <= args.batch_size:
