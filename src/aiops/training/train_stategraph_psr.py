@@ -1624,12 +1624,16 @@ def _validation_selection_result(
 ) -> dict[str, Any]:
     """Return a reproducible score, eligibility audit, and deterministic tie key."""
 
-    if strategy == "legacy":
-        score = _validation_selection_score(metrics, mistake_weight=mistake_weight)
-        action_score = (
-            0.40 * metrics["frame_accuracy"]
-            + 0.30 * metrics["edit"]
-            + 0.30 * metrics["f1@50"]
+    action_score = (
+        0.40 * metrics["frame_accuracy"]
+        + 0.30 * metrics["edit"]
+        + 0.30 * metrics["f1@50"]
+    )
+    if strategy in {"legacy", "action_only"}:
+        score = (
+            _validation_selection_score(metrics, mistake_weight=mistake_weight)
+            if strategy == "legacy"
+            else action_score
         )
         return {
             "strategy": strategy,
@@ -1637,7 +1641,7 @@ def _validation_selection_result(
             "action_score": action_score,
             "mistake_score": None,
             "operationally_eligible": True,
-            "eligibility": {"legacy_unconstrained": True},
+            "eligibility": {f"{strategy}_unconstrained": True},
             "minimum_normality_ap": None,
             "tie_key": [
                 score,
@@ -1649,11 +1653,6 @@ def _validation_selection_result(
     if strategy != "operational_harmonic":
         raise ValueError(f"Unknown selection strategy: {strategy}")
 
-    action_score = (
-        0.40 * metrics["frame_accuracy"]
-        + 0.30 * metrics["edit"]
-        + 0.30 * metrics["f1@50"]
-    )
     mistake_score = (
         0.45 * metrics["normality_incorrect_average_precision"]
         + 0.25 * metrics["state_incorrect_f1"]
@@ -2295,9 +2294,9 @@ def main() -> None:
     parser.add_argument("--incorrect-selection-weight", type=float, default=0.75)
     parser.add_argument(
         "--selection-strategy",
-        choices=("legacy", "operational_harmonic"),
+        choices=("legacy", "action_only", "operational_harmonic"),
         default="legacy",
-        help="Checkpoint selector; legacy preserves prior scoring, while operational_harmonic requires useful mistake alerts.",
+        help="Checkpoint selector; action_only is intended for staged representation pretraining, while operational_harmonic requires useful mistake alerts.",
     )
     parser.add_argument(
         "--selection-max-false-alerts-per-minute",

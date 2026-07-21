@@ -48,6 +48,19 @@ class StateGraphMetricsTest(unittest.TestCase):
             )
         )
 
+    def test_action_only_selection_uses_documented_action_score(self) -> None:
+        metrics = self._selection_metrics()
+        result = _validation_selection_result(
+            metrics, strategy="action_only", epoch=4
+        )
+        expected = (
+            0.40 * metrics["frame_accuracy"]
+            + 0.30 * metrics["edit"]
+            + 0.30 * metrics["f1@50"]
+        )
+        self.assertAlmostEqual(result["score"], expected)
+        self.assertTrue(result["operationally_eligible"])
+
     def test_factorized_diagnostics_separate_timing_and_component_selection(self) -> None:
         outcomes = np.full((4, 3), -100, dtype=np.int64)
         outcomes[1, 2] = 1
