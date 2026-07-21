@@ -12,6 +12,11 @@ state_class_weight_power="${STATE_CLASS_WEIGHT_POWER:-0.5}"
 state_class_weight_cap="${STATE_CLASS_WEIGHT_CAP:-12.0}"
 incorrect_pos_weight_cap="${INCORRECT_POS_WEIGHT_CAP:-100.0}"
 incorrect_selection_weight="${INCORRECT_SELECTION_WEIGHT:-1.0}"
+asl_negative_gamma="${ASL_NEGATIVE_GAMMA:-4.0}"
+asl_clip="${ASL_CLIP:-0.05}"
+init_checkpoint="${INIT_CHECKPOINT:-}"
+freeze_action_backbone="${FREEZE_ACTION_BACKBONE:-0}"
+learning_rate_override="${LEARNING_RATE:-}"
 resume_checkpoint="${RESUME_CHECKPOINT:-}"
 
 case "$variant" in
@@ -33,6 +38,10 @@ case "$variant" in
     ;;
 esac
 
+if [[ -n "$learning_rate_override" ]]; then
+  architecture+=(--learning-rate "$learning_rate_override")
+fi
+
 test_args=()
 if [[ "$evaluate_test" == "1" ]]; then
   test_args+=(--evaluate-test)
@@ -41,6 +50,14 @@ fi
 resume_args=()
 if [[ -n "$resume_checkpoint" ]]; then
   resume_args+=(--resume "$resume_checkpoint")
+fi
+
+init_args=()
+if [[ -n "$init_checkpoint" ]]; then
+  init_args+=(--init-checkpoint "$init_checkpoint")
+fi
+if [[ "$freeze_action_backbone" == "1" ]]; then
+  init_args+=(--freeze-action-backbone)
 fi
 
 export PYTHONPATH=".deps:src${PYTHONPATH:+:${PYTHONPATH}}"
@@ -68,6 +85,8 @@ export PYTHONPATH=".deps:src${PYTHONPATH:+:${PYTHONPATH}}"
   --rare-windows-per-batch 2 \
   --normality-error-weight 10.0 \
   --incorrect-pos-weight-cap "$incorrect_pos_weight_cap" \
+  --asl-negative-gamma "$asl_negative_gamma" \
+  --asl-clip "$asl_clip" \
   --incorrect-selection-weight "$incorrect_selection_weight" \
   --calibration-interval "$calibration_interval" \
   --num-workers 4 \
@@ -76,4 +95,5 @@ export PYTHONPATH=".deps:src${PYTHONPATH:+:${PYTHONPATH}}"
   "${architecture[@]}" \
   "${losses[@]}" \
   "${resume_args[@]}" \
+  "${init_args[@]}" \
   "${test_args[@]}"

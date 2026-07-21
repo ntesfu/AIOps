@@ -201,6 +201,32 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     )
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     model = build_stategraph_psr(model_config, transition_matrix).to(device)
+    if args.init_checkpoint:
+        initialization = torch.load(
+            args.init_checkpoint, map_location=device, weights_only=False
+        )
+        if initialization.get("model_config") != model_config.to_dict():
+            raise ValueError("Initialization checkpoint model configuration does not match.")
+        model.load_state_dict(initialization["model_state"])
+        print(f"Initialized model weights from {args.init_checkpoint}", flush=True)
+    if args.freeze_action_backbone:
+        trainable_prefixes = (
+            "event_temporal_blocks.",
+            "state_head.",
+            "action_event_context.",
+            "state_event_context.",
+            "event_norm.",
+            "completion_head.",
+            "component_outcome_head.",
+            "incorrect_onset_head.",
+            "component_normal_prototypes",
+            "normality_scale_raw",
+            "normality_bias",
+            "anomaly_strength_raw",
+            "state_evidence_strength_raw",
+        )
+        for name, parameter in model.named_parameters():
+            parameter.requires_grad_(name.startswith(trainable_prefixes))
     criterion = build_stategraph_loss(loss_config).to(device)
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
@@ -284,7 +310,10 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         collate_fn=pad_stategraph_batch,
     )
     optimizer = torch.optim.AdamW(
-        model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay, betas=(0.9, 0.98)
+        [parameter for parameter in model.parameters() if parameter.requires_grad],
+        lr=args.learning_rate,
+        weight_decay=args.weight_decay,
+        betas=(0.9, 0.98),
     )
     total_updates = max(1, math.ceil(len(train_loader) / args.accumulation_steps) * args.epochs)
     warmup_updates = max(1, int(total_updates * args.warmup_fraction))
@@ -607,6 +636,11 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         "architecture": "StateGraph-PSR Lite Stage 1",
         "device": str(device),
         "parameters": sum(parameter.numel() for parameter in model.parameters()),
+        "trainable_parameters": sum(
+            parameter.numel() for parameter in model.parameters() if parameter.requires_grad
+        ),
+        "initialization_checkpoint": args.init_checkpoint,
+        "freeze_action_backbone": args.freeze_action_backbone,
         "peak_training_vram_gib": peak_training_vram_gib,
         "maximum_allowed_vram_gib": args.max_vram_gib,
         "train_windows": len(train_dataset),
@@ -1691,6 +1725,16 @@ def main() -> None:
         default=None,
         help="Resume exactly from a last_checkpoint.pt produced by this run.",
     )
+    parser.add_argument(
+        "--init-checkpoint",
+        default=None,
+        help="Initialize model weights from a compatible training or inference checkpoint.",
+    )
+    parser.add_argument(
+        "--freeze-action-backbone",
+        action="store_true",
+        help="Train only event/state modules after checkpoint initialization.",
+    )
     parser.add_argument("--device", default=None)
     parser.add_argument("--max-vram-gib", type=float, default=23.0)
     parser.add_argument("--precision", choices=["fp32", "bf16", "fp16"], default="bf16")
@@ -1811,6 +1855,10 @@ def main() -> None:
     )
     parser.add_argument("--disable-dashboard", action="store_true")
     args = parser.parse_args()
+    if args.resume and args.init_checkpoint:
+        parser.error("--resume and --init-checkpoint are mutually exclusive")
+    if args.freeze_action_backbone and not args.init_checkpoint:
+        parser.error("--freeze-action-backbone requires --init-checkpoint")
     if args.batch_size <= 0 or args.accumulation_steps <= 0:
         parser.error("batch size and accumulation steps must be positive")
     if args.rare_window_boost < 1.0:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 
 from aiops.data.stategraph_cache import (
@@ -11,6 +12,18 @@ from aiops.data.stategraph_cache import (
 )
 from aiops.models.stategraph_psr import StateGraphPSRConfig, build_stategraph_psr
 from aiops.training.train_stategraph_psr import evaluate
+
+
+def _json_safe(value):
+    """Represent intentionally unavailable metrics as JSON null, never NaN."""
+
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    return value
 
 
 def main() -> None:
@@ -87,7 +100,7 @@ def main() -> None:
         "decoder": "single-outcome completion peaks with temporal suppression",
         "metrics": metrics,
     }
-    rendered = json.dumps(payload, indent=2, allow_nan=False) + "\n"
+    rendered = json.dumps(_json_safe(payload), indent=2, allow_nan=False) + "\n"
     print(rendered, end="")
     if args.output:
         output = Path(args.output)

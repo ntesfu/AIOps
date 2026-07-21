@@ -3,19 +3,20 @@
 ## Result
 
 The selected model completed 80 epochs on the official Assembly101 egocentric
-videos. Validation selected epoch 78. The experiment uses 203 official coarse
+videos. Validation selected epoch 78, followed by a validation-selected
+12-epoch event/state-only refinement (epoch 2). The experiment uses 203 official coarse
 action classes, 59 component states, a real temporal video backbone, and an
 actor-disjoint 73/15/10 recording split.
 
-On the held-out test actors it obtains **9.71% frame accuracy**, **4.35 edit**,
-**1.22 F1@50**, **43.58% state macro-F1**, and **33.26% mistake-normality AP**.
+On the held-out test actors it obtains **9.66% frame accuracy**, **4.34 edit**,
+**1.21 F1@50**, **43.55% state macro-F1**, and **31.69% mistake-normality AP**.
 This is a material improvement over the 16-epoch selected architecture on the
 same hard task for validation frame accuracy (11.13% to 14.97%), F1@50 (1.37 to
 2.74), and state macro-F1 (39.78% to 44.15%).
 
 Exact component-and-time mistake alerts are not solved: validation incorrect
-event F1 is 0.68%, and held-out test incorrect-event F1 is 0%. The checkpoint
-does produce useful actor-held-out mistake ranking (33.26% normality AP versus
+event F1 is 0.81%, and held-out test incorrect-event F1 is 0%. The checkpoint
+does produce useful actor-held-out mistake ranking (31.69% normality AP versus
 23.30% incorrect prevalence among install events) and 1.11% incorrect-state
 F1, but it is not suitable for deployment as a point-alert detector.
 
@@ -58,22 +59,28 @@ weights. Sparse incorrect onsets use asymmetric BCE and mistake-heavy windows
 are guaranteed in every training batch. Checkpoint selection weights mistake
 quality twice while penalizing false alerts.
 
+After the 80-epoch run, a bounded refinement froze the action backbone and
+updated only 8,419,676 event/state parameters. Standard BCE negative
+supervision replaced the overly permissive asymmetric negative focusing. This
+improved validation incorrect-event F1 from 0.68% to 0.81%, reduced validation
+false alerts from 2.03 to 1.64/minute, and preserved action recognition.
+
 ## Metrics
 
 | Metric | Validation (epoch 78) | Actor-held-out test |
 |---|---:|---:|
-| Frame accuracy | 14.97% | 9.71% |
-| Edit | 5.96 | 4.35 |
-| F1@10 | 5.64% | 3.77% |
-| F1@25 | 4.32% | 2.40% |
-| F1@50 | 2.74% | 1.22% |
-| State accuracy | 66.73% | 68.57% |
-| State macro-F1 | 44.15% | 43.58% |
-| Incorrect-state F1 | 0.39% | 1.11% |
-| Mistake-normality AP | 24.56% | 33.26% |
-| Exact incorrect-event F1 | 0.68% | 0.00% |
-| Incorrect-event F1 at ±4 s | 1.36% | 0.00% |
-| False alerts/minute | 2.03 | 2.53 |
+| Frame accuracy | 14.97% | 9.66% |
+| Edit | 6.06 | 4.34 |
+| F1@10 | 5.76% | 3.80% |
+| F1@25 | 4.37% | 2.48% |
+| F1@50 | 2.78% | 1.21% |
+| State accuracy | 68.61% | 70.14% |
+| State macro-F1 | 45.19% | 43.55% |
+| Incorrect-state F1 | 0.43% | 1.06% |
+| Mistake-normality AP | 26.17% | 31.69% |
+| Exact incorrect-event F1 | 0.81% | 0.00% |
+| Incorrect-event F1 at ±4 s | 1.62% | 0.00% |
+| False alerts/minute | 1.64 | 1.48 |
 
 The older fixed-camera 1 fps experiment used only 87 derived action classes,
 so its much larger raw accuracy is not an apples-to-apples baseline. This run
@@ -94,12 +101,30 @@ STATE_CLASS_WEIGHT_CAP=12 \
 INCORRECT_POS_WEIGHT_CAP=500 \
 INCORRECT_SELECTION_WEIGHT=2.0 \
 bash scripts/train_assembly101_ego30.sh event_heavy
+
+# Validation-only event/state refinement from the selected 80-epoch model.
+EPOCHS=12 \
+RUN_NAME=ego30_event_refine_12ep \
+EVALUATE_TEST=0 \
+CALIBRATION_INTERVAL=1 \
+STEP_CLASS_WEIGHT_POWER=0.5 \
+FOCAL_GAMMA=1.0 \
+STATE_CLASS_WEIGHT_POWER=0.5 \
+STATE_CLASS_WEIGHT_CAP=12 \
+INCORRECT_POS_WEIGHT_CAP=100 \
+INCORRECT_SELECTION_WEIGHT=3.0 \
+ASL_NEGATIVE_GAMMA=0.0 \
+ASL_CLIP=0.0 \
+LEARNING_RATE=0.00005 \
+INIT_CHECKPOINT=artifacts/ego30_taxonomy_fusion_selected_80ep.pt \
+FREEZE_ACTION_BACKBONE=1 \
+bash scripts/train_assembly101_ego30.sh event_heavy
 ```
 
 - Checkpoint: `artifacts/ego30_taxonomy_fusion_selected_80ep.pt`
 - Size: approximately 67 MiB
-- SHA-256: `ea1041054777e5ba4e410cb8284b56c34630c4dd98422b78bcea00a0205014b0`
-- Selected epoch: 78
+- SHA-256: `dbca26bd1a66a2cc18a495a75b017ff9bcd9035e2cd2b053a2700624d7f608da`
+- Selected epochs: base 78; event/state refinement 2
 - Peak PyTorch reserved VRAM: 2.742 GiB (hard limit: 23 GiB)
 - Full suite at publication: 52 tests passing
 
