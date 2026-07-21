@@ -45,6 +45,7 @@ class StateGraphModelTest(unittest.TestCase):
             max_dilation=2,
             procedural_event_context=True,
             learned_event_fusion=True,
+            factorized_mistake_detection=True,
         )
         transition = torch.tensor([[1.0, 1.0, 0.0], [0.0, 1.0, 1.0], [0.0, 0.0, 1.0]])
         model = build_stategraph_psr(config, transition).eval()
@@ -68,6 +69,19 @@ class StateGraphModelTest(unittest.TestCase):
         self.assertEqual(tuple(output["component_outcome_logits"].shape), (2, 7, 2, 3))
         self.assertEqual(tuple(output["incorrect_onset_logits"].shape), (2, 7, 2))
         self.assertEqual(tuple(output["fused_incorrect_logits"].shape), (2, 7, 2))
+        self.assertEqual(tuple(output["any_mistake_onset_logits"].shape), (2, 7))
+        self.assertEqual(tuple(output["incorrect_component_logits"].shape), (2, 7, 2))
+        self.assertEqual(
+            tuple(output["factorized_incorrect_probabilities"].shape), (2, 7, 2)
+        )
+        torch.testing.assert_close(
+            output["factorized_incorrect_probabilities"].sum(dim=-1),
+            torch.sigmoid(output["any_mistake_onset_logits"]),
+        )
+        torch.testing.assert_close(
+            torch.sigmoid(output["factorized_incorrect_logits"]),
+            output["factorized_incorrect_probabilities"],
+        )
         self.assertEqual(tuple(output["procedure_violation_score"].shape), (2, 7))
         self.assertEqual(tuple(output["mistake_action_probability"].shape), (2, 7, 2))
         self.assertEqual(tuple(output["mistake_action_onset_score"].shape), (2, 7, 2))
@@ -103,6 +117,10 @@ class StateGraphModelTest(unittest.TestCase):
             output["fused_incorrect_logits"][:, :4],
             changed_output["fused_incorrect_logits"][:, :4],
         )
+        torch.testing.assert_close(
+            output["factorized_incorrect_logits"][:, :4],
+            changed_output["factorized_incorrect_logits"][:, :4],
+        )
 
         targets = {
             "valid_mask": valid,
@@ -119,10 +137,72 @@ class StateGraphModelTest(unittest.TestCase):
         self.assertIn("progress", loss)
         self.assertIn("normality", loss)
         self.assertIn("incorrect_onset", loss)
+        self.assertIn("any_mistake_onset", loss)
+        self.assertIn("mistake_component", loss)
         self.assertIn("refinement", loss)
         self.assertGreater(float(loss["refinement"]), 0.0)
         loss["total"].backward()
         self.assertTrue(any(parameter.grad is not None for parameter in model.parameters()))
+        self.assertIsNotNone(model.any_mistake_onset_head.weight.grad)
+
+    def test_factorized_loss_is_safe_without_positive_mistakes(self) -> None:
+        import torch
+
+        config = StateGraphPSRConfig(
+            motion_dim=4,
+            appearance_dim=3,
+            sensor_dim=2,
+            num_steps=2,
+            num_completion_components=2,
+            num_components=2,
+            hidden_dim=8,
+            num_temporal_blocks=1,
+            attention_every=0,
+            num_heads=2,
+            dropout=0.0,
+            factorized_mistake_detection=True,
+        )
+        model = build_stategraph_psr(config)
+        valid = torch.ones(1, 4, dtype=torch.bool)
+        output = model(
+            torch.randn(1, 4, 4),
+            torch.randn(1, 4, 3),
+            torch.randn(1, 4, 2),
+            valid,
+            torch.ones(1, 4, 3, dtype=torch.bool),
+        )
+        targets = {
+            "valid_mask": valid,
+            "step": torch.zeros(1, 4, dtype=torch.long),
+            "completion": torch.zeros(1, 4, 2),
+            "component_outcome": torch.full((1, 4, 2), -100, dtype=torch.long),
+            "state": torch.ones(1, 4, 2, dtype=torch.long),
+            "state_mask": torch.ones(1, 4, 2, dtype=torch.bool),
+            "boundary": torch.zeros(1, 4),
+            "next_step": torch.full((1, 4), -100, dtype=torch.long),
+        }
+        losses = build_stategraph_loss(StateGraphLossConfig())(output, targets)
+        self.assertTrue(bool(torch.isfinite(losses["total"])))
+        self.assertGreater(float(losses["any_mistake_onset"]), 0.0)
+        self.assertEqual(float(losses["mistake_component"]), 0.0)
+        losses["total"].backward()
+        self.assertIsNotNone(model.any_mistake_onset_head.weight.grad)
+
+    def test_legacy_model_has_no_factorized_parameters(self) -> None:
+        config = StateGraphPSRConfig(
+            motion_dim=4,
+            appearance_dim=3,
+            sensor_dim=2,
+            num_steps=2,
+            num_completion_components=1,
+            num_components=1,
+            hidden_dim=8,
+            num_temporal_blocks=1,
+            attention_every=0,
+            num_heads=2,
+        )
+        model = build_stategraph_psr(config)
+        self.assertFalse(hasattr(model, "any_mistake_onset_head"))
 
     def test_dense_incorrect_states_supervise_normality_without_events(self) -> None:
         import torch

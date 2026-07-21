@@ -13,6 +13,8 @@ from aiops.training.train_stategraph_psr import (
     OutcomeAwareBatchSampler,
     _effective_rare_window_boost,
     _initialize_run_directory,
+    _validation_selection_result,
+    _validation_selection_score,
     _binary_average_precision,
     _calibrate_event_thresholds,
     _capture_rng_state,
@@ -31,6 +33,72 @@ from aiops.training.train_stategraph_psr import (
 
 
 class StateGraphMetricsTest(unittest.TestCase):
+    @staticmethod
+    def _selection_metrics(**overrides):
+        metrics = {
+            "frame_accuracy": 20.0,
+            "edit": 10.0,
+            "f1@50": 5.0,
+            "state_macro_f1": 45.0,
+            "state_incorrect_f1": 4.0,
+            "incorrect_event_f1": 6.0,
+            "incorrect_event_f1_tol4s": 8.0,
+            "incorrect_event_recall": 5.0,
+            "normality_incorrect_average_precision": 30.0,
+            "normality_incorrect_prevalence": 20.0,
+            "incorrect_false_alerts_per_minute": 1.0,
+        }
+        metrics.update(overrides)
+        return metrics
+
+    def test_legacy_selection_strategy_preserves_existing_score(self) -> None:
+        metrics = self._selection_metrics()
+        result = _validation_selection_result(
+            metrics, strategy="legacy", epoch=3, mistake_weight=0.75
+        )
+        self.assertAlmostEqual(
+            result["score"], _validation_selection_score(metrics, mistake_weight=0.75)
+        )
+        self.assertTrue(result["operationally_eligible"])
+
+    def test_operational_selection_rejects_silent_or_unranked_mistakes(self) -> None:
+        silent = _validation_selection_result(
+            self._selection_metrics(
+                incorrect_event_f1=0.0,
+                incorrect_event_recall=0.0,
+                incorrect_false_alerts_per_minute=0.0,
+            ),
+            strategy="operational_harmonic",
+            epoch=8,
+        )
+        self.assertFalse(silent["operationally_eligible"])
+        below_prevalence = _validation_selection_result(
+            self._selection_metrics(normality_incorrect_average_precision=19.0),
+            strategy="operational_harmonic",
+            epoch=8,
+        )
+        self.assertFalse(below_prevalence["operationally_eligible"])
+
+    def test_operational_selection_formula_and_tie_metadata(self) -> None:
+        result = _validation_selection_result(
+            self._selection_metrics(),
+            strategy="operational_harmonic",
+            epoch=7,
+            max_false_alerts_per_minute=2.0,
+        )
+        action = 0.4 * 20.0 + 0.3 * 10.0 + 0.3 * 5.0
+        mistake = 0.45 * 30.0 + 0.25 * 4.0 + 0.2 * 6.0 + 0.1 * 8.0
+        expected = 2 * action * mistake / (action + mistake) - 0.5
+        self.assertAlmostEqual(result["score"], expected)
+        self.assertTrue(result["operationally_eligible"])
+        self.assertEqual(result["tie_key"], [expected, 5.0, action, -7])
+        over_limit = _validation_selection_result(
+            self._selection_metrics(incorrect_false_alerts_per_minute=2.01),
+            strategy="operational_harmonic",
+            epoch=7,
+        )
+        self.assertFalse(over_limit["operationally_eligible"])
+
     def test_recording_metrics_are_invariant_to_sequence_windows(self) -> None:
         truth = np.asarray([0, 0, 1, 1, 2, 2, 1, 1], dtype=np.int64)
         prediction = np.asarray([0, 0, 1, 1, 2, 2, 1, 1], dtype=np.int64)

@@ -228,6 +228,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         positional_dropout=args.positional_dropout,
         procedural_event_context=args.procedural_event_context,
         learned_event_fusion=args.learned_event_fusion,
+        factorized_mistake_detection=args.factorized_mistake_detection,
     )
     loss_config = StateGraphLossConfig(
         step_weight=args.step_weight,
@@ -249,6 +250,8 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         normality_error_weight=args.normality_error_weight,
         event_label_horizon=args.event_label_horizon,
         incorrect_hard_negative_ratio=args.incorrect_hard_negative_ratio,
+        any_mistake_weight=args.any_mistake_weight,
+        mistake_component_weight=args.mistake_component_weight,
     )
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     model = build_stategraph_psr(model_config, transition_matrix).to(device)
@@ -396,6 +399,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         history_path.write_text("", encoding="utf-8")
     monitor = TrainingMonitor(output_dir, enabled=not args.disable_dashboard)
     best_score = -float("inf")
+    best_selection_key: tuple[float, float, float, int] | None = None
     best_metrics: dict[str, Any] | None = None
     patience_left = args.patience
     global_update = 0
@@ -404,6 +408,16 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     fps = float(metadata.get("fps", 10.0))
     stride_frames = float(metadata.get("stride_frames", 5.0))
     seconds_per_step = stride_frames / fps if fps > 0 and stride_frames > 0 else 0.5
+    calibration_false_alert_limit = args.max_incorrect_false_alerts_per_minute
+    if args.selection_strategy == "operational_harmonic":
+        calibration_false_alert_limit = (
+            args.selection_max_false_alerts_per_minute
+            if calibration_false_alert_limit is None
+            else min(
+                calibration_false_alert_limit,
+                args.selection_max_false_alerts_per_minute,
+            )
+        )
     start_epoch = 1
     if args.resume:
         resume_path = Path(args.resume)
@@ -424,16 +438,40 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         checkpoint_metrics = checkpoint.get("metrics")
         if training_state:
             best_score = float(training_state.get("best_score", best_score))
+            stored_key = training_state.get("best_selection_key")
+            best_selection_key = tuple(stored_key) if stored_key is not None else None
             best_metrics = training_state.get("best_metrics", best_metrics)
+            if best_selection_key is None and best_metrics is not None:
+                # Compatibility with checkpoints created before tie metadata
+                # was persisted: retain their score rather than allowing the
+                # next merely eligible epoch to overwrite a better checkpoint.
+                action_score = (
+                    0.40 * best_metrics["frame_accuracy"]
+                    + 0.30 * best_metrics["edit"]
+                    + 0.30 * best_metrics["f1@50"]
+                )
+                best_selection_key = (
+                    best_score,
+                    best_metrics.get("incorrect_event_recall", 0.0),
+                    action_score,
+                    0,
+                )
         elif checkpoint_metrics:
             # A best checkpoint intentionally omits mutable training state. It
             # can still recover an interrupted run: its own calibrated metrics
             # are authoritative for selection, while optimizer/scheduler state
             # is already stored alongside the weights.
             best_metrics = checkpoint_metrics
-            best_score = _validation_selection_score(
-                checkpoint_metrics, mistake_weight=args.incorrect_selection_weight
+            fallback_selection = _validation_selection_result(
+                checkpoint_metrics,
+                strategy=args.selection_strategy,
+                epoch=int(checkpoint["epoch"]),
+                mistake_weight=args.incorrect_selection_weight,
+                max_false_alerts_per_minute=args.selection_max_false_alerts_per_minute,
+                minimum_normality_ap=args.selection_min_normality_ap,
             )
+            best_score = fallback_selection["score"]
+            best_selection_key = tuple(fallback_selection["tie_key"])
         patience_left = int(training_state.get("patience_left", patience_left))
         global_update = int(
             training_state.get("global_update", max(0, scheduler.last_epoch))
@@ -537,7 +575,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                 calibrate_events=calibrate_events,
                 state_incorrect_threshold=state_incorrect_threshold,
                 calibrate_state=calibrate_events,
-                max_incorrect_false_alerts_per_minute=args.max_incorrect_false_alerts_per_minute,
+                max_incorrect_false_alerts_per_minute=calibration_false_alert_limit,
             )
             event_thresholds = [
                 metrics["correct_event_threshold"],
@@ -558,11 +596,18 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                 "learning_rate": optimizer.param_groups[0]["lr"],
                 "graph_strength": float(torch.sigmoid(model.graph_strength_raw).detach().cpu()),
             }
-            score = _validation_selection_score(
-                metrics, mistake_weight=args.incorrect_selection_weight
+            selection = _validation_selection_result(
+                metrics,
+                strategy=args.selection_strategy,
+                epoch=epoch,
+                mistake_weight=args.incorrect_selection_weight,
+                max_false_alerts_per_minute=args.selection_max_false_alerts_per_minute,
+                minimum_normality_ap=args.selection_min_normality_ap,
             )
+            score = selection["score"]
             row["selection_score"] = score
-            row["selection_eligible"] = calibrate_events
+            row["selection_eligible"] = calibrate_events and selection["operationally_eligible"]
+            row["selection"] = selection
             with history_path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(row) + "\n")
             monitor.log_scalars("train_epoch", train_loss, epoch)
@@ -578,8 +623,12 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
             monitor.log_system(global_update, device)
             print(json.dumps(row), flush=True)
 
-            if calibrate_events and score > best_score:
+            selection_key = tuple(selection["tie_key"])
+            if row["selection_eligible"] and (
+                best_selection_key is None or selection_key > best_selection_key
+            ):
                 best_score = score
+                best_selection_key = selection_key
                 best_metrics = metrics
                 patience_left = args.patience
                 _save_checkpoint(
@@ -600,6 +649,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                 should_stop = patience_left <= 0
             training_state = {
                 "best_score": best_score,
+                "best_selection_key": best_selection_key,
                 "best_metrics": best_metrics,
                 "patience_left": patience_left,
                 "global_update": global_update,
@@ -630,6 +680,11 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     # Report and test the selected checkpoint, not the last (possibly worse)
     # early-stopping epoch.
     best_path = output_dir / "best_checkpoint.pt"
+    if not best_path.exists():
+        raise RuntimeError(
+            "No checkpoint satisfied the configured selection eligibility; "
+            "inspect history.jsonl rather than promoting a silent model."
+        )
     best_checkpoint = torch.load(best_path, map_location=device, weights_only=False)
     model.load_state_dict(best_checkpoint["model_state"])
     final_metrics = evaluate(
@@ -642,7 +697,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         seconds_per_step=seconds_per_step,
         calibrate_events=True,
         calibrate_state=True,
-        max_incorrect_false_alerts_per_minute=args.max_incorrect_false_alerts_per_minute,
+        max_incorrect_false_alerts_per_minute=calibration_false_alert_limit,
     )
     validation_event_thresholds = [
         final_metrics["correct_event_threshold"],
@@ -697,6 +752,17 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     summary = {
         "architecture": "StateGraph-PSR Lite Stage 1",
         "run_configuration_sha256": run_configuration_sha256,
+        "selection_strategy": args.selection_strategy,
+        "selection_max_false_alerts_per_minute": args.selection_max_false_alerts_per_minute,
+        "selection_min_normality_ap": args.selection_min_normality_ap,
+        "best_selection": _validation_selection_result(
+            best_metrics,
+            strategy=args.selection_strategy,
+            epoch=int(best_checkpoint["epoch"]),
+            mistake_weight=args.incorrect_selection_weight,
+            max_false_alerts_per_minute=args.selection_max_false_alerts_per_minute,
+            minimum_normality_ap=args.selection_min_normality_ap,
+        ),
         "device": str(device),
         "parameters": sum(parameter.numel() for parameter in model.parameters()),
         "trainable_parameters": sum(
@@ -797,11 +863,16 @@ def evaluate(
                     normality_anomaly_score, outputs["mistake_action_probability"]
                 )
             state_incorrect_probability = outputs["state_outcome_probabilities"][..., 1]
+            factorized_event_logits = outputs.get("factorized_incorrect_logits")
             learned_event_logits = outputs.get("fused_incorrect_logits")
             incorrect_onset_probability = torch.sigmoid(
-                learned_event_logits
-                if learned_event_logits is not None
-                else outputs["incorrect_onset_logits"]
+                factorized_event_logits
+                if factorized_event_logits is not None
+                else (
+                    learned_event_logits
+                    if learned_event_logits is not None
+                    else outputs["incorrect_onset_logits"]
+                )
             )
             seen_lookup = outputs["seen_action_mask"].bool()
             for sample_index in range(step_prediction.shape[0]):
@@ -1020,6 +1091,11 @@ def evaluate(
         "fixed_0.1_completion_event_f1": fixed_metrics["all"]["f1"],
         "fixed_0.1_incorrect_event_f1": fixed_metrics[1]["f1"],
         "normality_incorrect_average_precision": normality_ap,
+        "normality_incorrect_prevalence": (
+            100.0 * sum(normality_targets) / len(normality_targets)
+            if normality_targets
+            else 0.0
+        ),
         "normality_correct_mean_anomaly": float(np.mean(correct_normality))
         if correct_normality
         else 0.0,
@@ -1450,6 +1526,95 @@ def _validation_selection_score(
         - 0.25 * min(metrics["incorrect_false_alerts_per_minute"], 20.0)
     )
     return general + mistake_weight * mistake
+
+
+def _validation_selection_result(
+    metrics: dict[str, float],
+    *,
+    strategy: str,
+    epoch: int,
+    mistake_weight: float = 1.0,
+    max_false_alerts_per_minute: float = 2.0,
+    minimum_normality_ap: float | None = None,
+) -> dict[str, Any]:
+    """Return a reproducible score, eligibility audit, and deterministic tie key."""
+
+    if strategy == "legacy":
+        score = _validation_selection_score(metrics, mistake_weight=mistake_weight)
+        action_score = (
+            0.40 * metrics["frame_accuracy"]
+            + 0.30 * metrics["edit"]
+            + 0.30 * metrics["f1@50"]
+        )
+        return {
+            "strategy": strategy,
+            "score": score,
+            "action_score": action_score,
+            "mistake_score": None,
+            "operationally_eligible": True,
+            "eligibility": {"legacy_unconstrained": True},
+            "minimum_normality_ap": None,
+            "tie_key": [
+                score,
+                metrics.get("incorrect_event_recall", 0.0),
+                action_score,
+                -int(epoch),
+            ],
+        }
+    if strategy != "operational_harmonic":
+        raise ValueError(f"Unknown selection strategy: {strategy}")
+
+    action_score = (
+        0.40 * metrics["frame_accuracy"]
+        + 0.30 * metrics["edit"]
+        + 0.30 * metrics["f1@50"]
+    )
+    mistake_score = (
+        0.45 * metrics["normality_incorrect_average_precision"]
+        + 0.25 * metrics["state_incorrect_f1"]
+        + 0.20 * metrics["incorrect_event_f1"]
+        + 0.10 * metrics["incorrect_event_f1_tol4s"]
+    )
+    harmonic = (
+        2.0 * action_score * mistake_score / (action_score + mistake_score)
+        if action_score + mistake_score > 0
+        else 0.0
+    )
+    false_alerts = metrics["incorrect_false_alerts_per_minute"]
+    score = harmonic - 0.50 * false_alerts
+    ap_floor = (
+        metrics.get("normality_incorrect_prevalence", 0.0)
+        if minimum_normality_ap is None
+        else minimum_normality_ap
+    )
+    eligibility = {
+        "positive_incorrect_event_recall": metrics["incorrect_event_recall"] > 0.0,
+        "false_alerts_within_limit": false_alerts <= max_false_alerts_per_minute + 1e-12,
+        "normality_ap_at_or_above_floor": (
+            metrics["normality_incorrect_average_precision"] >= ap_floor - 1e-12
+        ),
+    }
+    eligible = all(eligibility.values())
+    return {
+        "strategy": strategy,
+        "score": score,
+        "action_score": action_score,
+        "mistake_score": mistake_score,
+        "harmonic_score_before_false_alert_penalty": harmonic,
+        "false_alert_penalty": 0.50 * false_alerts,
+        "operationally_eligible": eligible,
+        "eligibility": eligibility,
+        "maximum_false_alerts_per_minute": max_false_alerts_per_minute,
+        "minimum_normality_ap": ap_floor,
+        # Python tuple/list ordering implements the documented deterministic
+        # tie break: score, recall, action quality, then earliest epoch.
+        "tie_key": [
+            score,
+            metrics["incorrect_event_recall"],
+            action_score,
+            -int(epoch),
+        ],
+    }
 
 
 def _class_weights(
@@ -2014,12 +2179,47 @@ def main() -> None:
         help="Keep all mistake positives and this many hardest negatives per positive; zero keeps every negative.",
     )
     parser.add_argument(
+        "--factorized-mistake-detection",
+        action="store_true",
+        help="Factor mistake onset into a shared temporal detector and conditional component selector.",
+    )
+    parser.add_argument(
+        "--any-mistake-weight",
+        type=float,
+        default=1.0,
+        help="Relative temporal any-mistake loss inside the factorized onset objective.",
+    )
+    parser.add_argument(
+        "--mistake-component-weight",
+        type=float,
+        default=1.0,
+        help="Relative conditional component-localization loss inside the factorized onset objective.",
+    )
+    parser.add_argument(
         "--event-label-horizon",
         type=int,
         default=2,
         help="Causally repeat sparse event labels over this many following feature rows for training only.",
     )
     parser.add_argument("--incorrect-selection-weight", type=float, default=0.75)
+    parser.add_argument(
+        "--selection-strategy",
+        choices=("legacy", "operational_harmonic"),
+        default="legacy",
+        help="Checkpoint selector; legacy preserves prior scoring, while operational_harmonic requires useful mistake alerts.",
+    )
+    parser.add_argument(
+        "--selection-max-false-alerts-per-minute",
+        type=float,
+        default=2.0,
+        help="Operational checkpoint eligibility limit; also constrains threshold calibration for that strategy.",
+    )
+    parser.add_argument(
+        "--selection-min-normality-ap",
+        type=float,
+        default=None,
+        help="Optional AP floor in percentage points; by default use validation mistake prevalence.",
+    )
     parser.add_argument(
         "--max-incorrect-false-alerts-per-minute",
         type=float,
@@ -2055,11 +2255,19 @@ def main() -> None:
         parser.error("incorrect-pos-weight-cap must be at least 1")
     if args.incorrect_hard_negative_ratio < 0:
         parser.error("incorrect-hard-negative-ratio cannot be negative")
+    if args.any_mistake_weight < 0 or args.mistake_component_weight < 0:
+        parser.error("factorized mistake loss weights cannot be negative")
     if (
         args.max_incorrect_false_alerts_per_minute is not None
         and args.max_incorrect_false_alerts_per_minute < 0
     ):
         parser.error("max-incorrect-false-alerts-per-minute cannot be negative")
+    if args.selection_max_false_alerts_per_minute < 0:
+        parser.error("selection-max-false-alerts-per-minute cannot be negative")
+    if args.selection_min_normality_ap is not None and not (
+        0.0 <= args.selection_min_normality_ap <= 100.0
+    ):
+        parser.error("selection-min-normality-ap must be in [0, 100]")
     if args.state_class_weight_cap < 1.0:
         parser.error("state-class-weight-cap must be at least 1")
     if args.max_vram_gib <= 0:

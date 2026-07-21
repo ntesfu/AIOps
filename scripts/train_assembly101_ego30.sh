@@ -26,6 +26,11 @@ seed="${SEED:-7}"
 cache_index="${CACHE_INDEX:-data/processed/assembly101_ego30_stategraph/index.json}"
 incorrect_hard_negative_ratio="${INCORRECT_HARD_NEGATIVE_RATIO:-0}"
 max_incorrect_false_alerts_per_minute="${MAX_INCORRECT_FALSE_ALERTS_PER_MINUTE:-}"
+factorized_mistake_detection="${FACTORIZED_MISTAKE_DETECTION:-0}"
+any_mistake_weight="${ANY_MISTAKE_WEIGHT:-1.0}"
+mistake_component_weight="${MISTAKE_COMPONENT_WEIGHT:-1.0}"
+selection_strategy="${SELECTION_STRATEGY:-legacy}"
+selection_max_false_alerts_per_minute="${SELECTION_MAX_FALSE_ALERTS_PER_MINUTE:-2.0}"
 
 case "$variant" in
   base)
@@ -84,6 +89,9 @@ fi
 if [[ "$freeze_action_backbone" == "1" ]]; then
   init_args+=(--freeze-action-backbone)
 fi
+if [[ "$factorized_mistake_detection" == "1" ]]; then
+  procedure_args+=(--factorized-mistake-detection)
+fi
 
 export PYTHONPATH=".deps:src${PYTHONPATH:+:${PYTHONPATH}}"
 .venv/bin/python -m aiops.training.train_stategraph_psr \
@@ -114,6 +122,10 @@ export PYTHONPATH=".deps:src${PYTHONPATH:+:${PYTHONPATH}}"
   --asl-negative-gamma "$asl_negative_gamma" \
   --asl-clip "$asl_clip" \
   --incorrect-selection-weight "$incorrect_selection_weight" \
+  --any-mistake-weight "$any_mistake_weight" \
+  --mistake-component-weight "$mistake_component_weight" \
+  --selection-strategy "$selection_strategy" \
+  --selection-max-false-alerts-per-minute "$selection_max_false_alerts_per_minute" \
   --calibration-interval "$calibration_interval" \
   --num-workers 4 \
   --preload-cache \

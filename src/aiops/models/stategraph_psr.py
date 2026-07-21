@@ -62,6 +62,10 @@ class StateGraphPSRConfig:
     # This is optional so cached-feature ablations can isolate its contribution.
     procedural_event_context: bool = False
     learned_event_fusion: bool = False
+    # Decompose sparse component onsets into a shared temporal detector and a
+    # component selector. Disabled by default so legacy checkpoints retain an
+    # identical parameter set and output behaviour.
+    factorized_mistake_detection: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -90,6 +94,8 @@ class StateGraphLossConfig:
     # Zero preserves dense-negative BCE. A positive value keeps every mistake
     # target and only this many highest-scoring negatives per positive.
     incorrect_hard_negative_ratio: float = 0.0
+    any_mistake_weight: float = 1.0
+    mistake_component_weight: float = 1.0
 
 
 def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | None = None):
@@ -416,6 +422,8 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             self.incorrect_onset_head = nn.Linear(
                 config.hidden_dim, config.num_completion_components
             )
+            if config.factorized_mistake_detection:
+                self.any_mistake_onset_head = nn.Linear(config.hidden_dim, 1)
             if config.learned_event_fusion:
                 # Shared across components so every rare mistake teaches the
                 # same calibration rule. Inputs remain interpretable and are
@@ -710,6 +718,33 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                     dim=-1,
                 )
                 fused_incorrect_logits = self.event_fusion_head(fusion_inputs).squeeze(-1)
+            any_mistake_onset_logits = None
+            incorrect_component_logits = None
+            incorrect_component_probabilities = None
+            factorized_incorrect_probabilities = None
+            factorized_incorrect_logits = None
+            if config.factorized_mistake_detection:
+                any_mistake_onset_logits = self.any_mistake_onset_head(
+                    event_features
+                ).squeeze(-1)
+                # Learned fusion, when enabled, is component evidence rather
+                # than an independent onset decision. The softmax makes its
+                # conditional meaning explicit.
+                incorrect_component_logits = (
+                    fused_incorrect_logits
+                    if fused_incorrect_logits is not None
+                    else incorrect_onset_logits
+                )
+                incorrect_component_probabilities = torch.softmax(
+                    incorrect_component_logits, dim=-1
+                )
+                factorized_incorrect_probabilities = (
+                    torch.sigmoid(any_mistake_onset_logits).unsqueeze(-1)
+                    * incorrect_component_probabilities
+                )
+                factorized_incorrect_logits = torch.logit(
+                    factorized_incorrect_probabilities.clamp(1e-6, 1.0 - 1e-6)
+                )
             entropy = -(step_probabilities.clamp_min(1e-7).log() * step_probabilities).sum(dim=-1)
             # Entropy is bounded by log(K); this keeps uncertainty in [0, 1].
             normalized_entropy = entropy / math.log(max(config.num_steps, 2))
@@ -728,6 +763,11 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 "component_outcome_logits": component_outcome_logits,
                 "incorrect_onset_logits": incorrect_onset_logits,
                 "fused_incorrect_logits": fused_incorrect_logits,
+                "any_mistake_onset_logits": any_mistake_onset_logits,
+                "incorrect_component_logits": incorrect_component_logits,
+                "incorrect_component_probabilities": incorrect_component_probabilities,
+                "factorized_incorrect_probabilities": factorized_incorrect_probabilities,
+                "factorized_incorrect_logits": factorized_incorrect_logits,
                 "mistake_action_probability": mistake_action_probability,
                 "mistake_action_onset_score": mistake_action_onset_score,
                 "normality_logits": normality_logits,
@@ -751,6 +791,8 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
 
 def build_stategraph_loss(config: StateGraphLossConfig):
     torch, nn, functional = _load_torch()
+    if config.any_mistake_weight < 0 or config.mistake_component_weight < 0:
+        raise ValueError("Factorized mistake loss weights cannot be negative.")
 
     class StateGraphMultiTaskLoss(nn.Module):
         def __init__(self) -> None:
@@ -889,26 +931,69 @@ def build_stategraph_loss(config: StateGraphLossConfig):
             incorrect_targets = (outcome_targets == 1).to(
                 outputs["incorrect_onset_logits"].dtype
             )
-            learned_event_logits = outputs.get("fused_incorrect_logits")
-            onset_logits = (
-                learned_event_logits
-                if learned_event_logits is not None
-                else outputs["incorrect_onset_logits"]
-            )
-            losses["incorrect_onset"] = self._asymmetric_bce(
-                onset_logits,
-                incorrect_targets,
-                self._hard_negative_mask(
+            any_mistake_logits = outputs.get("any_mistake_onset_logits")
+            component_selector_logits = outputs.get("incorrect_component_logits")
+            if any_mistake_logits is not None and component_selector_logits is not None:
+                component_positive = incorrect_targets > 0.5
+                any_mistake_targets = component_positive.any(dim=-1).to(
+                    any_mistake_logits.dtype
+                )
+                losses["any_mistake_onset"] = self._asymmetric_bce(
+                    any_mistake_logits,
+                    any_mistake_targets,
+                    valid_mask,
+                    positive_gamma=0.0,
+                    negative_gamma=config.asl_negative_gamma,
+                    clip=config.asl_clip,
+                )
+                selector_mask = valid_mask & component_positive.any(dim=-1)
+                if selector_mask.any():
+                    # Exact Assembly101 onsets have one component. Expanded
+                    # horizons can overlap rarely, so use a normalized soft
+                    # target instead of silently discarding a component.
+                    selector_targets = component_positive.to(
+                        component_selector_logits.dtype
+                    )
+                    selector_targets = selector_targets / selector_targets.sum(
+                        dim=-1, keepdim=True
+                    ).clamp_min(1.0)
+                    losses["mistake_component"] = -(
+                        selector_targets[selector_mask]
+                        * functional.log_softmax(
+                            component_selector_logits[selector_mask], dim=-1
+                        )
+                    ).sum(dim=-1).mean()
+                else:
+                    # Preserve a differentiable zero for batches without a rare
+                    # event; the shared temporal detector still learns negatives.
+                    losses["mistake_component"] = component_selector_logits.sum() * 0.0
+                losses["incorrect_onset"] = (
+                    config.any_mistake_weight * losses["any_mistake_onset"]
+                    + config.mistake_component_weight * losses["mistake_component"]
+                )
+            else:
+                learned_event_logits = outputs.get("fused_incorrect_logits")
+                onset_logits = (
+                    learned_event_logits
+                    if learned_event_logits is not None
+                    else outputs["incorrect_onset_logits"]
+                )
+                losses["incorrect_onset"] = self._asymmetric_bce(
                     onset_logits,
                     incorrect_targets,
-                    valid_mask,
-                    config.incorrect_hard_negative_ratio,
-                ),
-                positive_gamma=0.0,
-                negative_gamma=config.asl_negative_gamma,
-                clip=config.asl_clip,
-                pos_weight=incorrect_pos_weights,
-            )
+                    self._hard_negative_mask(
+                        onset_logits,
+                        incorrect_targets,
+                        valid_mask,
+                        config.incorrect_hard_negative_ratio,
+                    ),
+                    positive_gamma=0.0,
+                    negative_gamma=config.asl_negative_gamma,
+                    clip=config.asl_clip,
+                    pos_weight=incorrect_pos_weights,
+                )
+                losses["any_mistake_onset"] = onset_logits.sum() * 0.0
+                losses["mistake_component"] = onset_logits.sum() * 0.0
 
             state_targets = targets["state"]
             state_mask = targets["state_mask"].bool() & valid_mask.unsqueeze(-1)
