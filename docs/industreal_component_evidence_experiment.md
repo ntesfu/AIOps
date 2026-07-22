@@ -34,6 +34,13 @@ CACHE_CONTRACT=strict_causal SEED=7 \
 bash scripts/train_industreal_component_evidence.sh all
 ```
 
+Sensor coverage can be audited before launch with:
+
+```bash
+PYTHONPATH=src python scripts/audit_stategraph_sensors.py --cache-index \
+  data/processed/industreal_strict_swin_convnext/index.json
+```
+
 Completion is indicated by:
 
 ```text
