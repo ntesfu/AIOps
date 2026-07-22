@@ -6,6 +6,7 @@ import unittest
 from aiops.models.stategraph_psr import (
     StateGraphLossConfig,
     StateGraphPSRConfig,
+    build_dual_expert_stategraph_psr,
     build_stategraph_loss,
     build_stategraph_psr,
     _expand_causal_event_targets,
@@ -14,6 +15,39 @@ from aiops.models.stategraph_psr import (
 
 @unittest.skipUnless(importlib.util.find_spec("torch"), "PyTorch optional dependency is not installed")
 class StateGraphModelTest(unittest.TestCase):
+    def test_dual_expert_routes_action_and_event_outputs(self) -> None:
+        import torch
+
+        config = StateGraphPSRConfig(
+            motion_dim=4,
+            appearance_dim=3,
+            sensor_dim=2,
+            num_steps=2,
+            num_completion_components=2,
+            num_components=2,
+            hidden_dim=8,
+            num_temporal_blocks=1,
+            attention_every=0,
+            num_heads=2,
+            dropout=0.0,
+        )
+        model = build_dual_expert_stategraph_psr(config, config).eval()
+        inputs = (
+            torch.randn(1, 4, 4),
+            torch.randn(1, 4, 3),
+            torch.randn(1, 4, 2),
+            torch.ones(1, 4, dtype=torch.bool),
+            torch.ones(1, 4, 3, dtype=torch.bool),
+        )
+        action = model.action_expert(*inputs)
+        event = model.event_expert(*inputs)
+        merged = model(*inputs)
+        torch.testing.assert_close(merged["step_logits"], action["step_logits"])
+        torch.testing.assert_close(merged["state_logits"], event["state_logits"])
+        torch.testing.assert_close(
+            merged["incorrect_onset_logits"], event["incorrect_onset_logits"]
+        )
+
     def test_shapes_causality_and_backward(self) -> None:
         import torch
 

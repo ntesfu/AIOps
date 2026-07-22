@@ -790,6 +790,81 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
     return StateGraphPSRLite()
 
 
+def build_dual_expert_stategraph_psr(
+    action_config: StateGraphPSRConfig,
+    event_config: StateGraphPSRConfig,
+    action_transition_matrix: Any | None = None,
+    event_transition_matrix: Any | None = None,
+):
+    """Compose independently validated action and event experts into one module."""
+
+    comparable_fields = (
+        "motion_dim",
+        "motion_aux_dim",
+        "appearance_dim",
+        "sensor_dim",
+        "num_steps",
+        "num_completion_components",
+        "num_event_outcomes",
+        "num_components",
+    )
+    mismatched = [
+        field
+        for field in comparable_fields
+        if getattr(action_config, field) != getattr(event_config, field)
+    ]
+    if mismatched:
+        raise ValueError(f"Dual experts have incompatible fields: {mismatched}")
+    torch, nn, _ = _load_torch()
+    action_expert = build_stategraph_psr(action_config, action_transition_matrix)
+    event_expert = build_stategraph_psr(event_config, event_transition_matrix)
+    action_output_keys = frozenset(
+        {
+            "features",
+            "raw_step_logits",
+            "atomic_step_logits",
+            "verb_logits",
+            "object_logits",
+            "step_logits",
+            "step_probabilities",
+            "refinement_step_logits",
+            "boundary_logits",
+            "progress_logits",
+            "next_step_logits",
+            "procedure_violation_score",
+            "uncertainty",
+            "energy",
+            "modality_gates",
+            "modality_disagreement",
+            "prototype_weights",
+            "seen_action_mask",
+        }
+    )
+
+    class DualExpertStateGraphPSR(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.action_expert = action_expert
+            self.event_expert = event_expert
+            self.action_config = action_config
+            self.event_config = event_config
+
+        def forward(self, *args, **kwargs):
+            action_outputs = self.action_expert(*args, **kwargs)
+            event_outputs = self.event_expert(*args, **kwargs)
+            merged = dict(event_outputs)
+            merged.update(
+                {
+                    key: action_outputs[key]
+                    for key in action_output_keys
+                    if key in action_outputs
+                }
+            )
+            return merged
+
+    return DualExpertStateGraphPSR()
+
+
 def build_stategraph_loss(config: StateGraphLossConfig):
     torch, nn, functional = _load_torch()
     if config.any_mistake_weight < 0 or config.mistake_component_weight < 0:

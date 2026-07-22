@@ -11,7 +11,11 @@ import time
 from pathlib import Path
 
 from aiops.data.stategraph_cache import read_cache_index
-from aiops.models.stategraph_psr import StateGraphPSRConfig, build_stategraph_psr
+from aiops.models.stategraph_psr import (
+    StateGraphPSRConfig,
+    build_dual_expert_stategraph_psr,
+    build_stategraph_psr,
+)
 
 
 def _percentile(values: list[float], fraction: float) -> float:
@@ -41,8 +45,18 @@ def main() -> None:
 
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=False)
-    config = StateGraphPSRConfig(**checkpoint["model_config"])
-    model = build_stategraph_psr(config, checkpoint["transition_matrix"]).to(device).eval()
+    if checkpoint.get("architecture_type") == "dual_expert_stategraph_psr":
+        action_config = StateGraphPSRConfig(**checkpoint["action_model_config"])
+        config = StateGraphPSRConfig(**checkpoint["event_model_config"])
+        model = build_dual_expert_stategraph_psr(
+            action_config,
+            config,
+            checkpoint["action_transition_matrix"],
+            checkpoint["event_transition_matrix"],
+        ).to(device).eval()
+    else:
+        config = StateGraphPSRConfig(**checkpoint["model_config"])
+        model = build_stategraph_psr(config, checkpoint["transition_matrix"]).to(device).eval()
     model.load_state_dict(checkpoint["model_state"])
     dtype = torch.float32
     if device.type == "cuda" and args.precision == "bf16":
