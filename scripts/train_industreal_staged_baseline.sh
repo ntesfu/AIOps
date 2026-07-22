@@ -21,6 +21,9 @@ action_patience="${ACTION_PATIENCE:-10}"
 event_patience="${EVENT_PATIENCE:-8}"
 event_selection="${EVENT_SELECTION_STRATEGY:-legacy}"
 max_false_alerts="${MAX_INCORRECT_FALSE_ALERTS_PER_MINUTE:-2.0}"
+component_evidence="${COMPONENT_EVIDENCE:-0}"
+component_rank_weight="${COMPONENT_RANK_WEIGHT:-0.0}"
+component_rank_margin="${COMPONENT_RANK_MARGIN:-0.5}"
 resume="${RESUME:-0}"
 python_bin="${PYTHON_BIN:-.venv/bin/python}"
 export PYTHONPATH=".deps:src${PYTHONPATH:+:${PYTHONPATH}}"
@@ -76,6 +79,14 @@ common_args=(
   --preload-cache
   --seed "$seed"
 )
+
+if [[ "$component_evidence" == "1" ]]; then
+  common_args+=(
+    --component-evidence
+    --component-rank-weight "$component_rank_weight"
+    --component-rank-margin "$component_rank_margin"
+  )
+fi
 
 train_action() {
   local resume_args=()

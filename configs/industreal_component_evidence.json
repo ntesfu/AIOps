@@ -1,0 +1,37 @@
+{
+  "experiment": "IndustReal strict-causal component evidence pilot",
+  "baseline": "industreal_strict_causal_s7",
+  "cache": "data/processed/industreal_strict_swin_convnext/index.json",
+  "seed": 7,
+  "controlled_variables": {
+    "same_as_baseline": [
+      "strict-causal cache and split",
+      "Large temporal head",
+      "action and event epoch budgets",
+      "optimizer and learning rates",
+      "dual-expert composition",
+      "validation calibration and false-alert limit"
+    ],
+    "changed": {
+      "component_evidence": true,
+      "component_rank_weight": 0.25,
+      "component_rank_margin": 0.5
+    }
+  },
+  "architecture": {
+    "inputs": "event temporal context plus cached hand/gaze/pose sensor vector",
+    "conditioning": "one learned query per completion component",
+    "outputs": "component-specific correctness, outcome, and onset evidence",
+    "optimization": "same-component correct-versus-incorrect distribution ranking",
+    "action_isolation": "the new branch is included in the frozen-action event parameter set"
+  },
+  "success_gate": {
+    "primary": "incorrect-event recall above zero at no more than 2 false alerts per minute",
+    "secondary": [
+      "normality AP above the 6.87 baseline",
+      "incorrect-state F1 above the 1.76 baseline",
+      "no material action F1@50 regression from 16.73"
+    ]
+  },
+  "limitation": "This is not the full image-ROI experiment. The downloaded raw RGB tree was absent from Ubuntu when the experiment was launched, so the pilot uses the hand/gaze/pose stream already preserved in the strict-causal cache."
+}

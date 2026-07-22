@@ -80,6 +80,7 @@ class StateGraphModelTest(unittest.TestCase):
             procedural_event_context=True,
             learned_event_fusion=True,
             factorized_mistake_detection=True,
+            component_evidence=True,
         )
         transition = torch.tensor([[1.0, 1.0, 0.0], [0.0, 1.0, 1.0], [0.0, 0.0, 1.0]])
         model = build_stategraph_psr(config, transition).eval()
@@ -121,6 +122,7 @@ class StateGraphModelTest(unittest.TestCase):
         self.assertEqual(tuple(output["mistake_action_onset_score"].shape), (2, 7, 2))
         self.assertTrue(bool((output["mistake_action_probability"] >= 0).all()))
         self.assertEqual(tuple(output["normality_logits"].shape), (2, 7, 2))
+        self.assertEqual(tuple(output["component_evidence_features"].shape), (2, 7, 2, 16))
         self.assertEqual(tuple(output["state_outcome_probabilities"].shape), (2, 7, 2, 3))
         self.assertEqual(output["event_state_indices"].tolist(), [0, 1])
         self.assertEqual(tuple(output["progress_logits"].shape), (2, 7))
@@ -282,11 +284,16 @@ class StateGraphModelTest(unittest.TestCase):
             "boundary": torch.zeros(1, 4),
             "next_step": torch.full((1, 4), -100, dtype=torch.long),
         }
-        targets["state"][:, :, 1] = 0
+        targets["state"][:, :2, 1] = 0
+        targets["state"][:, 2:, 1] = 2
         targets["state_mask"][:, :, 1] = True
-        losses = build_stategraph_loss(StateGraphLossConfig())(output, targets)
+        losses = build_stategraph_loss(
+            StateGraphLossConfig(component_rank_weight=0.25)
+        )(output, targets)
         self.assertTrue(bool(torch.isfinite(losses["normality"])))
         self.assertGreater(float(losses["normality"]), 0.0)
+        self.assertTrue(bool(torch.isfinite(losses["component_rank"])))
+        self.assertGreater(float(losses["component_rank"]), 0.0)
 
     def test_event_targets_expand_forward_without_overwriting_events(self) -> None:
         import torch

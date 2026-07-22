@@ -66,6 +66,10 @@ class StateGraphPSRConfig:
     # component selector. Disabled by default so legacy checkpoints retain an
     # identical parameter set and output behaviour.
     factorized_mistake_detection: bool = False
+    # Build per-component event features from the event trunk and the cached
+    # hand/gaze/pose sensor stream. This branch is deliberately event-only so
+    # rare correctness supervision cannot destabilize action segmentation.
+    component_evidence: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -97,6 +101,8 @@ class StateGraphLossConfig:
     any_mistake_weight: float = 1.0
     mistake_component_weight: float = 1.0
     any_mistake_pos_weight: float = 1.0
+    component_rank_weight: float = 0.0
+    component_rank_margin: float = 0.5
 
 
 def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | None = None):
@@ -416,6 +422,28 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                     nn.Dropout(config.dropout),
                 )
             self.event_norm = nn.LayerNorm(config.hidden_dim)
+            if config.component_evidence:
+                self.component_evidence_sensor_stem = ProjectionStem(config.sensor_dim)
+                self.component_evidence_event = nn.Sequential(
+                    nn.LayerNorm(config.hidden_dim),
+                    nn.Linear(config.hidden_dim, config.hidden_dim),
+                    nn.GELU(),
+                )
+                self.component_evidence_sensor = nn.Sequential(
+                    nn.LayerNorm(config.hidden_dim),
+                    nn.Linear(config.hidden_dim, config.hidden_dim),
+                    nn.GELU(),
+                )
+                self.component_evidence_queries = nn.Parameter(
+                    torch.empty(config.num_completion_components, config.hidden_dim)
+                )
+                nn.init.trunc_normal_(self.component_evidence_queries, std=0.02)
+                self.component_evidence_norm = nn.LayerNorm(config.hidden_dim)
+                self.component_evidence_outcome_head = nn.Linear(
+                    config.hidden_dim, config.num_event_outcomes
+                )
+                self.component_evidence_onset_head = nn.Linear(config.hidden_dim, 1)
+                self.component_evidence_normality_head = nn.Linear(config.hidden_dim, 1)
             self.completion_head = nn.Linear(config.hidden_dim, config.num_completion_components)
             self.component_outcome_head = nn.Linear(
                 config.hidden_dim, config.num_completion_components * config.num_event_outcomes
@@ -666,18 +694,50 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 event_features = self.event_norm(
                     event_features + self.procedure_event_context(procedure_features)
                 )
-            normal_reference = action_context.unsqueeze(-2) + self.component_normal_prototypes
-            normality_logits = (
-                functional.softplus(self.normality_scale_raw)
-                * functional.cosine_similarity(event_features.unsqueeze(-2), normal_reference, dim=-1)
-                + self.normality_bias
-            )
-            component_outcome_logits = self.component_outcome_head(event_features).view(
-                temporal.shape[0],
-                temporal.shape[1],
-                config.num_completion_components,
-                config.num_event_outcomes,
-            )
+            if config.component_evidence:
+                sensor_evidence = self.component_evidence_sensor_stem(sensor)
+                if sensor_evidence is None:
+                    sensor_evidence = event_features.new_zeros(event_features.shape)
+                else:
+                    sensor_present = (
+                        modality_mask[..., -1].to(sensor_evidence.dtype)
+                        if modality_mask is not None
+                        else sensor_evidence.new_ones(sensor_evidence.shape[:2])
+                    )
+                    sensor_evidence = sensor_evidence * sensor_present.unsqueeze(-1)
+                    sensor_evidence = self.component_evidence_sensor(sensor_evidence)
+                component_evidence_features = self.component_evidence_norm(
+                    self.component_evidence_event(event_features).unsqueeze(-2)
+                    + sensor_evidence.unsqueeze(-2)
+                    + self.component_evidence_queries.view(
+                        1, 1, config.num_completion_components, config.hidden_dim
+                    )
+                )
+                normality_logits = self.component_evidence_normality_head(
+                    component_evidence_features
+                ).squeeze(-1)
+                component_outcome_logits = self.component_evidence_outcome_head(
+                    component_evidence_features
+                )
+                incorrect_onset_logits = self.component_evidence_onset_head(
+                    component_evidence_features
+                ).squeeze(-1)
+            else:
+                normal_reference = action_context.unsqueeze(-2) + self.component_normal_prototypes
+                normality_logits = (
+                    functional.softplus(self.normality_scale_raw)
+                    * functional.cosine_similarity(
+                        event_features.unsqueeze(-2), normal_reference, dim=-1
+                    )
+                    + self.normality_bias
+                )
+                component_outcome_logits = self.component_outcome_head(event_features).view(
+                    temporal.shape[0],
+                    temporal.shape[1],
+                    config.num_completion_components,
+                    config.num_event_outcomes,
+                )
+                incorrect_onset_logits = self.incorrect_onset_head(event_features)
             incorrect_index = 1
             anomaly_strength = functional.softplus(self.anomaly_strength_raw)
             incorrect_boost = anomaly_strength * (-normality_logits)
@@ -694,7 +754,6 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             component_outcome_logits = component_outcome_logits + state_evidence_strength * torch.log(
                 state_outcome_probabilities.clamp_min(1e-6)
             )
-            incorrect_onset_logits = self.incorrect_onset_head(event_features)
             fused_incorrect_logits = None
             if config.learned_event_fusion:
                 outcome_incorrect_logit = (
@@ -760,6 +819,9 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 "step_probabilities": step_probabilities,
                 "refinement_step_logits": refinement_step_logits,
                 "event_features": event_features,
+                "component_evidence_features": (
+                    component_evidence_features if config.component_evidence else None
+                ),
                 "completion_logits": self.completion_head(event_features),
                 "component_outcome_logits": component_outcome_logits,
                 "incorrect_onset_logits": incorrect_onset_logits,
@@ -871,6 +933,8 @@ def build_stategraph_loss(config: StateGraphLossConfig):
         raise ValueError("Factorized mistake loss weights cannot be negative.")
     if config.any_mistake_pos_weight <= 0:
         raise ValueError("Factorized any-mistake positive weight must be positive.")
+    if config.component_rank_weight < 0 or config.component_rank_margin < 0:
+        raise ValueError("Component ranking weight and margin cannot be negative.")
 
     class StateGraphMultiTaskLoss(nn.Module):
         def __init__(self) -> None:
@@ -1141,6 +1205,37 @@ def build_stategraph_loss(config: StateGraphLossConfig):
             else:
                 losses["normality"] = outputs["normality_logits"].sum() * 0.0
 
+            # Same-component distribution ranking: for every component observed
+            # in both states in a batch, normal installations must score above
+            # incorrect installations by a margin. This pools uncertain timing
+            # into component-matched bags and avoids quadratic frame pairing.
+            rank_terms = []
+            for component in range(normality_binary.shape[-1]):
+                component_mask = normality_mask[..., component]
+                correct_mask = component_mask & (normality_binary[..., component] > 0.5)
+                incorrect_mask = component_mask & ~(
+                    normality_binary[..., component] > 0.5
+                )
+                if correct_mask.any() and incorrect_mask.any():
+                    correct_score = outputs["normality_logits"][..., component][
+                        correct_mask
+                    ].mean()
+                    incorrect_score = outputs["normality_logits"][..., component][
+                        incorrect_mask
+                    ].mean()
+                    rank_terms.append(
+                        functional.softplus(
+                            config.component_rank_margin
+                            - correct_score
+                            + incorrect_score
+                        )
+                    )
+            losses["component_rank"] = (
+                torch.stack(rank_terms).mean()
+                if rank_terms
+                else outputs["normality_logits"].sum() * 0.0
+            )
+
             boundary_target = targets["boundary"].float()
             if valid_mask.any():
                 positive = boundary_target[valid_mask].sum()
@@ -1230,6 +1325,7 @@ def build_stategraph_loss(config: StateGraphLossConfig):
                 + config.consistency_weight * losses["consistency"]
                 + config.progress_weight * losses["progress"]
                 + config.normality_weight * losses["normality"]
+                + config.component_rank_weight * losses["component_rank"]
                 + config.refinement_weight * losses["refinement"]
             )
             losses["total"] = total

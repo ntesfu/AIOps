@@ -270,6 +270,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         procedural_event_context=args.procedural_event_context,
         learned_event_fusion=args.learned_event_fusion,
         factorized_mistake_detection=args.factorized_mistake_detection,
+        component_evidence=args.component_evidence,
     )
     loss_config = StateGraphLossConfig(
         step_weight=args.step_weight,
@@ -294,6 +295,8 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         any_mistake_weight=args.any_mistake_weight,
         mistake_component_weight=args.mistake_component_weight,
         any_mistake_pos_weight=args.any_mistake_pos_weight,
+        component_rank_weight=args.component_rank_weight,
+        component_rank_margin=args.component_rank_margin,
     )
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     model = build_stategraph_psr(model_config, transition_matrix).to(device)
@@ -1679,8 +1682,12 @@ def _model_configs_compatible(stored: Any, current: dict[str, Any]) -> bool:
     if not isinstance(stored, dict):
         return False
     normalized = dict(stored)
+    normalized_current = dict(current)
     normalized.setdefault("factorized_mistake_detection", False)
-    return normalized == current
+    normalized.setdefault("component_evidence", False)
+    normalized_current.setdefault("factorized_mistake_detection", False)
+    normalized_current.setdefault("component_evidence", False)
+    return normalized == normalized_current
 
 
 def _event_branch_parameter_prefixes() -> tuple[str, ...]:
@@ -1693,6 +1700,7 @@ def _event_branch_parameter_prefixes() -> tuple[str, ...]:
         "state_event_context.",
         "procedure_event_context.",
         "event_norm.",
+        "component_evidence_",
         "completion_head.",
         "component_outcome_head.",
         "incorrect_onset_head.",
@@ -2265,6 +2273,11 @@ def main() -> None:
         action="store_true",
         help="Learn a shared fusion of onset, normality, outcome, state, and action-mistake cues.",
     )
+    parser.add_argument(
+        "--component-evidence",
+        action="store_true",
+        help="Use component queries and the cached hand/gaze/pose stream in an event-only evidence branch.",
+    )
     parser.add_argument("--graph-strength", type=float, default=0.12)
     parser.add_argument("--learning-rate", type=float, default=3e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-3)
@@ -2346,6 +2359,13 @@ def main() -> None:
     parser.add_argument("--consistency-weight", type=float, default=0.15)
     parser.add_argument("--progress-weight", type=float, default=0.25)
     parser.add_argument("--normality-weight", type=float, default=0.3)
+    parser.add_argument(
+        "--component-rank-weight",
+        type=float,
+        default=0.0,
+        help="Weight for same-component correct-versus-incorrect bag ranking.",
+    )
+    parser.add_argument("--component-rank-margin", type=float, default=0.5)
     parser.add_argument("--refinement-weight", type=float, default=0.5)
     parser.add_argument("--focal-gamma", type=float, default=1.5)
     parser.add_argument("--asl-negative-gamma", type=float, default=4.0)

@@ -75,6 +75,11 @@ class StateGraphMetricsTest(unittest.TestCase):
                 legacy, {"hidden_dim": 256, "factorized_mistake_detection": True}
             )
         )
+        self.assertFalse(
+            _model_configs_compatible(
+                legacy, {"hidden_dim": 256, "component_evidence": True}
+            )
+        )
 
     def test_action_only_selection_uses_documented_action_score(self) -> None:
         metrics = self._selection_metrics()
