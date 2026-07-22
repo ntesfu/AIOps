@@ -25,6 +25,8 @@ def audit_stategraph_cache(index_path: str | Path) -> dict[str, Any]:
     row_counts = {split: 0 for split in split_names}
     multi_component_rows = {split: 0 for split in split_names}
     invalid_records: list[dict[str, Any]] = []
+    temporal_provenance_records = 0
+    max_future_offset_frames: int | None = None
 
     required = {
         "motion",
@@ -57,6 +59,24 @@ def audit_stategraph_cache(index_path: str | Path) -> dict[str, Any]:
                 issues.append("invalid state shape")
             if any(not np.isfinite(arrays[name]).all() for name in ("motion", "appearance", "sensor")):
                 issues.append("non-finite feature values")
+            if {
+                "prediction_frame_indices",
+                "motion_source_frame_indices",
+            }.issubset(arrays.files):
+                temporal_provenance_records += 1
+                predictions = arrays["prediction_frame_indices"].astype(np.int64)
+                sources = arrays["motion_source_frame_indices"].astype(np.int64)
+                if predictions.shape != (length,) or sources.shape[0] != length or sources.ndim != 2:
+                    issues.append("invalid temporal provenance shape")
+                else:
+                    record_max = int(np.max(sources - predictions[:, None]))
+                    max_future_offset_frames = (
+                        record_max
+                        if max_future_offset_frames is None
+                        else max(max_future_offset_frames, record_max)
+                    )
+                    if metadata.get("causal_clips") is True and record_max > 0:
+                        issues.append(f"causal contract violated by +{record_max} source frames")
             labels = arrays["step"].astype(np.int64)
             if ((labels < 0) | (labels >= len(action_names))).any():
                 issues.append("action labels outside vocabulary")
@@ -139,6 +159,12 @@ def audit_stategraph_cache(index_path: str | Path) -> dict[str, Any]:
         warnings.append(f"Invalid cache records: {len(invalid_records)}")
     if int(metadata.get("schema_version", 1)) != CACHE_SCHEMA_VERSION:
         warnings.append(f"Expected cache schema v{CACHE_SCHEMA_VERSION}.")
+    if metadata.get("strict_causal") and temporal_provenance_records != len(records):
+        warnings.append(
+            "Temporal source-frame provenance is missing from one or more cache records."
+        )
+    if metadata.get("strict_causal") and metadata.get("causal_clips") is not True:
+        warnings.append("Strict-causal cache is not backed by verified causal motion provenance.")
 
     background_id = metadata.get("background_action_id")
     background_index = action_names.index(background_id) if background_id in action_names else None
@@ -175,6 +201,13 @@ def audit_stategraph_cache(index_path: str | Path) -> dict[str, Any]:
             split: counts.astype(int).tolist() for split, counts in state_counts.items()
         },
         "invalid_records": invalid_records,
+        "temporal_provenance": {
+            "clip_anchor": metadata.get("clip_anchor"),
+            "causal_clips": metadata.get("causal_clips"),
+            "verified_records": temporal_provenance_records,
+            "max_future_offset_frames": max_future_offset_frames,
+            "motion_provenance": metadata.get("motion_provenance"),
+        },
         "warnings": warnings,
     }
 
@@ -191,6 +224,11 @@ def main() -> None:
     parser.add_argument("--cache-index", required=True)
     parser.add_argument("--output", default=None)
     parser.add_argument("--fail-on-warnings", action="store_true")
+    parser.add_argument(
+        "--require-causal",
+        action="store_true",
+        help="Fail unless every record proves that no motion source frame is in the future.",
+    )
     args = parser.parse_args()
     report = audit_stategraph_cache(args.cache_index)
     payload = json.dumps(report, indent=2) + "\n"
@@ -199,6 +237,17 @@ def main() -> None:
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(payload, encoding="utf-8")
     print(payload, end="")
+    if args.require_causal:
+        temporal = report["temporal_provenance"]
+        maximum_offset = temporal["max_future_offset_frames"]
+        causal_ok = (
+            temporal["causal_clips"] is True
+            and temporal["verified_records"] == report["recordings"]
+            and maximum_offset is not None
+            and maximum_offset <= 0
+        )
+        if not causal_ok:
+            raise SystemExit(3)
     if args.fail_on_warnings and report["warnings"]:
         raise SystemExit(2)
 

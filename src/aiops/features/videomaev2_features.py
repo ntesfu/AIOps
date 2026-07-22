@@ -31,6 +31,9 @@ class ExtractionRecord:
     num_steps: int
     feature_dim: int
     source_frames: int
+    provenance_path: str
+    clip_anchor: str
+    max_future_offset_frames: int
 
 
 def centered_clip_indices(
@@ -44,6 +47,40 @@ def centered_clip_indices(
         raise ValueError("length, num_frames, and sampling_rate must be positive")
     offsets = (np.arange(num_frames, dtype=np.int64) - (num_frames - 1) / 2.0) * sampling_rate
     return np.clip(np.rint(center + offsets).astype(np.int64), 0, length - 1)
+
+
+def trailing_clip_indices(
+    prediction_frame: int,
+    length: int,
+    num_frames: int = 16,
+    sampling_rate: int = 2,
+) -> np.ndarray:
+    """Return a past-only clip whose final frame is the prediction frame.
+
+    At the beginning of a recording, missing history is left-padded with frame
+    zero.  Consequently no returned source index can exceed the frame whose
+    label/prediction the feature is aligned with.
+    """
+    if length <= 0 or num_frames <= 0 or sampling_rate <= 0:
+        raise ValueError("length, num_frames, and sampling_rate must be positive")
+    if not 0 <= prediction_frame < length:
+        raise ValueError("prediction_frame must be inside the source recording")
+    offsets = (np.arange(num_frames, dtype=np.int64) - (num_frames - 1)) * sampling_rate
+    return np.clip(prediction_frame + offsets, 0, length - 1)
+
+
+def clip_indices(
+    prediction_frame: int,
+    length: int,
+    num_frames: int,
+    sampling_rate: int,
+    anchor: str,
+) -> np.ndarray:
+    if anchor == "trailing":
+        return trailing_clip_indices(prediction_frame, length, num_frames, sampling_rate)
+    if anchor == "centered":
+        return centered_clip_indices(prediction_frame, length, num_frames, sampling_rate)
+    raise ValueError("anchor must be 'trailing' or 'centered'")
 
 
 class HuggingFaceVideoMAEv2Encoder:
@@ -167,8 +204,9 @@ def extract_recording(
     num_frames: int = 16,
     sampling_rate: int = 2,
     batch_size: int = 1,
+    clip_anchor: str = "trailing",
 ) -> ExtractionRecord:
-    """Extract features aligned to StateGraph cache centers for one recording."""
+    """Extract cache-aligned features and an auditable source-frame map."""
     if stride_frames <= 0 or batch_size <= 0:
         raise ValueError("stride_frames and batch_size must be positive")
     import cv2
@@ -208,11 +246,18 @@ def extract_recording(
         return frame
 
     centers = np.arange(0, source_length, stride_frames, dtype=np.int64)
+    source_frame_indices = np.stack(
+        [
+            clip_indices(
+                int(center), source_length, num_frames, sampling_rate, clip_anchor
+            )
+            for center in centers
+        ]
+    )
     rows: list[np.ndarray] = []
     for start in range(0, len(centers), batch_size):
         clips = []
-        for center in centers[start : start + batch_size]:
-            indices = centered_clip_indices(int(center), source_length, num_frames, sampling_rate)
+        for indices in source_frame_indices[start : start + batch_size]:
             clips.append([read_frame(int(index)) for index in indices])
         rows.append(encoder.encode(clips))
     if capture is not None:
@@ -229,6 +274,17 @@ def extract_recording(
     with temporary.open("wb") as handle:
         np.save(handle, features, allow_pickle=False)
     os.replace(temporary, path)
+    provenance_path = path.with_suffix(".provenance.npz")
+    provenance_temporary = provenance_path.with_suffix(provenance_path.suffix + ".tmp")
+    with provenance_temporary.open("wb") as handle:
+        np.savez_compressed(
+            handle,
+            prediction_frame_indices=centers,
+            source_frame_indices=source_frame_indices,
+            future_offsets=source_frame_indices - centers[:, None],
+        )
+    os.replace(provenance_temporary, provenance_path)
+    max_future_offset = int(np.max(source_frame_indices - centers[:, None]))
     return ExtractionRecord(
         recording_id=recording.recording_id,
         split=recording.split,
@@ -236,6 +292,9 @@ def extract_recording(
         num_steps=len(features),
         feature_dim=features.shape[1],
         source_frames=source_length,
+        provenance_path=str(provenance_path),
+        clip_anchor=clip_anchor,
+        max_future_offset_frames=max_future_offset,
     )
 
 
@@ -286,6 +345,35 @@ def _read_completed_manifests(output_dir: Path) -> dict[str, dict[str, Any]]:
     return completed
 
 
+def _assert_resume_contract(output_dir: Path, expected: dict[str, Any]) -> None:
+    """Prevent a resume pass from mixing incompatible temporal features."""
+    contract_keys = (
+        "backend",
+        "model_id",
+        "revision",
+        "checkpoint",
+        "stride_frames",
+        "num_frames",
+        "sampling_rate",
+        "pooling",
+        "clip_anchor",
+    )
+    for path in sorted(output_dir.glob("videomaev2_manifest*.json")):
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        # Manifests created before clip_anchor was recorded used centered clips.
+        observed = {**payload, "clip_anchor": payload.get("clip_anchor", "centered")}
+        differences = {
+            key: {"existing": observed.get(key), "requested": expected.get(key)}
+            for key in contract_keys
+            if observed.get(key) != expected.get(key)
+        }
+        if differences:
+            raise RuntimeError(
+                f"Refusing to resume into {output_dir}: {path.name} has an incompatible "
+                f"feature contract {differences}. Use a new output directory or --overwrite."
+            )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Extract cache-aligned frozen VideoMAEv2 features.")
     parser.add_argument("--data-root", required=True)
@@ -306,6 +394,12 @@ def main() -> None:
     parser.add_argument("--stride-frames", type=int, default=5)
     parser.add_argument("--num-frames", type=int, default=16)
     parser.add_argument("--sampling-rate", type=int, default=2)
+    parser.add_argument(
+        "--clip-anchor",
+        choices=["trailing", "centered"],
+        default="trailing",
+        help="Trailing is strict online mode; centered is an offline/look-ahead comparison only.",
+    )
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument(
         "--pooling",
@@ -333,6 +427,21 @@ def main() -> None:
         raise RuntimeError("No RGB recordings found")
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    backend = "videomaev2_ssv2_finetuned" if args.checkpoint else "videomaev2_unlabeledhybrid"
+    resolved_checkpoint = str(Path(args.checkpoint).resolve()) if args.checkpoint else None
+    resume_contract = {
+        "backend": backend,
+        "model_id": args.model_id,
+        "revision": args.revision,
+        "checkpoint": resolved_checkpoint,
+        "stride_frames": args.stride_frames,
+        "num_frames": args.num_frames,
+        "sampling_rate": args.sampling_rate,
+        "pooling": args.pooling,
+        "clip_anchor": args.clip_anchor,
+    }
+    if not args.overwrite:
+        _assert_resume_contract(output_dir, resume_contract)
     manifest_path = output_dir / (
         "videomaev2_manifest.json"
         if args.num_shards == 1
@@ -345,7 +454,13 @@ def main() -> None:
     for ordinal, recording in enumerate(recordings, start=1):
         output_path = output_dir / recording.split / f"{recording.recording_id}.npy"
         previous = completed.get(recording.recording_id)
-        if not args.overwrite and previous and output_path.is_file():
+        previous_provenance = output_path.with_suffix(".provenance.npz")
+        if (
+            not args.overwrite
+            and previous
+            and output_path.is_file()
+            and previous_provenance.is_file()
+        ):
             print(f"[{ordinal}/{len(recordings)}] skip {recording.recording_id}", flush=True)
             shard_records[recording.recording_id] = previous
             continue
@@ -367,17 +482,24 @@ def main() -> None:
             args.num_frames,
             args.sampling_rate,
             args.batch_size,
+            args.clip_anchor,
         )
         completed[recording.recording_id] = asdict(record)
         shard_records[recording.recording_id] = asdict(record)
         manifest = {
-            "backend": "videomaev2_ssv2_finetuned" if args.checkpoint else "videomaev2_unlabeledhybrid",
+            "backend": backend,
             "model_id": args.model_id,
             "revision": args.revision,
-            "checkpoint": str(Path(args.checkpoint).resolve()) if args.checkpoint else None,
+            "checkpoint": resolved_checkpoint,
             "stride_frames": args.stride_frames,
             "num_frames": args.num_frames,
             "sampling_rate": args.sampling_rate,
+            "clip_anchor": args.clip_anchor,
+            "causal_clips": args.clip_anchor == "trailing",
+            "temporal_contract": (
+                "prediction-aligned_past-only" if args.clip_anchor == "trailing"
+                else "prediction-centered_bounded-lookahead"
+            ),
             "pooling": args.pooling,
             "shard_index": args.shard_index,
             "num_shards": args.num_shards,
@@ -386,13 +508,19 @@ def main() -> None:
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     # Always consolidate at the end, including an all-skip resume pass.
     manifest = {
-        "backend": "videomaev2_ssv2_finetuned" if args.checkpoint else "videomaev2_unlabeledhybrid",
+        "backend": backend,
         "model_id": args.model_id,
         "revision": args.revision,
-        "checkpoint": str(Path(args.checkpoint).resolve()) if args.checkpoint else None,
+        "checkpoint": resolved_checkpoint,
         "stride_frames": args.stride_frames,
         "num_frames": args.num_frames,
         "sampling_rate": args.sampling_rate,
+        "clip_anchor": args.clip_anchor,
+        "causal_clips": args.clip_anchor == "trailing",
+        "temporal_contract": (
+            "prediction-aligned_past-only" if args.clip_anchor == "trailing"
+            else "prediction-centered_bounded-lookahead"
+        ),
         "pooling": args.pooling,
         "shard_index": args.shard_index,
         "num_shards": args.num_shards,

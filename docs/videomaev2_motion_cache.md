@@ -50,6 +50,20 @@ Run a one-recording alignment and memory smoke test first:
   --max-recordings 1 --precision bf16 --batch-size 1
 ```
 
+Extraction now defaults to `--clip-anchor trailing`: the last source frame is
+the prediction frame and the other 15 frames are history. Each recording also
+writes `RECORDING_ID.provenance.npz`, containing the prediction-frame index,
+all 16 source-frame indices, and their signed offsets. The manifest records the
+temporal contract and maximum future offset. `--clip-anchor centered` is kept
+only to reproduce the legacy offline/bounded-lookahead experiment; it must not
+be reported as live causal performance.
+
+Resume is contract-safe. If an output directory contains features produced
+with a different anchor, stride, frame count, sampling rate, model revision,
+checkpoint, or pooling rule, extraction stops and requires a new directory or
+an explicit `--overwrite`. Legacy manifests without an anchor are classified
+as centered, preventing old features from being silently reused as causal.
+
 Then rerun the same command without `--max-recordings`. Extraction is atomic
 and resumable at recording granularity. It produces one `[time, 1408]` array per
 recording and `videomaev2_manifest.json`. The default centers are every five
@@ -97,8 +111,15 @@ python3 -m aiops.features.industreal_cache \
   --output-dir /home/aiops/AIOps/data/processed/stategraph_v2_videomaev2_giant \
   --motion-features-dir /home/aiops/AIOps/data/processed/videomaev2_giant_motion \
   --motion-backend-name videomaev2_giant_unlabeledhybrid_16x2 \
-  --appearance-features-dir /home/aiops/AIOps/data/processed/stategraph_v2_swin_convnext
+  --appearance-features-dir /home/aiops/AIOps/data/processed/stategraph_v2_swin_convnext \
+  --clip-anchor trailing --strict-causal
 ```
+
+`--strict-causal` rejects precomputed motion roots unless their VideoMAEv2
+manifest proves trailing clips and every recording reports a non-positive
+maximum future offset. The resulting StateGraph index and every recording NPZ
+retain temporal provenance; `aiops.data.audit_stategraph_cache` verifies that
+no source-frame index exceeds its prediction-frame index.
 
 The model reads dimensions from `index.json`, so no IndustReal-specific shape is
 embedded in StateGraph-PSR. Other datasets can generate the same per-recording

@@ -36,6 +36,27 @@ def _effective_rare_window_boost(requested: float, rare_per_batch: int) -> float
     return 1.0 if rare_per_batch > 0 else requested
 
 
+def _initialization_enabled(args: argparse.Namespace) -> bool:
+    """Return whether provenance checkpoints should initialize model weights.
+
+    ``init_checkpoint`` and ``event_init_checkpoint`` remain part of the run
+    manifest on resume, but the exact resume checkpoint is authoritative for
+    weights and optimizer state.
+    """
+
+    return not bool(args.resume)
+
+
+def _checkpoint_argument_error(args: argparse.Namespace) -> str | None:
+    """Validate checkpoint relationships without rejecting staged resumes."""
+
+    if args.event_init_checkpoint and not args.init_checkpoint:
+        return "--event-init-checkpoint requires --init-checkpoint"
+    if args.freeze_action_backbone and not args.init_checkpoint:
+        return "--freeze-action-backbone requires --init-checkpoint"
+    return None
+
+
 def _initialize_run_directory(args: argparse.Namespace) -> tuple[Path, str]:
     """Claim a fresh run directory and persist its immutable launch contract."""
 
@@ -256,7 +277,12 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     )
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     model = build_stategraph_psr(model_config, transition_matrix).to(device)
-    if args.init_checkpoint:
+    # Keep initialization paths in the immutable run manifest during resume,
+    # but do not reload them: the resume checkpoint already contains the exact
+    # model and optimizer state.  This also makes frozen event-only stages
+    # resumable without losing their initialization provenance.
+    initialize_from_provenance = _initialization_enabled(args)
+    if args.init_checkpoint and initialize_from_provenance:
         initialization = torch.load(
             args.init_checkpoint, map_location=device, weights_only=False
         )
@@ -266,7 +292,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
             raise ValueError("Initialization checkpoint model configuration does not match.")
         model.load_state_dict(initialization["model_state"])
         print(f"Initialized model weights from {args.init_checkpoint}", flush=True)
-    if args.event_init_checkpoint:
+    if args.event_init_checkpoint and initialize_from_provenance:
         event_initialization = torch.load(
             args.event_init_checkpoint, map_location=device, weights_only=False
         )
@@ -2360,12 +2386,12 @@ def main() -> None:
     )
     parser.add_argument("--disable-dashboard", action="store_true")
     args = parser.parse_args()
-    if args.resume and args.init_checkpoint:
-        parser.error("--resume and --init-checkpoint are mutually exclusive")
-    if args.event_init_checkpoint and not args.init_checkpoint:
-        parser.error("--event-init-checkpoint requires --init-checkpoint")
-    if args.freeze_action_backbone and not args.init_checkpoint:
-        parser.error("--freeze-action-backbone requires --init-checkpoint")
+    # An initialized run must repeat --init-checkpoint when resuming because it
+    # is part of the immutable configuration hash.  train() skips the actual
+    # initialization load when --resume is present.
+    checkpoint_argument_error = _checkpoint_argument_error(args)
+    if checkpoint_argument_error:
+        parser.error(checkpoint_argument_error)
     if args.batch_size <= 0 or args.accumulation_steps <= 0:
         parser.error("batch size and accumulation steps must be positive")
     if args.rare_window_boost < 1.0:

@@ -78,6 +78,10 @@ class FrozenVisualFeatureExtractor:
 
 
 def build_industreal_cache(args: argparse.Namespace) -> dict[str, Any]:
+    clip_anchor = getattr(args, "clip_anchor", "trailing")
+    strict_causal = bool(getattr(args, "strict_causal", False))
+    if clip_anchor not in {"trailing", "centered"}:
+        raise ValueError("clip_anchor must be 'trailing' or 'centered'")
     recordings = discover_industreal_recordings(args.data_root)
     official = [
         recording
@@ -98,6 +102,16 @@ def build_industreal_cache(args: argparse.Namespace) -> dict[str, Any]:
         raise RuntimeError(
             "No official IndustReal recordings with RGB, AR, and PSR annotations found.\n"
             + json.dumps(audit.to_dict(), indent=2)
+        )
+    motion_provenance = _precomputed_motion_provenance(
+        args.motion_features_dir, {recording.recording_id for recording in official}
+    )
+    if strict_causal and args.motion_features_dir and not motion_provenance["causality_verified"]:
+        raise RuntimeError(
+            "--strict-causal requires every precomputed motion root to contain a "
+            "VideoMAEv2 manifest and source-index sidecars proving trailing clips with no "
+            "positive future offset for every selected recording. Re-extract with "
+            "--clip-anchor trailing."
         )
 
     schema = ProcedureSchema.load(args.procedure_schema)
@@ -157,6 +171,18 @@ def build_industreal_cache(args: argparse.Namespace) -> dict[str, Any]:
         "fps": args.fps,
         "stride_frames": args.stride_frames,
         "clip_frames": args.clip_frames,
+        "clip_span_frames": args.clip_span_frames,
+        "clip_anchor": clip_anchor,
+        "causal_clips": clip_anchor == "trailing" and motion_provenance["causality_verified"],
+        "strict_causal": strict_causal,
+        "temporal_contract": (
+            "prediction-aligned_past-only"
+            if clip_anchor == "trailing" and motion_provenance["causality_verified"]
+            else "unverified-precomputed-motion"
+            if clip_anchor == "trailing"
+            else "prediction-centered_bounded-lookahead"
+        ),
+        "motion_provenance": motion_provenance,
         "feature_backends": {
             "motion": (
                 getattr(args, "motion_backend_name", None)
@@ -236,19 +262,44 @@ def _cache_recording(
         raise RuntimeError(f"No dense AR action labels could be derived for {recording.recording_id}")
 
     motion = _load_precomputed_group(
-        args.motion_features_dir, recording.recording_id, len(centers), preferred_key="motion"
+        args.motion_features_dir,
+        recording.recording_id,
+        len(centers),
+        preferred_key="motion",
+        allow_resample=not bool(getattr(args, "strict_causal", False)),
     )
     appearance = _load_precomputed(
         args.appearance_features_dir,
         recording.recording_id,
         len(centers),
         preferred_key="appearance",
+        allow_resample=not bool(getattr(args, "strict_causal", False)),
     )
     motion_aux = _load_precomputed(
         getattr(args, "motion_aux_features_dir", None),
         recording.recording_id,
         len(centers),
         preferred_key="motion",
+        allow_resample=not bool(getattr(args, "strict_causal", False)),
+    )
+    clip_anchor = getattr(args, "clip_anchor", "trailing")
+    nominal_motion_source_positions = np.stack(
+        [
+            _clip_indices(
+                int(prediction), source_length, args.clip_frames, args.clip_span_frames, clip_anchor
+            )
+            for prediction in centers
+        ]
+    )
+    precomputed_source_positions = _load_precomputed_source_positions(
+        args.motion_features_dir, recording, centers
+    )
+    motion_source_positions = (
+        precomputed_source_positions
+        if precomputed_source_positions is not None
+        else nominal_motion_source_positions
+        if not args.motion_features_dir
+        else None
     )
     if motion is None or appearance is None:
         if extractor is None:
@@ -279,11 +330,8 @@ def _cache_recording(
 
         motion_rows = [] if motion is None else None
         appearance_rows = [] if appearance is None else None
-        for center in centers:
+        for center, clip_indices in zip(centers, nominal_motion_source_positions):
             if motion_rows is not None:
-                clip_indices = _clip_indices(
-                    int(center), source_length, args.clip_frames, args.clip_span_frames
-                )
                 clip_frames = [read_frame(index) for index in clip_indices]
                 motion_rows.append(extractor.extract_motion(clip_frames))
             if appearance_rows is not None:
@@ -325,6 +373,12 @@ def _cache_recording(
         boundary=boundary,
         timestamps=timestamps,
         motion_aux=motion_aux,
+        prediction_frame_indices=sampled_frame_indices,
+        motion_source_frame_indices=(
+            all_frame_indices[motion_source_positions]
+            if motion_source_positions is not None
+            else None
+        ),
     )
     return StateGraphCacheRecord(
         recording_id=recording.recording_id,
@@ -394,6 +448,7 @@ def _load_precomputed(
     recording_id: str,
     length: int,
     preferred_key: str = "features",
+    allow_resample: bool = True,
 ) -> np.ndarray | None:
     if not directory:
         return None
@@ -427,6 +482,11 @@ def _load_precomputed(
     if array.ndim != 2:
         raise ValueError(f"Expected [time, dim] features in {path}, got {array.shape}")
     if len(array) != length:
+        if not allow_resample:
+            raise ValueError(
+                f"Strict temporal alignment requires {length} rows in {path}, got {len(array)}; "
+                "index resampling is disabled."
+            )
         positions = np.linspace(0, len(array) - 1, length).round().astype(np.int64)
         array = array[positions]
     return array
@@ -437,13 +497,20 @@ def _load_precomputed_group(
     recording_id: str,
     length: int,
     preferred_key: str = "features",
+    allow_resample: bool = True,
 ) -> np.ndarray | None:
     """Load one feature source or concatenate several aligned sources."""
     if not directories:
         return None
     roots = [directories] if isinstance(directories, str) else list(directories)
     arrays = [
-        _load_precomputed(root, recording_id, length, preferred_key=preferred_key)
+        _load_precomputed(
+            root,
+            recording_id,
+            length,
+            preferred_key=preferred_key,
+            allow_resample=allow_resample,
+        )
         for root in roots
     ]
     missing = [root for root, array in zip(roots, arrays) if array is None]
@@ -454,10 +521,128 @@ def _load_precomputed_group(
     return np.concatenate([array for array in arrays if array is not None], axis=1)
 
 
-def _clip_indices(center: int, length: int, clip_frames: int, span_frames: int) -> list[int]:
-    start = center - span_frames // 2
+def _clip_indices(
+    prediction_frame: int,
+    length: int,
+    clip_frames: int,
+    span_frames: int,
+    anchor: str = "trailing",
+) -> list[int]:
+    if min(length, clip_frames, span_frames) <= 0:
+        raise ValueError("length, clip_frames, and span_frames must be positive")
+    if anchor == "trailing":
+        start = prediction_frame - span_frames + 1
+    elif anchor == "centered":
+        start = prediction_frame - span_frames // 2
+    else:
+        raise ValueError("anchor must be 'trailing' or 'centered'")
     positions = np.linspace(start, start + span_frames - 1, clip_frames).round().astype(np.int64)
     return np.clip(positions, 0, length - 1).tolist()
+
+
+def _precomputed_motion_provenance(
+    directories: str | list[str] | tuple[str, ...] | None,
+    required_recording_ids: set[str] | None = None,
+) -> dict[str, Any]:
+    """Summarize causal declarations from VideoMAEv2 feature manifests."""
+    if not directories:
+        return {"kind": "native_extraction", "causality_verified": True, "sources": []}
+    roots = [directories] if isinstance(directories, str) else list(directories)
+    provenance_sources: list[dict[str, Any]] = []
+    verified = True
+    for directory in roots:
+        root = Path(directory)
+        manifests = sorted(root.glob("videomaev2_manifest*.json")) if root.is_dir() else []
+        if not manifests:
+            provenance_sources.append({"root": str(root), "status": "unknown_no_manifest"})
+            verified = False
+            continue
+        payloads = [json.loads(path.read_text(encoding="utf-8")) for path in manifests]
+        records = {
+            str(record["recording_id"]): record
+            for payload in payloads
+            for record in payload.get("records", [])
+        }
+        required = required_recording_ids or set(records)
+        missing = sorted(required - set(records))
+        sidecars_verified = True
+        maximum_future_offset: int | None = None
+        for recording_id in sorted(required & set(records)):
+            record = records[recording_id]
+            sidecar = root / str(record.get("split", "")) / f"{recording_id}.provenance.npz"
+            if not sidecar.is_file():
+                sidecars_verified = False
+                continue
+            with np.load(sidecar, allow_pickle=False) as arrays:
+                if not {"prediction_frame_indices", "source_frame_indices"}.issubset(arrays.files):
+                    sidecars_verified = False
+                    continue
+                predictions = arrays["prediction_frame_indices"].astype(np.int64)
+                clip_sources = arrays["source_frame_indices"].astype(np.int64)
+                if (
+                    predictions.ndim != 1
+                    or clip_sources.ndim != 2
+                    or len(predictions) != len(clip_sources)
+                ):
+                    sidecars_verified = False
+                    continue
+                offset = int(np.max(clip_sources - predictions[:, None]))
+                maximum_future_offset = (
+                    offset if maximum_future_offset is None else max(maximum_future_offset, offset)
+                )
+                sidecars_verified &= offset <= 0
+        causal = not missing and sidecars_verified and all(
+            payload.get("clip_anchor") == "trailing"
+            and payload.get("causal_clips") is True
+            and all(
+                int(record.get("max_future_offset_frames", 1)) <= 0
+                for record in payload.get("records", [])
+            )
+            for payload in payloads
+        )
+        provenance_sources.append(
+            {
+                "root": str(root),
+                "status": "verified_trailing" if causal else "noncausal_or_unverified",
+                "manifests": [path.name for path in manifests],
+                "missing_recording_ids": missing,
+                "max_future_offset_frames": maximum_future_offset,
+            }
+        )
+        verified &= causal
+    return {
+        "kind": "precomputed",
+        "causality_verified": verified,
+        "sources": provenance_sources,
+    }
+
+
+def _load_precomputed_source_positions(
+    directories: str | list[str] | tuple[str, ...] | None,
+    recording: IndustRealRecording,
+    expected_predictions: np.ndarray,
+) -> np.ndarray | None:
+    """Load and combine exact source positions from precomputed feature sidecars."""
+    if not directories:
+        return None
+    roots = [directories] if isinstance(directories, str) else list(directories)
+    source_groups: list[np.ndarray] = []
+    for directory in roots:
+        path = Path(directory) / recording.split / f"{recording.recording_id}.provenance.npz"
+        if not path.is_file():
+            return None
+        with np.load(path, allow_pickle=False) as arrays:
+            if not {"prediction_frame_indices", "source_frame_indices"}.issubset(arrays.files):
+                return None
+            predictions = arrays["prediction_frame_indices"].astype(np.int64)
+            sources = arrays["source_frame_indices"].astype(np.int64)
+        if not np.array_equal(predictions, expected_predictions):
+            raise ValueError(
+                f"Precomputed temporal provenance for {recording.recording_id} is not aligned "
+                "with the requested StateGraph stride."
+            )
+        source_groups.append(sources)
+    return np.concatenate(source_groups, axis=1)
 
 
 def _normalize_video_frame(frame: np.ndarray) -> np.ndarray:
@@ -546,6 +731,17 @@ def main() -> None:
     parser.add_argument("--stride-frames", type=int, default=5)
     parser.add_argument("--clip-frames", type=int, default=16)
     parser.add_argument("--clip-span-frames", type=int, default=32)
+    parser.add_argument(
+        "--clip-anchor",
+        choices=["trailing", "centered"],
+        default="trailing",
+        help="Trailing is strict online mode; centered is an offline/look-ahead comparison.",
+    )
+    parser.add_argument(
+        "--strict-causal",
+        action="store_true",
+        help="Reject precomputed motion features without a verified past-only provenance manifest.",
+    )
     parser.add_argument("--sensor-dim", type=int, default=128)
     parser.add_argument("--num-components", type=int, default=11)
     parser.add_argument(

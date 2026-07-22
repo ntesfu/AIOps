@@ -14,6 +14,8 @@ from aiops.training.train_stategraph_psr import (
     _effective_rare_window_boost,
     _event_branch_parameter_prefixes,
     _initialize_run_directory,
+    _initialization_enabled,
+    _checkpoint_argument_error,
     _validation_selection_result,
     _validation_selection_score,
     _binary_average_precision,
@@ -414,6 +416,48 @@ class StateGraphMetricsTest(unittest.TestCase):
             args.seed = 8
             with self.assertRaises(ValueError):
                 _initialize_run_directory(args)
+
+    def test_staged_resume_keeps_init_checkpoint_as_manifest_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output_dir = Path(directory) / "event_run"
+            init_checkpoint = str(Path(directory) / "action" / "best_checkpoint.pt")
+            args = Namespace(
+                output_dir=str(output_dir),
+                cache_index=str(Path(directory) / "cache.json"),
+                resume=None,
+                init_checkpoint=init_checkpoint,
+                event_init_checkpoint=None,
+                freeze_action_backbone=True,
+                seed=7,
+            )
+            _, digest = _initialize_run_directory(args)
+
+            args.resume = str(output_dir / "last_checkpoint.pt")
+            self.assertEqual(_initialize_run_directory(args)[1], digest)
+            self.assertFalse(_initialization_enabled(args))
+            self.assertIsNone(_checkpoint_argument_error(args))
+
+            # Omitting the provenance path is incompatible with the immutable
+            # launch contract and must not silently create a different run.
+            args.init_checkpoint = None
+            with self.assertRaises(ValueError):
+                _initialize_run_directory(args)
+            self.assertEqual(
+                _checkpoint_argument_error(args),
+                "--freeze-action-backbone requires --init-checkpoint",
+            )
+
+    def test_fresh_staged_run_initializes_but_resume_does_not(self) -> None:
+        args = Namespace(
+            resume=None,
+            init_checkpoint="action.pt",
+            event_init_checkpoint="event.pt",
+            freeze_action_backbone=True,
+        )
+        self.assertTrue(_initialization_enabled(args))
+        self.assertIsNone(_checkpoint_argument_error(args))
+        args.resume = "last_checkpoint.pt"
+        self.assertFalse(_initialization_enabled(args))
 
     def test_joint_decoder_assigns_one_outcome_and_suppresses_nearby_peak(self) -> None:
         scores = np.zeros((8, 1, 3), dtype=np.float32)

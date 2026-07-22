@@ -94,6 +94,8 @@ def save_cache_record(
     boundary: np.ndarray,
     timestamps: np.ndarray,
     motion_aux: np.ndarray | None = None,
+    prediction_frame_indices: np.ndarray | None = None,
+    motion_source_frame_indices: np.ndarray | None = None,
 ) -> None:
     length = len(step)
     arrays = {
@@ -111,6 +113,12 @@ def save_cache_record(
     }
     if motion_aux is not None:
         arrays["motion_aux"] = np.asarray(motion_aux, dtype=np.float32)
+    if prediction_frame_indices is not None:
+        arrays["prediction_frame_indices"] = np.asarray(prediction_frame_indices, dtype=np.int64)
+    if motion_source_frame_indices is not None:
+        arrays["motion_source_frame_indices"] = np.asarray(
+            motion_source_frame_indices, dtype=np.int64
+        )
     for name, array in arrays.items():
         if array.shape[0] != length:
             raise ValueError(f"{name} has {array.shape[0]} rows, expected {length}")

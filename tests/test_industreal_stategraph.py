@@ -31,10 +31,23 @@ from aiops.data.stategraph_cache import (
     save_cache_record,
     write_cache_index,
 )
-from aiops.features.industreal_cache import _load_precomputed_group, build_industreal_cache
+from aiops.features.industreal_cache import (
+    _clip_indices,
+    _load_precomputed_group,
+    build_industreal_cache,
+)
 
 
 class IndustRealAdapterTest(unittest.TestCase):
+    def test_native_motion_clip_is_trailing_by_default(self) -> None:
+        indices = _clip_indices(50, 100, clip_frames=16, span_frames=32)
+        self.assertEqual(indices[-1], 50)
+        self.assertLessEqual(max(indices), 50)
+
+    def test_centered_native_motion_clip_is_explicit_offline_mode(self) -> None:
+        indices = _clip_indices(50, 100, clip_frames=16, span_frames=32, anchor="centered")
+        self.assertGreater(max(indices), 50)
+
     def test_schema_covers_every_official_non_base_psr_id(self) -> None:
         schema = ProcedureSchema.load("configs/procedure_schemas/industreal_v1.json")
         self.assertEqual(set(schema.raw_completion_map), {str(value) for value in range(3, 33)})

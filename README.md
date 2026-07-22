@@ -75,6 +75,8 @@ The default trainable head is approximately four million parameters. Its outputs
 - Trainer: [`src/aiops/training/train_stategraph_psr.py`](src/aiops/training/train_stategraph_psr.py)
 - Portable label contract: [`docs/procedure_schema_v2.md`](docs/procedure_schema_v2.md)
 - Reference implementation review: [`docs/reference_implementations_review.md`](docs/reference_implementations_review.md)
+- Critique response and evidence-first roadmap: [`docs/stategraph_psr_critique_response_plan.md`](docs/stategraph_psr_critique_response_plan.md)
+- Strict-causal IndustReal baseline protocol: [`docs/industreal_staged_baseline_protocol.md`](docs/industreal_staged_baseline_protocol.md)
 
 Audit an extracted release, build a cache, and train:
 
