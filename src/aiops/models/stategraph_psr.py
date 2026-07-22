@@ -66,9 +66,9 @@ class StateGraphPSRConfig:
     # component selector. Disabled by default so legacy checkpoints retain an
     # identical parameter set and output behaviour.
     factorized_mistake_detection: bool = False
-    # Build per-component event features from the event trunk and the cached
-    # hand/gaze/pose sensor stream. This branch is deliberately event-only so
-    # rare correctness supervision cannot destabilize action segmentation.
+    # Build per-component event features from the event trunk, a dedicated
+    # appearance projection, and optional cached sensors. This branch is
+    # deliberately event-only so rare supervision cannot destabilize actions.
     component_evidence: bool = False
 
     def to_dict(self) -> dict[str, Any]:
@@ -423,6 +423,9 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 )
             self.event_norm = nn.LayerNorm(config.hidden_dim)
             if config.component_evidence:
+                self.component_evidence_appearance_stem = ProjectionStem(
+                    config.appearance_dim
+                )
                 self.component_evidence_sensor_stem = ProjectionStem(config.sensor_dim)
                 self.component_evidence_event = nn.Sequential(
                     nn.LayerNorm(config.hidden_dim),
@@ -430,6 +433,11 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                     nn.GELU(),
                 )
                 self.component_evidence_sensor = nn.Sequential(
+                    nn.LayerNorm(config.hidden_dim),
+                    nn.Linear(config.hidden_dim, config.hidden_dim),
+                    nn.GELU(),
+                )
+                self.component_evidence_appearance = nn.Sequential(
                     nn.LayerNorm(config.hidden_dim),
                     nn.Linear(config.hidden_dim, config.hidden_dim),
                     nn.GELU(),
@@ -695,6 +703,18 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                     event_features + self.procedure_event_context(procedure_features)
                 )
             if config.component_evidence:
+                appearance_evidence = self.component_evidence_appearance_stem(appearance)
+                if appearance_evidence is None:
+                    appearance_evidence = event_features.new_zeros(event_features.shape)
+                else:
+                    appearance_present = (
+                        modality_mask[..., -2].to(appearance_evidence.dtype)
+                        if modality_mask is not None
+                        else appearance_evidence.new_ones(appearance_evidence.shape[:2])
+                    )
+                    appearance_evidence = self.component_evidence_appearance(
+                        appearance_evidence * appearance_present.unsqueeze(-1)
+                    )
                 sensor_evidence = self.component_evidence_sensor_stem(sensor)
                 if sensor_evidence is None:
                     sensor_evidence = event_features.new_zeros(event_features.shape)
@@ -708,6 +728,7 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                     sensor_evidence = self.component_evidence_sensor(sensor_evidence)
                 component_evidence_features = self.component_evidence_norm(
                     self.component_evidence_event(event_features).unsqueeze(-2)
+                    + appearance_evidence.unsqueeze(-2)
                     + sensor_evidence.unsqueeze(-2)
                     + self.component_evidence_queries.view(
                         1, 1, config.num_completion_components, config.hidden_dim

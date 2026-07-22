@@ -19,7 +19,7 @@
     }
   },
   "architecture": {
-    "inputs": "event temporal context plus cached hand/gaze/pose sensor vector",
+    "inputs": "event temporal context plus a dedicated cached-appearance projection; optional sensor projection is masked because this cache has no populated sensor rows",
     "conditioning": "one learned query per completion component",
     "outputs": "component-specific correctness, outcome, and onset evidence",
     "optimization": "same-component correct-versus-incorrect distribution ranking",
@@ -33,5 +33,5 @@
       "no material action F1@50 regression from 16.73"
     ]
   },
-  "limitation": "This is not the full image-ROI experiment. The downloaded raw RGB tree was absent from Ubuntu when the experiment was launched, so the pilot uses the hand/gaze/pose stream already preserved in the strict-causal cache."
+  "limitation": "This is not the full image-ROI experiment. The downloaded raw RGB tree was absent from Ubuntu and a cache audit found zero populated sensor rows. This pilot therefore tests component-conditioned global appearance plus ranking; true hand/object ROI evidence requires restoring raw frames."
 }
