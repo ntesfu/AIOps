@@ -47,6 +47,26 @@ def _initialization_enabled(args: argparse.Namespace) -> bool:
     return not bool(args.resume)
 
 
+def _project_event_scores_to_states(event_scores, event_state_indices, num_states: int):
+    """Map per-event-component scores onto the persistent-state component axis."""
+
+    if event_scores.shape[-1] != len(event_state_indices):
+        raise ValueError(
+            "Event score width does not match the event-to-state mapping: "
+            f"{event_scores.shape[-1]} versus {len(event_state_indices)}."
+        )
+    projected = event_scores.new_zeros((*event_scores.shape[:-1], num_states))
+    for event_component, state_component in enumerate(event_state_indices.tolist()):
+        if not 0 <= state_component < num_states:
+            raise ValueError(
+                f"Mapped state component {state_component} is outside [0, {num_states})."
+            )
+        projected[..., state_component] = projected[..., state_component].maximum(
+            event_scores[..., event_component]
+        )
+    return projected
+
+
 def _checkpoint_argument_error(args: argparse.Namespace) -> str | None:
     """Validate checkpoint relationships without rejecting staged resumes."""
 
@@ -924,8 +944,21 @@ def evaluate(
                 state_score = state_probabilities[sample_index, :length, :, 0]
                 mistake_probability = outputs.get("mistake_action_probability")
                 if mistake_probability is not None:
+                    # Event components and persistent state components are not
+                    # necessarily the same axis (IndustReal has 10 versus 11).
+                    # Project event evidence through the schema mapping before
+                    # combining it with the state-head probabilities.
+                    event_state_indices = outputs["event_state_indices"]
+                    sample_mistake_probability = mistake_probability[
+                        sample_index, :length
+                    ]
+                    mapped_mistake_probability = _project_event_scores_to_states(
+                        sample_mistake_probability,
+                        event_state_indices,
+                        state_score.shape[-1],
+                    )
                     state_score = torch.maximum(
-                        state_score, mistake_probability[sample_index, :length]
+                        state_score, mapped_mistake_probability
                     )
                 recording_id = str(batch["recording_id"][sample_index])
                 chunk: dict[str, np.ndarray | int] = {
@@ -942,7 +975,9 @@ def evaluate(
                         "mistake_action_onset_score": (
                             outputs["mistake_action_onset_score"][sample_index, :length].detach().float().cpu().numpy()
                             if "mistake_action_onset_score" in outputs
-                            else np.zeros_like(state_score.detach().float().cpu().numpy())
+                            else np.zeros_like(
+                                event_score[..., 1].detach().float().cpu().numpy()
+                            )
                         ),
                         "component_outcome": batch["component_outcome"][sample_index, :length].detach().cpu().numpy(),
                         "state_target": batch["state"][sample_index, :length].detach().cpu().numpy(),

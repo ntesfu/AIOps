@@ -34,10 +34,29 @@ from aiops.training.train_stategraph_psr import (
     _precision_recall_f1,
     _predicted_events,
     _predicted_events_from_scores,
+    _project_event_scores_to_states,
 )
 
 
 class StateGraphMetricsTest(unittest.TestCase):
+    def test_event_scores_project_to_distinct_state_axis(self) -> None:
+        try:
+            import torch
+        except ImportError:
+            self.skipTest("PyTorch optional dependency is not installed")
+
+        scores = torch.tensor([[0.2, 0.7, 0.5], [0.8, 0.1, 0.4]])
+        mapping = torch.tensor([1, 3, 1])
+        projected = _project_event_scores_to_states(scores, mapping, num_states=5)
+
+        self.assertEqual(tuple(projected.shape), (2, 5))
+        torch.testing.assert_close(
+            projected,
+            torch.tensor(
+                [[0.0, 0.5, 0.0, 0.7, 0.0], [0.0, 0.8, 0.0, 0.1, 0.0]]
+            ),
+        )
+
     def test_event_branch_prefixes_cover_procedure_and_exclude_action_classifier(self) -> None:
         prefixes = _event_branch_parameter_prefixes()
         self.assertTrue("procedure_event_context.weight".startswith(prefixes))
