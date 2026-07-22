@@ -102,8 +102,12 @@ def main() -> None:
             "architecture_type": "dual_expert_stategraph_psr",
             "action_model_config": action_config.to_dict(),
             "event_model_config": event_config.to_dict(),
-            "action_transition_matrix": action_checkpoint["transition_matrix"].detach().cpu(),
-            "event_transition_matrix": event_checkpoint["transition_matrix"].detach().cpu(),
+            "action_transition_matrix": torch.as_tensor(
+                action_checkpoint["transition_matrix"]
+            ).cpu(),
+            "event_transition_matrix": torch.as_tensor(
+                event_checkpoint["transition_matrix"]
+            ).cpu(),
             "model_state": {
                 name: value.detach().cpu() for name, value in model.state_dict().items()
             },
