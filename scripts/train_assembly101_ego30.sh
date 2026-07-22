@@ -15,6 +15,7 @@ incorrect_selection_weight="${INCORRECT_SELECTION_WEIGHT:-1.0}"
 asl_negative_gamma="${ASL_NEGATIVE_GAMMA:-4.0}"
 asl_clip="${ASL_CLIP:-0.05}"
 init_checkpoint="${INIT_CHECKPOINT:-}"
+event_init_checkpoint="${EVENT_INIT_CHECKPOINT:-}"
 freeze_action_backbone="${FREEZE_ACTION_BACKBONE:-0}"
 learning_rate_override="${LEARNING_RATE:-}"
 resume_checkpoint="${RESUME_CHECKPOINT:-}"
@@ -69,6 +70,9 @@ fi
 init_args=()
 if [[ -n "$init_checkpoint" ]]; then
   init_args+=(--init-checkpoint "$init_checkpoint")
+fi
+if [[ -n "$event_init_checkpoint" ]]; then
+  init_args+=(--event-init-checkpoint "$event_init_checkpoint")
 fi
 
 procedure_args=()

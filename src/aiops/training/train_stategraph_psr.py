@@ -266,22 +266,30 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
             raise ValueError("Initialization checkpoint model configuration does not match.")
         model.load_state_dict(initialization["model_state"])
         print(f"Initialized model weights from {args.init_checkpoint}", flush=True)
-    if args.freeze_action_backbone:
-        trainable_prefixes = (
-            "event_temporal_blocks.",
-            "state_head.",
-            "action_event_context.",
-            "state_event_context.",
-            "event_norm.",
-            "completion_head.",
-            "component_outcome_head.",
-            "incorrect_onset_head.",
-            "component_normal_prototypes",
-            "normality_scale_raw",
-            "normality_bias",
-            "anomaly_strength_raw",
-            "state_evidence_strength_raw",
+    if args.event_init_checkpoint:
+        event_initialization = torch.load(
+            args.event_init_checkpoint, map_location=device, weights_only=False
         )
+        if not _model_configs_compatible(
+            event_initialization.get("model_config"), model_config.to_dict()
+        ):
+            raise ValueError("Event initialization checkpoint model configuration does not match.")
+        current_state = model.state_dict()
+        transplanted = {
+            name: value
+            for name, value in event_initialization["model_state"].items()
+            if name.startswith(_event_branch_parameter_prefixes())
+        }
+        if not transplanted:
+            raise ValueError("Event initialization checkpoint contains no event-branch parameters.")
+        current_state.update(transplanted)
+        model.load_state_dict(current_state)
+        print(
+            f"Initialized {len(transplanted)} event tensors from {args.event_init_checkpoint}",
+            flush=True,
+        )
+    if args.freeze_action_backbone:
+        trainable_prefixes = _event_branch_parameter_prefixes()
         for name, parameter in model.named_parameters():
             parameter.requires_grad_(name.startswith(trainable_prefixes))
     criterion = build_stategraph_loss(loss_config).to(device)
@@ -774,6 +782,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
             parameter.numel() for parameter in model.parameters() if parameter.requires_grad
         ),
         "initialization_checkpoint": args.init_checkpoint,
+        "event_initialization_checkpoint": args.event_init_checkpoint,
         "freeze_action_backbone": args.freeze_action_backbone,
         "peak_training_vram_gib": peak_training_vram_gib,
         "maximum_allowed_vram_gib": args.max_vram_gib,
@@ -1613,6 +1622,27 @@ def _model_configs_compatible(stored: Any, current: dict[str, Any]) -> bool:
     return normalized == current
 
 
+def _event_branch_parameter_prefixes() -> tuple[str, ...]:
+    """Parameters adapted after action pretraining and eligible for transplant."""
+
+    return (
+        "event_temporal_blocks.",
+        "state_head.",
+        "action_event_context.",
+        "state_event_context.",
+        "procedure_event_context.",
+        "event_norm.",
+        "completion_head.",
+        "component_outcome_head.",
+        "incorrect_onset_head.",
+        "component_normal_prototypes",
+        "normality_scale_raw",
+        "normality_bias",
+        "anomaly_strength_raw",
+        "state_evidence_strength_raw",
+    )
+
+
 def _validation_selection_result(
     metrics: dict[str, float],
     *,
@@ -2126,6 +2156,11 @@ def main() -> None:
         help="Initialize model weights from a compatible training or inference checkpoint.",
     )
     parser.add_argument(
+        "--event-init-checkpoint",
+        default=None,
+        help="Transplant only event/state branch tensors from a second compatible checkpoint.",
+    )
+    parser.add_argument(
         "--freeze-action-backbone",
         action="store_true",
         help="Train only event/state modules after checkpoint initialization.",
@@ -2327,6 +2362,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.resume and args.init_checkpoint:
         parser.error("--resume and --init-checkpoint are mutually exclusive")
+    if args.event_init_checkpoint and not args.init_checkpoint:
+        parser.error("--event-init-checkpoint requires --init-checkpoint")
     if args.freeze_action_backbone and not args.init_checkpoint:
         parser.error("--freeze-action-backbone requires --init-checkpoint")
     if args.batch_size <= 0 or args.accumulation_steps <= 0:

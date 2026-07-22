@@ -12,6 +12,7 @@ import numpy as np
 from aiops.training.train_stategraph_psr import (
     OutcomeAwareBatchSampler,
     _effective_rare_window_boost,
+    _event_branch_parameter_prefixes,
     _initialize_run_directory,
     _validation_selection_result,
     _validation_selection_score,
@@ -35,6 +36,12 @@ from aiops.training.train_stategraph_psr import (
 
 
 class StateGraphMetricsTest(unittest.TestCase):
+    def test_event_branch_prefixes_cover_procedure_and_exclude_action_classifier(self) -> None:
+        prefixes = _event_branch_parameter_prefixes()
+        self.assertTrue("procedure_event_context.weight".startswith(prefixes))
+        self.assertTrue("incorrect_onset_head.weight".startswith(prefixes))
+        self.assertFalse("step_classifier.weight".startswith(prefixes))
+
     def test_legacy_model_config_accepts_only_default_off_new_field(self) -> None:
         legacy = {"hidden_dim": 256}
         self.assertTrue(

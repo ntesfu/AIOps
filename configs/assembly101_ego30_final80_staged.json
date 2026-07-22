@@ -34,10 +34,11 @@
     },
     {
       "id": "J1",
-      "run": "final_j1p_procedure_staged_crops_lr2e4_s17_16e_20260722",
+      "run": "final_j1c_combined_eventinit_s17_16e_20260722",
       "epochs": 16,
-      "learning_rate": 0.0002,
+      "learning_rate": 0.00005,
       "initial_checkpoint": "artifacts/final_j0p_procedure_pretrain_s17_64e_20260722.pt",
+      "event_initialization_checkpoint": "artifacts/abl_i0_staged_procedure_crops_s7_16e_20260722.pt",
       "event_centered_crops_per_event": 2,
       "event_centered_crop_radius": 128,
       "procedural_event_context": true,
