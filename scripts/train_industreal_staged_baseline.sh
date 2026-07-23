@@ -31,6 +31,7 @@ any_mistake_weight="${ANY_MISTAKE_WEIGHT:-1.0}"
 mistake_component_weight="${MISTAKE_COMPONENT_WEIGHT:-1.0}"
 any_mistake_pos_weight="${ANY_MISTAKE_POS_WEIGHT:-1.0}"
 incorrect_hard_negative_ratio="${INCORRECT_HARD_NEGATIVE_RATIO:-0.0}"
+matched_component_batches="${MATCHED_COMPONENT_BATCHES:-0}"
 component_evidence_temporal_blocks="${COMPONENT_EVIDENCE_TEMPORAL_BLOCKS:-0}"
 structured_roi_tokens="${STRUCTURED_ROI_TOKENS:-0}"
 roi_token_count="${ROI_TOKEN_COUNT:-4}"
@@ -153,8 +154,12 @@ train_event() {
     exit 3
   fi
   local resume_args=()
+  local matched_batch_args=()
   if [[ "$resume" == "1" && -f "$event_run/last_checkpoint.pt" ]]; then
     resume_args+=(--resume "$event_run/last_checkpoint.pt")
+  fi
+  if [[ "$matched_component_batches" == "1" ]]; then
+    matched_batch_args+=(--matched-component-batches)
   fi
   "$python_bin" -m aiops.training.train_stategraph_psr \
     "${common_args[@]}" \
@@ -170,6 +175,7 @@ train_event() {
     --selection-strategy "$event_selection" \
     --selection-max-false-alerts-per-minute "$max_false_alerts" \
     --max-incorrect-false-alerts-per-minute "$max_false_alerts" \
+    "${matched_batch_args[@]}" \
     "${resume_args[@]}"
 }
 

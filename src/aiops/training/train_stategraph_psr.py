@@ -8,7 +8,7 @@ import random
 import re
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 
@@ -127,6 +127,7 @@ class OutcomeAwareBatchSampler:
         rare_indices: list[int],
         rare_per_batch: int = 1,
         sampling_weights: np.ndarray | None = None,
+        matched_correct_candidates: Mapping[int, Sequence[int]] | None = None,
         seed: int = 7,
     ) -> None:
         if dataset_size <= 0 or batch_size <= 0:
@@ -148,6 +149,22 @@ class OutcomeAwareBatchSampler:
         if weight_sum <= 0:
             raise ValueError("sampling_weights must contain at least one positive value")
         self.sampling_probabilities = self.sampling_weights / weight_sum
+        self.matched_correct_candidates = {
+            int(rare): np.asarray(sorted(set(candidates)), dtype=np.int64)
+            for rare, candidates in (matched_correct_candidates or {}).items()
+            if candidates
+        }
+        invalid_rare = set(self.matched_correct_candidates) - set(
+            int(value) for value in self.rare_indices
+        )
+        if invalid_rare:
+            raise ValueError("matched candidates contain non-rare window indices")
+        for candidates in self.matched_correct_candidates.values():
+            if (candidates < 0).any() or (candidates >= dataset_size).any():
+                raise ValueError("matched candidate indices must belong to the dataset")
+        self.pairable_rare_indices = np.asarray(
+            sorted(self.matched_correct_candidates), dtype=np.int64
+        )
         self.seed = seed
         self.epoch = 0
 
@@ -164,11 +181,25 @@ class OutcomeAwareBatchSampler:
             rare_count = min(self.rare_per_batch, current_size)
             batch: list[int] = []
             if rare_count:
-                batch.extend(
-                    int(value)
-                    for value in rng.choice(self.rare_indices, size=rare_count, replace=True)
-                )
-            fill = current_size - rare_count
+                if len(self.pairable_rare_indices):
+                    rare_count = min(rare_count, current_size // 2)
+                    selected_rare = rng.choice(
+                        self.pairable_rare_indices, size=rare_count, replace=True
+                    )
+                    for value in selected_rare:
+                        rare = int(value)
+                        batch.append(rare)
+                        batch.append(
+                            int(rng.choice(self.matched_correct_candidates[rare]))
+                        )
+                else:
+                    batch.extend(
+                        int(value)
+                        for value in rng.choice(
+                            self.rare_indices, size=rare_count, replace=True
+                        )
+                    )
+            fill = current_size - len(batch)
             if fill:
                 batch.extend(
                     int(value)
@@ -410,12 +441,18 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         incorrect_outcome_index=1,
         rare_window_boost=effective_rare_window_boost,
     )
+    matched_correct_candidates = (
+        train_dataset.matched_correct_window_candidates()
+        if args.matched_component_batches
+        else {}
+    )
     batch_sampler = OutcomeAwareBatchSampler(
         dataset_size=len(train_dataset),
         batch_size=args.batch_size,
         rare_indices=train_dataset.rare_window_indices(),
         rare_per_batch=args.rare_windows_per_batch,
         sampling_weights=sampling_weights,
+        matched_correct_candidates=matched_correct_candidates,
         seed=args.seed,
     )
     train_loader = DataLoader(
@@ -876,6 +913,11 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         "effective_rare_window_boost": effective_rare_window_boost,
         "rare_windows_per_batch": args.rare_windows_per_batch,
         "incorrect_training_events": train_dataset.incorrect_event_count,
+        "matched_component_batches": args.matched_component_batches,
+        "matched_rare_windows": len(matched_correct_candidates),
+        "matched_window_candidates": sum(
+            len(candidates) for candidates in matched_correct_candidates.values()
+        ),
         "event_centered_crops_per_event": args.event_centered_crops_per_event,
         "event_centered_crop_radius": args.event_centered_crop_radius,
         "event_centered_train_windows": len(train_dataset.event_centered_indices()),
@@ -2380,6 +2422,14 @@ def main() -> None:
         type=int,
         default=1,
         help="Guarantee this many incorrect-event windows in each training batch.",
+    )
+    parser.add_argument(
+        "--matched-component-batches",
+        action="store_true",
+        help=(
+            "Pair each sampled incorrect-event window with a correct-install "
+            "window for the same component, preferring the same action."
+        ),
     )
     parser.add_argument(
         "--event-centered-crops-per-event",

@@ -399,6 +399,21 @@ class StateGraphMetricsTest(unittest.TestCase):
         self.assertEqual(len(batches), 4)
         self.assertTrue(all(3 in batch for batch in batches))
 
+    def test_outcome_aware_sampler_pairs_rare_and_matched_correct_windows(self) -> None:
+        sampler = OutcomeAwareBatchSampler(
+            dataset_size=8,
+            batch_size=4,
+            rare_indices=[2, 3],
+            rare_per_batch=2,
+            matched_correct_candidates={2: [5], 3: [6]},
+            seed=2,
+        )
+        for batch in sampler:
+            self.assertEqual(len(batch), 4)
+            self.assertTrue(
+                (2 in batch and 5 in batch) or (3 in batch and 6 in batch)
+            )
+
     def test_outcome_aware_sampler_uses_configured_sampling_weights(self) -> None:
         sampler = OutcomeAwareBatchSampler(
             dataset_size=3,

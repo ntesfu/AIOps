@@ -302,6 +302,68 @@ class StateGraphCacheDataset:
 
         return sorted(self.event_centered_window_indices)
 
+    def matched_correct_window_candidates(
+        self,
+        incorrect_outcome_index: int = 1,
+        correct_outcome_index: int = 0,
+    ) -> dict[int, list[int]]:
+        """Match rare windows to correct installs of the same component.
+
+        Candidates with the same action at the labelled event are preferred,
+        followed by cross-recording candidates.  The method uses training
+        records only; validation records live in a separate dataset instance.
+        """
+
+        labels: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+        for record_index in range(len(self.records)):
+            with self._open_record(record_index) as arrays:
+                labels[record_index] = (
+                    arrays["component_outcome"].copy(),
+                    arrays["step"].copy(),
+                )
+
+        correct: dict[int, list[tuple[int, int, int]]] = {}
+        incorrect: dict[int, set[tuple[int, int]]] = {}
+        for window_index, (record_index, start) in enumerate(self.windows):
+            outcomes, steps = labels[record_index]
+            end = min(len(outcomes), start + self.sequence_length)
+            window_outcomes = outcomes[start:end]
+            for row_offset, component in np.argwhere(
+                window_outcomes == correct_outcome_index
+            ):
+                action = int(steps[start + int(row_offset)])
+                correct.setdefault(int(component), []).append(
+                    (window_index, action, record_index)
+                )
+            if window_index in self.incorrect_event_windows:
+                signatures = {
+                    (int(component), int(steps[start + int(row_offset)]))
+                    for row_offset, component in np.argwhere(
+                        window_outcomes == incorrect_outcome_index
+                    )
+                }
+                if signatures:
+                    incorrect[window_index] = signatures
+
+        matches: dict[int, list[int]] = {}
+        for rare_index, signatures in incorrect.items():
+            rare_record = self.windows[rare_index][0]
+            ranked: dict[int, tuple[int, int, int]] = {}
+            for component, action in signatures:
+                for candidate, candidate_action, candidate_record in correct.get(
+                    component, ()
+                ):
+                    key = (
+                        candidate_action != action,
+                        candidate_record == rare_record,
+                        candidate,
+                    )
+                    if candidate not in ranked or key < ranked[candidate]:
+                        ranked[candidate] = key
+            if ranked:
+                matches[rare_index] = sorted(ranked, key=ranked.__getitem__)
+        return matches
+
 
 def pad_stategraph_batch(samples: list[dict[str, Any]]) -> dict[str, Any]:
     try:

@@ -202,6 +202,11 @@ TensorBoard histories are retained.
 Promotion requires more than the flat reference's one operational fold out of
 five while retaining the two-false-alerts-per-minute budget.
 
+After learned fusion also achieved only one operational fold out of five, the
+next controlled supervision experiment became same-component matched batching.
+Its rationale, leakage controls, command, and promotion gate are specified in
+`docs/industreal_matched_bag_experiment.md`.
+
 ## Hybrid recovery experiment
 
 The structured-only quick screen preserved action segmentation within one

@@ -264,6 +264,42 @@ class IndustRealAdapterTest(unittest.TestCase):
                     event_centered_crops_per_event=1,
                 )
 
+    def test_matched_correct_candidates_prefer_same_component_and_action(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            records = []
+            for recording_id, outcome, action in (
+                ("incorrect", 1, 2),
+                ("same_action", 0, 2),
+                ("different_action", 0, 1),
+            ):
+                path = Path(directory) / f"{recording_id}.npz"
+                outcomes = np.full((8, 2), -100, dtype=np.int64)
+                outcomes[4, 1] = outcome
+                save_cache_record(
+                    path,
+                    motion=np.ones((8, 4), dtype=np.float32),
+                    appearance=np.ones((8, 3), dtype=np.float32),
+                    sensor=np.ones((8, 2), dtype=np.float32),
+                    modality_mask=np.ones((8, 3), dtype=np.bool_),
+                    step=np.full(8, action, dtype=np.int64),
+                    completion=np.zeros((8, 2), dtype=np.float32),
+                    component_outcome=outcomes,
+                    state=np.ones((8, 2), dtype=np.int64),
+                    state_mask=np.ones((8, 2), dtype=np.bool_),
+                    boundary=np.zeros(8, dtype=np.float32),
+                    timestamps=np.arange(8, dtype=np.float32),
+                )
+                records.append(
+                    StateGraphCacheRecord(
+                        recording_id, "train", path, 3, 4, 3, 2, 2, 2
+                    )
+                )
+            dataset = StateGraphCacheDataset(
+                records, sequence_length=8, training=True
+            )
+            matches = dataset.matched_correct_window_candidates()
+            self.assertEqual(matches[0][:2], [1, 2])
+
     def test_cache_builder_writes_v2_action_and_multilabel_contract(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
