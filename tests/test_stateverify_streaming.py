@@ -55,7 +55,13 @@ def test_low_confidence_supervised_effect_cannot_veto_execution_residual():
     available = np.ones_like(anomaly, dtype=bool)
     effect = np.asarray([[[0.1, 0.895, 0.005, 0.0]]])
     evidence = build_streaming_evidence(
-        anomaly, available, effect, StreamingConfig(completion_threshold=0.5)
+        anomaly,
+        available,
+        effect,
+        StreamingConfig(
+            completion_threshold=0.5,
+            effect_positive_threshold=0.5,
+        ),
     )
     assert evidence.execution_mask[0, 0]
     assert not evidence.effect_mask[0, 0]
@@ -132,6 +138,7 @@ def test_open_set_execution_can_promote_incorrect_emission_at_candidate():
             anomaly_threshold=1.0,
             alert_threshold=0.45,
             confirmation_steps=1,
+            promote_execution_to_state_emission=True,
         ),
     )
     assert any(event.kind == "alert" for event in trace.events)

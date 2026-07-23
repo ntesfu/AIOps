@@ -24,8 +24,8 @@ class StreamingConfig:
     alert_threshold: float = 0.60
     confirmation_steps: int = 2
     gate_incorrect_state_to_completion: bool = True
-    effect_positive_threshold: float = 0.5
-    promote_execution_to_state_emission: bool = True
+    effect_positive_threshold: float = 0.0
+    promote_execution_to_state_emission: bool = False
 
     def validate(self) -> None:
         if not 0.0 <= self.completion_threshold <= 1.0:

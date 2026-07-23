@@ -43,6 +43,8 @@ gaze slot; no gaze measurement is reintroduced.
 | Event-gated, 0.1/min budget | 64.29% | 40.91% | **0.099** | 0/5 | **0.000** |
 | Event-gated, 0.25/min budget | 85.71% | 36.36% | 0.159 | 0/5 | 0.000 |
 | Event-gated, 0.5/min budget | 92.86% | 19.40% | 0.410 | 0/5 | 0.047 |
+| Procedural observer, safest tested point | 53.85% | 16.67% | 0.266 | 0/4 unique | 0.000 |
+| Procedural + open-set state promotion (rejected) | 61.54% | 10.39% | 0.524 | 0/4 unique | 0.615 |
 
 Event gating is a real architectural improvement: it turns an infeasible train
 operating point into one that meets 0.1 false alerts/min. It does not, however,
@@ -99,6 +101,40 @@ step embedding. It adds little memory and keeps all frozen video encoders and
 the causal component blocks unchanged, so it remains suitable for one 24 GB
 GPU.
 
+## Procedural candidate outcome
+
+The 20-epoch procedural observer completed and passed the first acceptance
+gate:
+
+- validation step frame accuracy: **36.24%**, versus 22.91% for the prior
+  standalone causal router;
+- held-out incorrect-event mean anomaly: **0.681**, versus -0.035 for the
+  component-only observer;
+- strongest held-out anomaly: **2.008**, versus 0.316.
+
+It did not pass the live-alert gate: all train-selected operating points still
+detected 0/4 unique validation transitions. Two inference-time attempts to let
+the open-set residual override uncalibrated rare-class softmaxes were also
+rejected. Positive-only effect fusion did not recover an event, and direct
+execution-to-state promotion raised validation false alerts to 0.615/min
+without a true positive. Both switches remain implemented for reproducible
+ablation, but default to the safer original fusion.
+
+This narrows the next experiment further. Procedural supervision improves the
+features, but normal prototypes alone do not learn the visual difference
+between correct and incorrect effects. The next training change should use
+matched completion pairs:
+
+1. pair every incorrect completion with correct completions of the same step
+   and component;
+2. learn an effect-residual projection with supervised contrastive or
+   margin-ranking loss;
+3. preserve the prototype bank as an open-set branch rather than asking it to
+   carry all typed-error discrimination;
+4. validate with grouped subjects and unique projected transitions;
+5. do not launch a long full-epoch run until at least one held-out transition
+   is detected below the 0.25 false-alert/min development gate.
+
 ## Acceptance gates for the next training run
 
 The new candidate advances only if it satisfies all of the following:
@@ -125,6 +161,12 @@ The new candidate advances only if it satisfies all of the following:
   `runs/industreal_stateverify_streaming_diagnostics_s7/result.json`
 - Predicted-step result:
   `runs/industreal_stateverify_streaming_predstep_s7/result.json`
+- Procedural observer:
+  `runs/industreal_stateverify_procedural_s7/best.pt`
+- Procedural streaming result:
+  `runs/industreal_stateverify_procedural_streaming_s7/result.json`
+- Rejected open-set promotion:
+  `runs/industreal_stateverify_procedural_open_set_s7/result.json`
 
 The result directories live on
 `/media/lm-ciss/LM_4TB/aiops/AIOps-stategraph-industreal`.
