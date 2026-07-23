@@ -26,6 +26,7 @@ component_rank_weight="${COMPONENT_RANK_WEIGHT:-0.0}"
 component_rank_margin="${COMPONENT_RANK_MARGIN:-0.5}"
 event_only_motion_aux="${EVENT_ONLY_MOTION_AUX:-0}"
 factorized_mistake_detection="${FACTORIZED_MISTAKE_DETECTION:-0}"
+learned_event_fusion="${LEARNED_EVENT_FUSION:-0}"
 any_mistake_weight="${ANY_MISTAKE_WEIGHT:-1.0}"
 mistake_component_weight="${MISTAKE_COMPONENT_WEIGHT:-1.0}"
 any_mistake_pos_weight="${ANY_MISTAKE_POS_WEIGHT:-1.0}"
@@ -125,6 +126,9 @@ if [[ "$factorized_mistake_detection" == "1" ]]; then
     --mistake-component-weight "$mistake_component_weight"
     --any-mistake-pos-weight "$any_mistake_pos_weight"
   )
+fi
+if [[ "$learned_event_fusion" == "1" ]]; then
+  common_args+=(--learned-event-fusion)
 fi
 
 train_action() {

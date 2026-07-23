@@ -171,6 +171,21 @@ The runner attempts every fold even when one fold cannot produce an operational
 checkpoint. The summary reports that as a failure rather than averaging only
 successful folds silently.
 
+If folds show useful normality AP but no operational onset recall, run the
+pre-existing learned event-fusion ablation. It combines onset, normality,
+outcome, state, and action-mistake scores before calibration:
+
+```bash
+FOLD_INDEX_DIR=experiments/industreal_grouped_folds_v2_s7 \
+RUN_PREFIX_BASE=industreal_grouped_fusion_v1 \
+LEARNED_EVENT_FUSION=1 \
+EXPERIMENT_TIER=quick \
+bash scripts/run_industreal_grouped_flat_reference.sh
+```
+
+Promotion requires more than the flat reference's one operational fold out of
+five while retaining the two-false-alerts-per-minute budget.
+
 ## Hybrid recovery experiment
 
 The structured-only quick screen preserved action segmentation within one
