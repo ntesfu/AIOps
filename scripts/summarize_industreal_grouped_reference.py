@@ -27,6 +27,47 @@ def _json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _history_diagnostics(path: Path) -> dict[str, Any]:
+    observations = [
+        json.loads(line)["validation"]
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    within_budget = [
+        row
+        for row in observations
+        if float(row.get("incorrect_false_alerts_per_minute", float("inf"))) <= 2.0
+    ]
+    positive_recall = [
+        row for row in observations if float(row.get("incorrect_event_recall", 0.0)) > 0
+    ]
+    return {
+        "evaluated_epochs": len(observations),
+        "best_incorrect_recall_within_2_false_alerts_per_minute": max(
+            (float(row.get("incorrect_event_recall", 0.0)) for row in within_budget),
+            default=0.0,
+        ),
+        "best_incorrect_f1_within_2_false_alerts_per_minute": max(
+            (float(row.get("incorrect_event_f1", 0.0)) for row in within_budget),
+            default=0.0,
+        ),
+        "minimum_false_alerts_per_minute_with_positive_recall": min(
+            (
+                float(row.get("incorrect_false_alerts_per_minute", float("inf")))
+                for row in positive_recall
+            ),
+            default=None,
+        ),
+        "best_normality_incorrect_average_precision": max(
+            (
+                float(row.get("normality_incorrect_average_precision", 0.0))
+                for row in observations
+            ),
+            default=0.0,
+        ),
+    }
+
+
 def summarize(
     repo_root: Path,
     *,
@@ -39,6 +80,9 @@ def summarize(
         prefix = f"{run_prefix_base}_fold{fold}_s{seed}"
         action_path = repo_root / "runs" / f"{prefix}_action" / "metrics.json"
         event_path = repo_root / "runs" / f"{prefix}_event" / "metrics.json"
+        event_history_path = (
+            repo_root / "runs" / f"{prefix}_event" / "history.jsonl"
+        )
         validation_path = (
             repo_root / "runs" / f"{prefix}_dual_expert" / "validation.json"
         )
@@ -59,11 +103,13 @@ def summarize(
             row["event_peak_training_vram_gib"] = event.get(
                 "peak_training_vram_gib"
             )
+        if event_history_path.exists():
+            row["event_history"] = _history_diagnostics(event_history_path)
         if validation_path.exists():
             metrics = _json(validation_path)["metrics"]
             row.update({metric: metrics.get(metric) for metric in METRICS})
             row["status"] = "operational_checkpoint"
-        elif (repo_root / "runs" / f"{prefix}_event" / "history.jsonl").exists():
+        elif event_history_path.exists():
             row["status"] = "no_operational_checkpoint"
         elif action_path.exists():
             row["status"] = "action_only"

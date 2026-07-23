@@ -181,7 +181,20 @@ class IndustRealGroupedEvaluationTest(unittest.TestCase):
             )
             failed = root / "runs" / "grouped_fold1_s7_event" / "history.jsonl"
             failed.parent.mkdir(parents=True)
-            failed.write_text("{}\n", encoding="utf-8")
+            failed.write_text(
+                json.dumps(
+                    {
+                        "validation": {
+                            "incorrect_event_recall": 25.0,
+                            "incorrect_event_f1": 1.5,
+                            "incorrect_false_alerts_per_minute": 3.0,
+                            "normality_incorrect_average_precision": 9.0,
+                        }
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
 
             report = SUMMARY.summarize(
                 root, run_prefix_base="grouped", seed=7, folds=2
@@ -191,6 +204,18 @@ class IndustRealGroupedEvaluationTest(unittest.TestCase):
             self.assertEqual(report["operational_pass_rate"], 0.5)
             self.assertEqual(
                 report["rows"][1]["status"], "no_operational_checkpoint"
+            )
+            self.assertEqual(
+                report["rows"][1]["event_history"][
+                    "best_incorrect_recall_within_2_false_alerts_per_minute"
+                ],
+                0.0,
+            )
+            self.assertEqual(
+                report["rows"][1]["event_history"][
+                    "minimum_false_alerts_per_minute_with_positive_recall"
+                ],
+                3.0,
             )
             self.assertTrue(report["test_remained_sealed"])
 
