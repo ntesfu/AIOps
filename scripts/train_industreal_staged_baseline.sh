@@ -29,6 +29,7 @@ factorized_mistake_detection="${FACTORIZED_MISTAKE_DETECTION:-0}"
 any_mistake_weight="${ANY_MISTAKE_WEIGHT:-1.0}"
 mistake_component_weight="${MISTAKE_COMPONENT_WEIGHT:-1.0}"
 any_mistake_pos_weight="${ANY_MISTAKE_POS_WEIGHT:-1.0}"
+incorrect_hard_negative_ratio="${INCORRECT_HARD_NEGATIVE_RATIO:-0.0}"
 resume="${RESUME:-0}"
 python_bin="${PYTHON_BIN:-.venv/bin/python}"
 export PYTHONPATH=".deps:src${PYTHONPATH:+:${PYTHONPATH}}"
@@ -76,6 +77,7 @@ common_args=(
   --state-class-weight-cap 12.0
   --normality-error-weight 10.0
   --incorrect-pos-weight-cap 100.0
+  --incorrect-hard-negative-ratio "$incorrect_hard_negative_ratio"
   --event-label-horizon 2
   --incorrect-selection-weight 1.0
   --procedural-event-context

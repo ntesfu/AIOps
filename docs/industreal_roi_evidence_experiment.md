@@ -36,6 +36,11 @@ each paying the full class-imbalance penalty. Its positive weight is 17, derived
 235 correct versus 14 incorrect training events. Event checkpoints use the operational harmonic
 selector and must satisfy the two-false-alerts-per-minute budget.
 
+Two depthwise causal residual blocks (dilations 1 and 2) adapt the ROI stream before component
+fusion. The shared timing loss keeps the 20 hardest negatives per positive and is weighted five
+times more strongly; component localization is weighted 0.25. This reflects the deployment order:
+first decide whether an alert is warranted, then identify its component.
+
 ## Storage strategy
 
 The 29 GB recording archives are not expanded. Only `hands.csv`, `gaze.csv`, `pose.csv`, and

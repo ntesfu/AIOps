@@ -393,6 +393,16 @@ class StateGraphModelTest(unittest.TestCase):
         self.assertTrue(bool(mask[0, 0, 1]))
         self.assertTrue(bool(mask[0, 1, 0]))
 
+        timing_logits = torch.tensor([[0.0, 4.0, 3.0, 1.0]])
+        timing_targets = torch.tensor([[1.0, 0.0, 0.0, 0.0]])
+        timing_mask = criterion._hard_negative_mask(
+            timing_logits,
+            timing_targets,
+            torch.ones_like(timing_targets, dtype=torch.bool),
+            ratio=1.0,
+        )
+        self.assertEqual(timing_mask.tolist(), [[True, True, False, False]])
+
 
 if __name__ == "__main__":
     unittest.main()

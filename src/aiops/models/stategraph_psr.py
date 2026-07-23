@@ -455,6 +455,12 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                     nn.Linear(config.hidden_dim, config.hidden_dim),
                     nn.GELU(),
                 )
+                # ROI evidence is extracted per frame. Give it a small causal
+                # temporal adapter so the event branch can learn before/after
+                # changes without increasing the global action backbone.
+                self.component_evidence_aux_temporal = nn.ModuleList(
+                    [CausalDepthwiseBlock(1), CausalDepthwiseBlock(2)]
+                )
                 self.component_evidence_queries = nn.Parameter(
                     torch.empty(config.num_completion_components, config.hidden_dim)
                 )
@@ -752,6 +758,8 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                     auxiliary_evidence = event_features.new_zeros(event_features.shape)
                 else:
                     auxiliary_evidence = self.component_evidence_aux(auxiliary_evidence)
+                    for auxiliary_block in self.component_evidence_aux_temporal:
+                        auxiliary_evidence = auxiliary_block(auxiliary_evidence)
                 component_evidence_features = self.component_evidence_norm(
                     self.component_evidence_event(event_features).unsqueeze(-2)
                     + appearance_evidence.unsqueeze(-2)
@@ -1077,7 +1085,7 @@ def build_stategraph_loss(config: StateGraphLossConfig):
             hardest = torch.topk(negative_scores, keep_count, sorted=False).indices
             selected = positive.clone()
             chosen = negative_indices[hardest]
-            selected[chosen[:, 0], chosen[:, 1], chosen[:, 2]] = True
+            selected[tuple(chosen.transpose(0, 1))] = True
             return selected
 
         def forward(
@@ -1140,7 +1148,12 @@ def build_stategraph_loss(config: StateGraphLossConfig):
                 losses["any_mistake_onset"] = self._asymmetric_bce(
                     any_mistake_logits,
                     any_mistake_targets,
-                    valid_mask,
+                    self._hard_negative_mask(
+                        any_mistake_logits,
+                        any_mistake_targets,
+                        valid_mask,
+                        config.incorrect_hard_negative_ratio,
+                    ),
                     positive_gamma=0.0,
                     negative_gamma=config.asl_negative_gamma,
                     clip=config.asl_clip,
