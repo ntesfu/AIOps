@@ -25,6 +25,7 @@ class StreamingConfig:
     confirmation_steps: int = 2
     gate_incorrect_state_to_completion: bool = True
     effect_positive_threshold: float = 0.5
+    promote_execution_to_state_emission: bool = True
 
     def validate(self) -> None:
         if not 0.0 <= self.completion_threshold <= 1.0:
@@ -151,7 +152,16 @@ def run_streaming_tracker(
         candidate = (
             completion >= config.completion_threshold
         ) & np.asarray(anomaly_available, dtype=np.bool_)
-        emissions[..., 2] = np.where(candidate, emissions[..., 2], 1e-6)
+        candidate_incorrect = emissions[..., 2]
+        if config.promote_execution_to_state_emission:
+            execution_probability = _sigmoid(
+                (np.asarray(anomaly_scores) - config.anomaly_threshold)
+                / config.anomaly_temperature
+            )
+            candidate_incorrect = np.maximum(
+                candidate_incorrect, execution_probability
+            )
+        emissions[..., 2] = np.where(candidate, candidate_incorrect, 1e-6)
         emissions /= emissions.sum(axis=-1, keepdims=True).clip(min=1e-8)
     tracker_config = BeliefTrackerConfig(
         alert_threshold=config.alert_threshold,

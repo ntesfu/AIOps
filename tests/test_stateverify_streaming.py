@@ -115,3 +115,23 @@ def test_tracker_cannot_start_incorrect_transition_without_completion_candidate(
         ),
     )
     assert not any(event.kind == "alert" for event in trace.events)
+
+
+def test_open_set_execution_can_promote_incorrect_emission_at_candidate():
+    state = np.asarray([[[0.01, 0.98, 0.01]]] * 3)
+    anomaly = np.asarray([[8.0]] * 3)
+    available = np.ones_like(anomaly, dtype=bool)
+    effect = np.asarray([[[0.01, 0.98, 0.01, 0.0]]] * 3)
+    trace = run_streaming_tracker(
+        state,
+        anomaly,
+        available,
+        effect,
+        StreamingConfig(
+            completion_threshold=0.5,
+            anomaly_threshold=1.0,
+            alert_threshold=0.45,
+            confirmation_steps=1,
+        ),
+    )
+    assert any(event.kind == "alert" for event in trace.events)
