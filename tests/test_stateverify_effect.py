@@ -167,8 +167,10 @@ class StateEffectObserverTest(unittest.TestCase):
         losses = criterion(outputs, targets, (0, 2))
         self.assertTrue(bool(torch.isfinite(losses["total"])))
         losses["total"].backward()
-        self.assertIsNotNone(model.state_head.weight.grad)
-        self.assertIsNotNone(model.effect_head[-1].weight.grad)
+        self.assertIsNotNone(model.state_presence_head.weight.grad)
+        self.assertIsNotNone(model.state_correctness_head.weight.grad)
+        self.assertIsNotNone(model.effect_type_head.weight.grad)
+        self.assertIsNotNone(model.effect_correctness_head.weight.grad)
 
 
 if __name__ == "__main__":

@@ -50,6 +50,13 @@ only the hardest bounded set of `no_change` frames. This prevents the observed
 training distribution (19 incorrect effects versus 172,929 no-change frames)
 from collapsing the effect head into a trivial no-change classifier.
 
+The state and effect outputs are factorized for label efficiency. State is
+predicted as `installed probability × conditional correctness`; effect is
+predicted as `no-change / complete / remove × conditional correctness`.
+Incorrect examples therefore reuse the well-supervised installation and
+completion representations instead of requiring independent three-way or
+four-way class prototypes.
+
 The best checkpoint maximizes:
 
 `state macro recall + effect macro recall + installed-incorrect recall + 2 × incorrect-effect recall`.

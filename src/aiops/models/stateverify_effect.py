@@ -45,6 +45,8 @@ class StateEffectLossConfig:
 
     state_weight: float = 1.0
     effect_weight: float = 1.0
+    state_correctness_weight: float = 0.5
+    effect_correctness_weight: float = 1.0
     transition_consistency_weight: float = 0.25
     focal_gamma: float = 1.5
     effect_no_change_ratio: float = 4.0
@@ -54,6 +56,8 @@ class StateEffectLossConfig:
         if min(
             self.state_weight,
             self.effect_weight,
+            self.state_correctness_weight,
+            self.effect_correctness_weight,
             self.transition_consistency_weight,
             self.focal_gamma,
             self.effect_no_change_ratio,
@@ -206,6 +210,26 @@ def build_state_effect_loss(config: StateEffectLossConfig):
                     effect_class_weights,
                 ),
             }
+            state_correctness_mask = typed["state_mask"] & (
+                typed["state"] >= 1
+            )
+            losses["state_correctness"] = self._focal_cross_entropy(
+                outputs["state_correctness_logits"],
+                (typed["state"] - 1).clamp_min(0),
+                state_correctness_mask,
+                state_class_weights[1:] if state_class_weights is not None else None,
+            )
+            effect_correctness_mask = effect_training_mask & (
+                (typed["effect"] == 1) | (typed["effect"] == 2)
+            )
+            losses["effect_correctness"] = self._focal_cross_entropy(
+                outputs["effect_correctness_logits"],
+                (typed["effect"] - 1).clamp_min(0),
+                effect_correctness_mask,
+                effect_class_weights[1:3]
+                if effect_class_weights is not None
+                else None,
+            )
 
             state_probability = torch.softmax(outputs["state_logits"], dim=-1)
             effect_probability = torch.softmax(outputs["effect_logits"], dim=-1)
@@ -236,6 +260,10 @@ def build_state_effect_loss(config: StateEffectLossConfig):
             losses["total"] = (
                 config.state_weight * losses["state"]
                 + config.effect_weight * losses["effect"]
+                + config.state_correctness_weight
+                * losses["state_correctness"]
+                + config.effect_correctness_weight
+                * losses["effect_correctness"]
                 + config.transition_consistency_weight
                 * losses["transition_consistency"]
             )
@@ -371,14 +399,16 @@ def build_state_effect_observer(config: StateEffectObserverConfig):
                     for index in range(config.temporal_blocks)
                 ]
             )
-            self.state_head = nn.Linear(config.hidden_dim, 3)
-            self.effect_head = nn.Sequential(
+            self.state_presence_head = nn.Linear(config.hidden_dim, 1)
+            self.state_correctness_head = nn.Linear(config.hidden_dim, 2)
+            self.effect_stem = nn.Sequential(
                 nn.LayerNorm(2 * config.hidden_dim),
                 nn.Linear(2 * config.hidden_dim, config.hidden_dim),
                 nn.GELU(),
                 nn.Dropout(config.dropout),
-                nn.Linear(config.hidden_dim, 4),
             )
+            self.effect_type_head = nn.Linear(config.hidden_dim, 3)
+            self.effect_correctness_head = nn.Linear(config.hidden_dim, 2)
 
         def forward(
             self,
@@ -473,15 +503,46 @@ def build_state_effect_observer(config: StateEffectObserverConfig):
             for block in self.temporal_blocks:
                 component_features = block(component_features, valid_mask)
 
-            state_logits = self.state_head(component_features)
+            state_presence_logits = self.state_presence_head(component_features)
+            state_correctness_logits = self.state_correctness_head(component_features)
+            installed_probability = torch.sigmoid(state_presence_logits)
+            state_correctness_probability = torch.softmax(
+                state_correctness_logits, dim=-1
+            )
+            state_probability = torch.cat(
+                [
+                    1.0 - installed_probability,
+                    installed_probability * state_correctness_probability[..., :1],
+                    installed_probability * state_correctness_probability[..., 1:],
+                ],
+                dim=-1,
+            )
+            state_logits = torch.log(state_probability.clamp_min(1e-8))
             indices = torch.arange(time, device=component_features.device)
             reference = (indices - config.effect_lag).clamp_min(0)
             previous_features = component_features[:, reference]
             delta_features = component_features - previous_features
-            effect_logits = self.effect_head(
+            effect_features = self.effect_stem(
                 torch.cat([component_features, delta_features], dim=-1)
             )
-            observed_effect = torch.softmax(effect_logits, dim=-1)
+            effect_type_logits = self.effect_type_head(effect_features)
+            effect_correctness_logits = self.effect_correctness_head(effect_features)
+            effect_type_probability = torch.softmax(effect_type_logits, dim=-1)
+            effect_correctness_probability = torch.softmax(
+                effect_correctness_logits, dim=-1
+            )
+            observed_effect = torch.cat(
+                [
+                    effect_type_probability[..., :1],
+                    effect_type_probability[..., 1:2]
+                    * effect_correctness_probability[..., :1],
+                    effect_type_probability[..., 1:2]
+                    * effect_correctness_probability[..., 1:],
+                    effect_type_probability[..., 2:],
+                ],
+                dim=-1,
+            )
+            effect_logits = torch.log(observed_effect.clamp_min(1e-8))
             effect_residual = None
             if expected_effect is not None:
                 if tuple(expected_effect.shape) != (
@@ -506,9 +567,13 @@ def build_state_effect_observer(config: StateEffectObserverConfig):
             return {
                 "component_features": component_features,
                 "state_logits": state_logits,
-                "state_probabilities": torch.softmax(state_logits, dim=-1),
+                "state_probabilities": state_probability,
+                "state_presence_logits": state_presence_logits.squeeze(-1),
+                "state_correctness_logits": state_correctness_logits,
                 "effect_logits": effect_logits,
                 "effect_probabilities": observed_effect,
+                "effect_type_logits": effect_type_logits,
+                "effect_correctness_logits": effect_correctness_logits,
                 "effect_residual": effect_residual,
                 "component_roi_attention": attention,
             }
