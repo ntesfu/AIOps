@@ -117,6 +117,12 @@ EXPERIMENT_TIER=quick bash scripts/run_industreal_structured_roi_experiment.sh f
 EXPERIMENT_TIER=quick bash scripts/run_industreal_structured_roi_experiment.sh structured all
 ```
 
+Or run the two variants sequentially with one command:
+
+```bash
+EXPERIMENT_TIER=quick bash scripts/run_industreal_structured_roi_pair.sh
+```
+
 `EXPERIMENT_TIER=smoke` is only an end-to-end execution check. It uses two
 epochs per stage and a permissive selector so it can exercise checkpoint
 composition; its metrics must never be used to promote an architecture.
