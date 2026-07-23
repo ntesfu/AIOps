@@ -45,7 +45,7 @@ train_roi() {
     CACHE_INDEX="$roi_cache_root/index.json" \
     CACHE_CONTRACT=strict_causal \
     SEED="${SEED:-7}" \
-    bash scripts/train_industreal_roi_evidence.sh all
+    bash scripts/train_industreal_roi_dual_selection.sh
 }
 
 case "$stage" in

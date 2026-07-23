@@ -36,10 +36,37 @@ each paying the full class-imbalance penalty. Its positive weight is 17, derived
 235 correct versus 14 incorrect training events. Event checkpoints use the operational harmonic
 selector and must satisfy the two-false-alerts-per-minute budget.
 
-Two depthwise causal residual blocks (dilations 1 and 2) adapt the ROI stream before component
-fusion. The shared timing loss keeps the 20 hardest negatives per positive and is weighted five
-times more strongly; component localization is weighted 0.25. This reflects the deployment order:
-first decide whether an alert is warranted, then identify its component.
+The implementation includes optional causal ROI temporal blocks and hard-negative timing. The
+seed-7 validation ablation rejected both: temporal blocks produced 20% recall only at roughly
+12 false alerts/minute, and later collapsed; hard-negative timing did not produce an eligible
+checkpoint. The selected configuration therefore uses frame-local ROI evidence with dense
+asymmetric negatives.
+
+## Separate checkpoint selectors
+
+One checkpoint cannot optimize both dense action segmentation and five validation mistakes. The
+reproducible workflow trains two copies from the same seed:
+
+- the action expert uses `action_only` selection;
+- the event expert uses `operational_harmonic` selection and is rejected unless incorrect recall
+  is positive, false alerts are at most two/minute, and normality AP exceeds prevalence.
+
+The experts are then composed and recalibrated with the identical validation protocol used during
+training: sequence length 384, stride 192, batch size 4, BF16.
+
+## Seed-7 validation result
+
+| Metric | Result |
+|---|---:|
+| Action F1@50 | 17.13 |
+| Incorrect-event recall | 20.0% (1/5 events) |
+| Incorrect-event precision | 1.30% |
+| Incorrect false alerts/minute | 1.20 |
+| Incorrect normality AP | 8.15% |
+
+This passes the predefined development gate and slightly exceeds the 16.73 F1@50 baseline. It is
+not a final performance claim: only five incorrect events exist in validation, so uncertainty is
+large and the sealed test split remains untouched.
 
 ## Storage strategy
 
@@ -57,7 +84,7 @@ bash scripts/run_industreal_roi_experiment.sh all
 The final validation report is:
 
 ```text
-runs/industreal_strict_causal_roi_s7_dual_expert/validation.json
+runs/industreal_roi_dual_selection_s7_dual_expert/validation.json
 ```
 
 The primary gate is positive incorrect-event recall at no more than two false alerts per minute.

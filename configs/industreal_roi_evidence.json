@@ -22,10 +22,10 @@
     "event_only_motion_aux": true,
     "factorized_mistake_detection": true,
     "any_mistake_pos_weight": 17.0,
-    "any_mistake_weight": 5.0,
-    "mistake_component_weight": 0.25,
-    "incorrect_hard_negative_ratio": 20.0,
-    "roi_temporal_blocks": 2,
+    "any_mistake_weight": 1.0,
+    "mistake_component_weight": 1.0,
+    "incorrect_hard_negative_ratio": 0.0,
+    "roi_temporal_blocks": 0,
     "event_selection": "operational_harmonic",
     "component_rank_weight": 0.25,
     "component_rank_margin": 0.5
@@ -35,5 +35,12 @@
     "incorrect_false_alerts_per_minute_maximum": 2.0,
     "normality_ap_must_exceed_prevalence": true,
     "action_f1_50_regression_tolerance": 1.0
+  },
+  "validation_result_seed_7": {
+    "action_f1_50": 17.130110287757017,
+    "incorrect_event_recall": 20.0,
+    "incorrect_event_precision": 1.2987012987012987,
+    "incorrect_false_alerts_per_minute": 1.1979508735058453,
+    "normality_incorrect_average_precision": 8.153894716394715
   }
 }
