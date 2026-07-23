@@ -27,18 +27,23 @@ case "$EXPERIMENT_TIER" in
     export ACTION_PATIENCE="${ACTION_PATIENCE:-2}"
     export EVENT_EPOCHS="${EVENT_EPOCHS:-2}"
     export EVENT_PATIENCE="${EVENT_PATIENCE:-2}"
+    # Smoke verifies the complete training/composition path. Two epochs are
+    # intentionally too short to demand the operational promotion gate.
+    export EVENT_SELECTION_STRATEGY="${EVENT_SELECTION_STRATEGY:-legacy}"
     ;;
   quick)
     export ACTION_EPOCHS="${ACTION_EPOCHS:-12}"
     export ACTION_PATIENCE="${ACTION_PATIENCE:-12}"
     export EVENT_EPOCHS="${EVENT_EPOCHS:-8}"
     export EVENT_PATIENCE="${EVENT_PATIENCE:-8}"
+    export EVENT_SELECTION_STRATEGY="${EVENT_SELECTION_STRATEGY:-operational_harmonic}"
     ;;
   promotion)
     export ACTION_EPOCHS="${ACTION_EPOCHS:-30}"
     export ACTION_PATIENCE="${ACTION_PATIENCE:-12}"
     export EVENT_EPOCHS="${EVENT_EPOCHS:-16}"
     export EVENT_PATIENCE="${EVENT_PATIENCE:-8}"
+    export EVENT_SELECTION_STRATEGY="${EVENT_SELECTION_STRATEGY:-operational_harmonic}"
     ;;
   *)
     echo "EXPERIMENT_TIER must be smoke, quick, or promotion" >&2

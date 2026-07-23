@@ -117,6 +117,10 @@ EXPERIMENT_TIER=quick bash scripts/run_industreal_structured_roi_experiment.sh f
 EXPERIMENT_TIER=quick bash scripts/run_industreal_structured_roi_experiment.sh structured all
 ```
 
+`EXPERIMENT_TIER=smoke` is only an end-to-end execution check. It uses two
+epochs per stage and a permissive selector so it can exercise checkpoint
+composition; its metrics must never be used to promote an architecture.
+
 The structured branch is promoted to seeds 7, 17, and 29 only if it:
 
 1. preserves action F1@50 within 1 point of the paired flat branch;
