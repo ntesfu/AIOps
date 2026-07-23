@@ -73,6 +73,9 @@ class StateGraphPSRConfig:
     # Keep high-dimensional ROI/auxiliary evidence out of the action fusion and
     # route it only through the component event branch.
     event_only_motion_aux: bool = False
+    # Number of lightweight causal depthwise blocks on the event-only ROI
+    # stream. Zero preserves compatibility with the frame-local ablation.
+    component_evidence_temporal_blocks: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -125,6 +128,7 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
         config.num_action_refinement_stages,
         config.num_refinement_blocks,
         config.num_event_blocks,
+        config.component_evidence_temporal_blocks,
     ) < 0:
         raise ValueError("Refinement stage/block counts cannot be negative.")
 
@@ -459,7 +463,8 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 # temporal adapter so the event branch can learn before/after
                 # changes without increasing the global action backbone.
                 self.component_evidence_aux_temporal = nn.ModuleList(
-                    [CausalDepthwiseBlock(1), CausalDepthwiseBlock(2)]
+                    CausalDepthwiseBlock(min(2**index, config.max_dilation))
+                    for index in range(config.component_evidence_temporal_blocks)
                 )
                 self.component_evidence_queries = nn.Parameter(
                     torch.empty(config.num_completion_components, config.hidden_dim)

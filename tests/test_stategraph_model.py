@@ -274,6 +274,7 @@ class StateGraphModelTest(unittest.TestCase):
             dropout=0.0,
             component_evidence=True,
             event_only_motion_aux=True,
+            component_evidence_temporal_blocks=2,
             factorized_mistake_detection=True,
         )
         model = build_stategraph_psr(config).eval()

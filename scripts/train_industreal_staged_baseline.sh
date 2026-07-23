@@ -30,6 +30,8 @@ any_mistake_weight="${ANY_MISTAKE_WEIGHT:-1.0}"
 mistake_component_weight="${MISTAKE_COMPONENT_WEIGHT:-1.0}"
 any_mistake_pos_weight="${ANY_MISTAKE_POS_WEIGHT:-1.0}"
 incorrect_hard_negative_ratio="${INCORRECT_HARD_NEGATIVE_RATIO:-0.0}"
+component_evidence_temporal_blocks="${COMPONENT_EVIDENCE_TEMPORAL_BLOCKS:-0}"
+action_selection="${ACTION_SELECTION_STRATEGY:-action_only}"
 resume="${RESUME:-0}"
 python_bin="${PYTHON_BIN:-.venv/bin/python}"
 export PYTHONPATH=".deps:src${PYTHONPATH:+:${PYTHONPATH}}"
@@ -92,6 +94,7 @@ if [[ "$component_evidence" == "1" ]]; then
     --component-evidence
     --component-rank-weight "$component_rank_weight"
     --component-rank-margin "$component_rank_margin"
+    --component-evidence-temporal-blocks "$component_evidence_temporal_blocks"
   )
 fi
 if [[ "$event_only_motion_aux" == "1" ]]; then
@@ -118,7 +121,7 @@ train_action() {
     --epochs "$action_epochs" \
     --patience "$action_patience" \
     --learning-rate 0.0002 \
-    --selection-strategy action_only \
+    --selection-strategy "$action_selection" \
     "${resume_args[@]}"
 }
 

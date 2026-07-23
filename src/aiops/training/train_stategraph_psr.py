@@ -272,6 +272,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         factorized_mistake_detection=args.factorized_mistake_detection,
         component_evidence=args.component_evidence,
         event_only_motion_aux=args.event_only_motion_aux,
+        component_evidence_temporal_blocks=args.component_evidence_temporal_blocks,
     )
     loss_config = StateGraphLossConfig(
         step_weight=args.step_weight,
@@ -1687,9 +1688,11 @@ def _model_configs_compatible(stored: Any, current: dict[str, Any]) -> bool:
     normalized.setdefault("factorized_mistake_detection", False)
     normalized.setdefault("component_evidence", False)
     normalized.setdefault("event_only_motion_aux", False)
+    normalized.setdefault("component_evidence_temporal_blocks", 0)
     normalized_current.setdefault("factorized_mistake_detection", False)
     normalized_current.setdefault("component_evidence", False)
     normalized_current.setdefault("event_only_motion_aux", False)
+    normalized_current.setdefault("component_evidence_temporal_blocks", 0)
     return normalized == normalized_current
 
 
@@ -2285,6 +2288,12 @@ def main() -> None:
         "--event-only-motion-aux",
         action="store_true",
         help="Exclude motion_aux/ROI features from action fusion and route them only to component evidence.",
+    )
+    parser.add_argument(
+        "--component-evidence-temporal-blocks",
+        type=int,
+        default=0,
+        help="Causal depthwise temporal blocks applied only to ROI/component evidence.",
     )
     parser.add_argument("--graph-strength", type=float, default=0.12)
     parser.add_argument("--learning-rate", type=float, default=3e-4)
