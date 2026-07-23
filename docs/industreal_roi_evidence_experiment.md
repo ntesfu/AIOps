@@ -183,6 +183,22 @@ EXPERIMENT_TIER=quick \
 bash scripts/run_industreal_grouped_flat_reference.sh
 ```
 
+Interrupted grouped evaluations can resume without overwriting completed folds:
+
+```bash
+FOLD_START=1 \
+FOLD_END=5 \
+MINIMUM_FREE_GB=2 \
+PRUNE_REDUNDANT_LAST_CHECKPOINTS=1 \
+bash scripts/run_industreal_grouped_flat_reference.sh
+```
+
+`FOLD_END` is exclusive. The optional disk-space guard stops before beginning a
+fold when available storage falls below the configured floor. Checkpoint
+pruning removes only `last_checkpoint.pt` when the same run already has a
+`best_checkpoint.pt`; best checkpoints, exported artifacts, metrics, and
+TensorBoard histories are retained.
+
 Promotion requires more than the flat reference's one operational fold out of
 five while retaining the two-false-alerts-per-minute budget.
 
