@@ -41,7 +41,10 @@
     "learning_rate": 0.0003,
     "weight_decay": 0.001,
     "rare_window_boost": 6.0,
+    "rare_windows_per_batch": 1,
     "event_centered_crops_per_event": 2,
+    "effect_no_change_ratio": 4.0,
+    "effect_min_no_change": 64,
     "selection_score": "state macro recall + effect macro recall + incorrect-effect recall"
   }
 }

@@ -44,10 +44,15 @@ derived from consecutive observed states; exact PSR completion events override
 derived labels at their annotated frame.
 
 Class weights are computed from the training split. Incorrect-event windows are
-oversampled, and extra crops are centered around rare incorrect events. The
-best checkpoint maximizes:
+guaranteed in every training batch, and extra crops are centered around rare
+incorrect events. The typed-effect loss keeps every change/error target but
+only the hardest bounded set of `no_change` frames. This prevents the observed
+training distribution (19 incorrect effects versus 172,929 no-change frames)
+from collapsing the effect head into a trivial no-change classifier.
 
-`state macro recall + effect macro recall + incorrect-effect recall`.
+The best checkpoint maximizes:
+
+`state macro recall + effect macro recall + installed-incorrect recall + 2 × incorrect-effect recall`.
 
 This is intentionally more mistake-sensitive than validation loss or overall
 accuracy, both of which can favor the dominant normal/no-change classes.

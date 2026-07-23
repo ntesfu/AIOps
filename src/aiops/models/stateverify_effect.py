@@ -47,6 +47,8 @@ class StateEffectLossConfig:
     effect_weight: float = 1.0
     transition_consistency_weight: float = 0.25
     focal_gamma: float = 1.5
+    effect_no_change_ratio: float = 4.0
+    effect_min_no_change: int = 64
 
     def validate(self) -> None:
         if min(
@@ -54,6 +56,8 @@ class StateEffectLossConfig:
             self.effect_weight,
             self.transition_consistency_weight,
             self.focal_gamma,
+            self.effect_no_change_ratio,
+            self.effect_min_no_change,
         ) < 0:
             raise ValueError("State/effect loss weights and focal_gamma cannot be negative.")
 
@@ -132,6 +136,31 @@ def build_state_effect_loss(config: StateEffectLossConfig):
 
     class StateEffectLoss(nn.Module):
         @staticmethod
+        def _effect_training_mask(logits, labels, mask):
+            positive = mask & (labels != 0)
+            negative = mask & (labels == 0)
+            negative_count = int(negative.sum())
+            if negative_count == 0:
+                return positive
+            keep = max(
+                config.effect_min_no_change,
+                int(config.effect_no_change_ratio * int(positive.sum())),
+            )
+            keep = min(keep, negative_count)
+            selected = positive.clone()
+            if keep:
+                anomaly_score = 1.0 - torch.softmax(
+                    logits.detach(), dim=-1
+                )[..., 0]
+                negative_positions = negative.nonzero(as_tuple=False)
+                chosen = torch.topk(
+                    anomaly_score[negative], keep, sorted=False
+                ).indices
+                chosen_positions = negative_positions[chosen]
+                selected[tuple(chosen_positions.transpose(0, 1))] = True
+            return selected
+
+        @staticmethod
         def _focal_cross_entropy(logits, labels, mask, class_weights=None):
             if not mask.any():
                 return logits.sum() * 0.0
@@ -160,6 +189,9 @@ def build_state_effect_loss(config: StateEffectLossConfig):
             effect_class_weights=None,
         ):
             typed = state_effect_targets(targets, event_state_indices)
+            effect_training_mask = self._effect_training_mask(
+                outputs["effect_logits"], typed["effect"], typed["effect_mask"]
+            )
             losses = {
                 "state": self._focal_cross_entropy(
                     outputs["state_logits"],
@@ -170,7 +202,7 @@ def build_state_effect_loss(config: StateEffectLossConfig):
                 "effect": self._focal_cross_entropy(
                     outputs["effect_logits"],
                     typed["effect"],
-                    typed["effect_mask"],
+                    effect_training_mask,
                     effect_class_weights,
                 ),
             }

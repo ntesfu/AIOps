@@ -22,7 +22,10 @@ from aiops.models.stateverify_effect import (
     state_effect_targets,
 )
 from aiops.training.monitoring import TrainingMonitor
-from aiops.training.train_stategraph_psr import _infer_event_state_mapping
+from aiops.training.train_stategraph_psr import (
+    OutcomeAwareBatchSampler,
+    _infer_event_state_mapping,
+)
 
 
 ROI_ORDER = (
@@ -146,7 +149,8 @@ def _class_weights(records, event_state_indices):
 
     def balance(counts):
         weights = np.sqrt(counts.sum() / (len(counts) * counts))
-        weights = np.clip(weights, 0.25, 10.0)
+        weights = weights / weights.mean()
+        weights = np.clip(weights, 0.02, 8.0)
         return (weights / weights.mean()).astype(np.float32)
 
     return balance(state_counts), balance(effect_counts), state_counts, effect_counts
@@ -176,6 +180,7 @@ def _confusion_metrics(prefix: str, confusion: np.ndarray) -> dict[str, float]:
     }
     for index, value in enumerate(recall):
         metrics[f"{prefix}_recall_class_{index}"] = float(value)
+        metrics[f"{prefix}_support_class_{index}"] = float(support[index])
     return metrics
 
 
@@ -220,7 +225,7 @@ def _evaluate(model, criterion, loader, device, config, event_state_indices, wei
 
 def train(args: argparse.Namespace) -> dict[str, Any]:
     import torch
-    from torch.utils.data import DataLoader, WeightedRandomSampler
+    from torch.utils.data import DataLoader
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -259,6 +264,8 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         effect_weight=args.effect_weight,
         transition_consistency_weight=args.transition_consistency_weight,
         focal_gamma=args.focal_gamma,
+        effect_no_change_ratio=args.effect_no_change_ratio,
+        effect_min_no_change=args.effect_min_no_change,
     )
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     model = build_state_effect_observer(config).to(device)
@@ -279,20 +286,26 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         event_centered_crop_radius=args.event_centered_crop_radius,
     )
     sampling = train_dataset.window_sampling_weights(
-        rare_window_boost=args.rare_window_boost
+        rare_window_boost=(
+            1.0 if args.rare_windows_per_batch > 0 else args.rare_window_boost
+        )
     )
-    sampler = WeightedRandomSampler(
-        torch.as_tensor(sampling, dtype=torch.double),
+    batch_sampler = OutcomeAwareBatchSampler(
         len(train_dataset),
-        replacement=True,
+        args.batch_size,
+        train_dataset.rare_window_indices(),
+        rare_per_batch=args.rare_windows_per_batch,
+        sampling_weights=sampling,
+        seed=args.seed,
     )
-    loader_options = dict(
-        batch_size=args.batch_size,
+    worker_options = dict(
         num_workers=args.workers,
         collate_fn=pad_stategraph_batch,
         pin_memory=device.type == "cuda",
     )
-    train_loader = DataLoader(train_dataset, sampler=sampler, **loader_options)
+    train_loader = DataLoader(
+        train_dataset, batch_sampler=batch_sampler, **worker_options
+    )
     val_loader = DataLoader(
         StateGraphCacheDataset(
             val_records,
@@ -300,8 +313,9 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
             sequence_stride=args.sequence_length,
             preload=args.preload,
         ),
+        batch_size=args.batch_size,
         shuffle=False,
-        **loader_options,
+        **worker_options,
     )
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
@@ -370,7 +384,8 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
             score = (
                 val_metrics["state_macro_recall"]
                 + val_metrics["effect_macro_recall"]
-                + val_metrics["effect_recall_class_2"]
+                + val_metrics["state_recall_class_2"]
+                + 2.0 * val_metrics["effect_recall_class_2"]
             )
             epoch_result = {
                 "epoch": epoch,
@@ -444,7 +459,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--effect-weight", type=float, default=1.0)
     parser.add_argument("--transition-consistency-weight", type=float, default=0.25)
     parser.add_argument("--focal-gamma", type=float, default=1.5)
+    parser.add_argument("--effect-no-change-ratio", type=float, default=4.0)
+    parser.add_argument("--effect-min-no-change", type=int, default=64)
     parser.add_argument("--rare-window-boost", type=float, default=6.0)
+    parser.add_argument("--rare-windows-per-batch", type=int, default=1)
     parser.add_argument("--event-centered-crops-per-event", type=int, default=2)
     parser.add_argument("--event-centered-crop-radius", type=int, default=64)
     parser.add_argument("--workers", type=int, default=2)
