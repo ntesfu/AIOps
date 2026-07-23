@@ -63,7 +63,7 @@ folder is the fastest workflow for repeated annotation sessions.
 
 ### StateGraph-PSR Lite (IndustReal Stage 1)
 
-The research training path uses cached motion and appearance features, IndustReal hand/gaze/pose streams, a compact causal TCN-attention head, action prototypes, a differentiable procedure graph, and a corrected two-level label contract. AR annotations supervise the mutually-exclusive action timeline; PSR completion rows supervise multi-label part events and a per-part `correct / incorrect / remove` outcome. It is designed to train on one 24 GB GPU while keeping the path open to stronger precomputed VideoMAEv2 or InternVideo features.
+The research training path uses cached motion and appearance features, IndustReal hand and headset-pose streams, component/object regions, a compact causal TCN-attention head, action prototypes, a differentiable procedure graph, and a corrected two-level label contract. AR annotations supervise the mutually-exclusive action timeline; PSR completion rows supervise multi-label part events and a per-part `correct / incorrect / remove` outcome. It is designed to train on one 24 GB GPU while keeping the path open to stronger precomputed VideoMAEv2 or InternVideo features.
 
 The default trainable head is approximately four million parameters. Its outputs are a causal action timeline, simultaneous component completions, a separate outcome for every completed part, eleven component-state predictions, action boundaries, next-action anticipation, and calibrated uncertainty signals. Frozen encoders are run once to create compressed per-recording caches, so ordinary experiments train only the temporal/state head.
 

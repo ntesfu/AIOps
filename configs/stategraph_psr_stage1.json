@@ -7,7 +7,7 @@
     "preferred_motion": "cached VideoMAEv2-giant SSv2, 1408-d",
     "fallback_motion": "frozen torchvision Swin3D-S, 768-d",
     "appearance": "frozen ConvNeXt-Tiny center-frame state feature, 768-d",
-    "sensor": "hands + gaze + head pose, padded to 128-d",
+    "sensor": "hands + head pose, padded to 128-d; gaze excluded",
     "clip_frames": 16,
     "clip_span_frames": 32,
     "stride_frames": 5,

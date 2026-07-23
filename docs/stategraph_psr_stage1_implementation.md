@@ -11,7 +11,7 @@ This repository now contains:
 - `src/aiops/features/industreal_cache.py`: official IndustReal discovery, frozen feature extraction, AR action alignment, multi-component PSR targets, sensor alignment, and compressed per-recording caches.
 - `src/aiops/models/stategraph_psr.py`: modality-gated causal temporal encoder, action prototypes, differentiable procedure graph, multi-component event/outcome heads, and the joint loss.
 - `src/aiops/training/train_stategraph_psr.py`: recording-level splits, balanced losses, mixed precision, gradient accumulation, early stopping, checkpoint selection, and temporal/fault metrics.
-- `src/aiops/data/industreal.py`: tolerant readers for AR action segments, PSR completion events, raw component states, gaze, hands, and pose.
+- `src/aiops/data/industreal.py`: tolerant readers for AR action segments, PSR completion events, raw component states, hands, and pose. Legacy gaze paths remain readable but are excluded from new caches.
 - `src/aiops/data/procedure_schema.py`: dataset-independent schema validation and raw-to-canonical completion mapping.
 - `src/aiops/data/stategraph_cache.py`: cache format, windowing, padding, and sparse transition-graph estimation.
 - `src/aiops/evaluation/temporal_metrics.py`: frame accuracy support plus normalized Edit and segmental F1@10/25/50.
@@ -23,7 +23,7 @@ No result is claimed yet: the code has been structurally and data-adapter tested
 
 The SSv2-giant + DiffAct result has strong segmentation boundaries but cannot identify incorrect installation. The dual-backbone ASFormer result introduces appearance information and obtains non-zero incorrect recall, but the fault signal is fragile and the trainable temporal representation does not explicitly model assembly state. StateGraph-PSR Lite combines their useful ideas and adds three missing inductive biases:
 
-1. **Motion and appearance are complementary.** Cached VideoMAEv2 features represent hand/object dynamics; a lightweight center-frame ConvNeXt feature emphasizes tools, parts, and connection state. Hands, gaze, and headset pose are a third modality. A learned gate changes their importance at every time step and supports missing sensors.
+1. **Motion and appearance are complementary.** Cached VideoMAEv2 features represent hand/object dynamics; a lightweight center-frame ConvNeXt feature emphasizes tools, parts, and connection state. Hands and headset pose form the auxiliary sensor modality; gaze is deliberately excluded. A learned gate changes modality importance at every time step and supports missing sensors.
 2. **Local motion and long procedure context are both causal.** Gated depthwise temporal convolutions cover multiple time scales. Sparse causal self-attention supplies long context without the memory cost of full attention at every block. The model never sees future frames, so offline evaluation matches the future live-feed constraint.
 3. **Actions, completion events, and persistent state are different variables.** AR labels supervise the action timeline. PSR rows supervise a multi-label component-completion head plus a separate per-component outcome head. The network also predicts eleven persistent component states, boundary, and next action. Same-frame component completions no longer overwrite one another.
 4. **Procedure knowledge participates in learning.** A sparse graph is estimated only from training recordings. Its differentiable causal belief filter biases the step posterior toward legal transitions while retaining the ability for visual evidence to override the graph. Unlike a hard Viterbi-only decoder, it permits branches and repair loops.
@@ -37,7 +37,7 @@ At each sampled time index, the cache stores:
 |---|---|---|
 | motion | cached SSv2 VideoMAEv2-giant; Swin3D-S fallback | `T × 1408` or `T × 768` |
 | appearance | frozen ConvNeXt-Tiny keyframe | `T × 768` |
-| sensor | hands + gaze + headset pose | `T × 128` |
+| sensor | hands + headset pose | `T × 128` |
 | modality mask | available motion/appearance/sensor flags | `T × 3` |
 | action (`step` tensor key) / boundary | dense labels from AR annotations | `T`, `T` |
 | completion | collision-safe multi-label PSR events | `T × 10` |
@@ -71,7 +71,7 @@ INDUSTREAL_ROOT/
         PSR_labels_with_errors.csv
         PSR_labels_raw.csv       # optional but strongly recommended
         hands.csv                # optional
-        gaze.csv                 # optional
+        gaze.csv                 # ignored by StateVerify; retained for legacy compatibility
         pose.csv                 # optional
 ```
 
@@ -194,7 +194,7 @@ Run ablations in this order so the source of gains is explainable:
 |---|---:|---:|---:|---:|---|
 | A | VideoMAEv2 | – | – | – | reproduce motion-only reference |
 | B | VideoMAEv2 | ConvNeXt | – | – | isolate appearance/fault benefit |
-| C | VideoMAEv2 | ConvNeXt | hands/gaze/pose | – | quantify egocentric sensor gain |
+| C | VideoMAEv2 | ConvNeXt | hands/pose | – | quantify egocentric sensor gain |
 | D | VideoMAEv2 | ConvNeXt | sensors | graph only | transition prior gain |
 | E | VideoMAEv2 | ConvNeXt | sensors | graph + component state | complete model |
 

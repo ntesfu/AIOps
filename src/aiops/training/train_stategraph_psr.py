@@ -2507,7 +2507,7 @@ def main() -> None:
     parser.add_argument(
         "--component-evidence",
         action="store_true",
-        help="Use component queries and the cached hand/gaze/pose stream in an event-only evidence branch.",
+        help="Use component queries and the cached hand/pose stream in an event-only evidence branch.",
     )
     parser.add_argument(
         "--event-only-motion-aux",

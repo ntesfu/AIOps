@@ -124,7 +124,23 @@ Remaining integration steps:
 
 1. Compare direct onset thresholding with the tracker under the same
    false-alerts-per-minute limit.
-2. Restore raw IndustReal RGB, object detections, hand/gaze streams, depth, and
+The gaze-free component observer is implemented in
+`src/aiops/models/stateverify_effect.py`. It consumes:
+
+- causal global video features;
+- left-hand and right-hand ROI features;
+- active-object and interaction-context ROI features;
+- hand joints;
+- headset pose;
+- optional depth.
+
+Component queries attend to the four ROI tokens, then causal component-wise
+temporal blocks predict persistent state and four typed effects:
+`no_change`, `complete_correct`, `complete_incorrect`, and `remove`. The effect
+residual is a bounded mismatch between the observed effect distribution and the
+procedure-supplied expected distribution.
+
+2. Restore raw IndustReal RGB, object detections, hand and headset-pose streams, depth, and
    state labels on the working disk.
 3. Train the real component state/effect observer.
 4. Replace heuristic residual calibration with validation-fitted calibration,

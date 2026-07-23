@@ -17,8 +17,8 @@ from aiops.data.industreal import (
 from aiops.data.stategraph_cache import read_cache_index
 
 
-ROI_NAMES = ("left_hand", "right_hand", "gaze", "active_object")
-ROI_FEATURE_VERSION = 1
+ROI_NAMES = ("left_hand", "right_hand", "active_object", "interaction_context")
+ROI_FEATURE_VERSION = 2
 
 
 class FrozenROIEncoder:
@@ -58,6 +58,10 @@ class FrozenROIEncoder:
 
 
 def build_roi_features(args: argparse.Namespace) -> dict[str, Any]:
+    if args.interaction_context_scale <= 0:
+        raise ValueError("interaction_context_scale must be greater than zero.")
+    if args.hand_box_scale <= 0:
+        raise ValueError("hand_box_scale must be greater than zero.")
     _, cache_records = read_cache_index(args.cache_index)
     recordings = discover_industreal_recordings(args.data_root)
     if args.auxiliary_root:
@@ -84,7 +88,7 @@ def build_roi_features(args: argparse.Namespace) -> dict[str, Any]:
             destination,
             encoder,
             batch_size=args.batch_size,
-            gaze_crop_size=args.gaze_crop_size,
+            interaction_context_scale=args.interaction_context_scale,
             hand_box_scale=args.hand_box_scale,
             resume=args.resume,
         )
@@ -105,7 +109,7 @@ def _extract_recording(
     encoder: FrozenROIEncoder,
     *,
     batch_size: int,
-    gaze_crop_size: int,
+    interaction_context_scale: float,
     hand_box_scale: float,
     resume: bool,
 ) -> dict[str, Any]:
@@ -117,7 +121,10 @@ def _extract_recording(
     if resume and destination.is_file():
         with np.load(destination, allow_pickle=False) as arrays:
             if (
-                arrays["motion"].shape == (len(prediction_frames), feature_dim)
+                "format_version" in arrays.files
+                and int(arrays["format_version"]) == ROI_FEATURE_VERSION
+                and arrays["motion"].shape
+                == (len(prediction_frames), feature_dim)
                 and np.array_equal(arrays["prediction_frame_indices"], prediction_frames)
             ):
                 return _roi_record_report(
@@ -127,7 +134,6 @@ def _extract_recording(
     if recording.video_path is None:
         raise RuntimeError(f"No MP4/video source found for {recording.recording_id}")
     hands = _read_hand_points(recording.hands)
-    gaze = _read_gaze(recording.gaze)
     objects = _read_object_detections(recording.object_labels)
 
     import cv2
@@ -143,7 +149,8 @@ def _extract_recording(
     roi_mask = np.zeros((len(prediction_frames), len(ROI_NAMES)), dtype=np.bool_)
     roi_boxes = np.zeros((len(prediction_frames), len(ROI_NAMES), 4), dtype=np.float32)
     category_ids = np.full(len(prediction_frames), -1, dtype=np.int64)
-    gaze_points = np.zeros((len(prediction_frames), 2), dtype=np.float32)
+    object_scores = np.zeros(len(prediction_frames), dtype=np.float32)
+    hand_object_distances = np.ones(len(prediction_frames), dtype=np.float32)
     pending_crops: list[np.ndarray] = []
     pending_positions: list[tuple[int, int]] = []
 
@@ -171,22 +178,31 @@ def _extract_recording(
                     f"Failed to decode frame {target_frame} from {recording.video_path}"
                 )
         assert frame is not None
-        point = gaze.get(target_frame)
-        if point is not None:
-            gaze_points[row] = (point[0] / max(width, 1), point[1] / max(height, 1))
         left_points, right_points = hands.get(target_frame, (None, None))
+        left_box = _points_box(left_points, width, height, hand_box_scale)
+        right_box = _points_box(right_points, width, height, hand_box_scale)
         boxes: list[tuple[float, float, float, float] | None] = [
-            _points_box(left_points, width, height, hand_box_scale),
-            _points_box(right_points, width, height, hand_box_scale),
-            _center_box(point, gaze_crop_size, width, height) if point is not None else None,
+            left_box,
+            right_box,
+            None,
             None,
         ]
         object_detection = _select_active_object(
-            objects.get(target_frame, []), point, left_points, right_points
+            objects.get(target_frame, []), left_points, right_points
         )
         if object_detection is not None:
-            boxes[3] = _clip_box(object_detection["bbox"], width, height)
+            boxes[2] = _clip_box(object_detection["bbox"], width, height)
             category_ids[row] = int(object_detection["category_id"])
+            object_scores[row] = float(object_detection.get("score", 1.0))
+            hand_object_distances[row] = _normalized_hand_object_distance(
+                boxes[2], left_points, right_points, width, height
+            )
+        boxes[3] = _interaction_context_box(
+            (left_box, right_box, boxes[2]),
+            width,
+            height,
+            interaction_context_scale,
+        )
         for roi_index, box in enumerate(boxes):
             if box is None:
                 continue
@@ -204,13 +220,15 @@ def _extract_recording(
 
     geometry = roi_boxes.reshape(len(prediction_frames), -1)
     normalized_category = np.maximum(category_ids, 0).astype(np.float32)[:, None] / 100.0
+    global_metadata = np.stack(
+        [normalized_category[:, 0], object_scores, hand_object_distances], axis=1
+    )
     features = np.concatenate(
         [
             embeddings.reshape(len(prediction_frames), -1),
             roi_mask.astype(np.float32),
             geometry,
-            normalized_category,
-            gaze_points,
+            global_metadata,
         ],
         axis=1,
     ).astype(np.float32)
@@ -225,6 +243,7 @@ def _extract_recording(
         object_category_ids=category_ids,
         prediction_frame_indices=prediction_frames,
         source_frame_indices=source_frames,
+        format_version=np.asarray(ROI_FEATURE_VERSION, dtype=np.int64),
     )
     temporary.replace(destination)
     return _roi_record_report(recording, destination, roi_mask, feature_dim)
@@ -250,7 +269,7 @@ def _roi_record_report(
         "video_path": str(recording.video_path),
         "object_labels": str(recording.object_labels) if recording.object_labels else None,
         "hands": str(recording.hands) if recording.hands else None,
-        "gaze": str(recording.gaze) if recording.gaze else None,
+        "pose": str(recording.pose) if recording.pose else None,
     }
 
 
@@ -267,6 +286,10 @@ def _write_manifest(
         "embedding_dim_per_roi": embedding_dim,
         "causal": True,
         "source_contract": "current_prediction_frame_only",
+        "feature_contract": (
+            "left_hand,right_hand,active_object,interaction_context;"
+            "category,object_confidence,hand_object_distance"
+        ),
         "max_future_offset_frames": 0,
         "cache_index": str(Path(args.cache_index).resolve()),
         "data_root": str(Path(args.data_root).resolve()),
@@ -302,21 +325,6 @@ def _read_hand_points(
     return result
 
 
-def _read_gaze(path: Path | None) -> dict[int, tuple[float, float]]:
-    if path is None:
-        return {}
-    result: dict[int, tuple[float, float]] = {}
-    with path.open("r", encoding="utf-8-sig", newline="") as handle:
-        for ordinal, row in enumerate(csv.reader(handle)):
-            if len(row) < 3:
-                continue
-            try:
-                result[_frame_index(row[0], ordinal)] = (float(row[1]), float(row[2]))
-            except ValueError:
-                continue
-    return result
-
-
 def _read_object_detections(path: Path | None) -> dict[int, list[dict[str, Any]]]:
     if path is None:
         return {}
@@ -346,15 +354,12 @@ def _read_object_detections(path: Path | None) -> dict[int, list[dict[str, Any]]
 
 def _select_active_object(
     detections: list[dict[str, Any]],
-    gaze: tuple[float, float] | None,
     left_points: np.ndarray | None,
     right_points: np.ndarray | None,
 ) -> dict[str, Any] | None:
     if not detections:
         return None
     anchors: list[tuple[float, float]] = []
-    if gaze is not None:
-        anchors.append(gaze)
     for points in (left_points, right_points):
         if points is not None and len(points):
             anchors.append(tuple(points.mean(axis=0).tolist()))
@@ -371,6 +376,66 @@ def _select_active_object(
         return min((center[0] - x) ** 2 + (center[1] - y) ** 2 for x, y in anchors)
 
     return min(detections, key=distance)
+
+
+def _interaction_context_box(
+    boxes: tuple[
+        tuple[float, float, float, float] | None,
+        ...,
+    ],
+    width: int,
+    height: int,
+    scale: float,
+) -> tuple[float, float, float, float] | None:
+    available = [box for box in boxes if box is not None]
+    if not available:
+        return None
+    x1 = min(box[0] for box in available)
+    y1 = min(box[1] for box in available)
+    x2 = max(box[2] for box in available)
+    y2 = max(box[3] for box in available)
+    center_x = (x1 + x2) / 2.0
+    center_y = (y1 + y2) / 2.0
+    box_width = max(x2 - x1, 64.0) * scale
+    box_height = max(y2 - y1, 64.0) * scale
+    return _clip_box(
+        (
+            center_x - box_width / 2.0,
+            center_y - box_height / 2.0,
+            center_x + box_width / 2.0,
+            center_y + box_height / 2.0,
+        ),
+        width,
+        height,
+    )
+
+
+def _normalized_hand_object_distance(
+    object_box: tuple[float, float, float, float] | None,
+    left_points: np.ndarray | None,
+    right_points: np.ndarray | None,
+    width: int,
+    height: int,
+) -> float:
+    if object_box is None:
+        return 1.0
+    anchors = [
+        points.mean(axis=0)
+        for points in (left_points, right_points)
+        if points is not None and len(points)
+    ]
+    if not anchors:
+        return 1.0
+    object_center = np.asarray(
+        [
+            (object_box[0] + object_box[2]) / 2.0,
+            (object_box[1] + object_box[3]) / 2.0,
+        ],
+        dtype=np.float32,
+    )
+    diagonal = max(float(np.hypot(width, height)), 1.0)
+    distance = min(float(np.linalg.norm(anchor - object_center)) for anchor in anchors)
+    return float(np.clip(distance / diagonal, 0.0, 1.0))
 
 
 def _reshape_points(values: np.ndarray) -> np.ndarray | None:
@@ -398,21 +463,6 @@ def _points_box(
             center[1] - size[1] / 2.0,
             center[0] + size[0] / 2.0,
             center[1] + size[1] / 2.0,
-        ),
-        width,
-        height,
-    )
-
-
-def _center_box(
-    point: tuple[float, float], size: int, width: int, height: int
-) -> tuple[float, float, float, float]:
-    return _clip_box(
-        (
-            point[0] - size / 2.0,
-            point[1] - size / 2.0,
-            point[0] + size / 2.0,
-            point[1] + size / 2.0,
         ),
         width,
         height,
@@ -475,7 +525,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device", default=None)
     parser.add_argument("--precision", choices=("bf16", "fp16"), default="bf16")
     parser.add_argument("--batch-size", type=int, default=32)
-    parser.add_argument("--gaze-crop-size", type=int, default=320)
+    parser.add_argument("--interaction-context-scale", type=float, default=1.4)
     parser.add_argument("--hand-box-scale", type=float, default=1.5)
     parser.add_argument("--max-recordings", type=int, default=None)
     parser.add_argument("--resume", action="store_true")

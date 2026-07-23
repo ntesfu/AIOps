@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Structured ROI v1 contract produced by industreal_roi_features.py:
-# four 768-D visual embeddings, four presence flags, four boxes, category + gaze.
+# Structured ROI v2 contract produced by industreal_roi_features.py:
+# left/right hand, active object, and interaction-context embeddings; four
+# presence flags, four boxes, category, object confidence, and hand distance.
 export RUN_PREFIX="${RUN_PREFIX:-industreal_structured_roi_s${SEED:-7}}"
 export STRUCTURED_ROI_TOKENS=1
 export ROI_TOKEN_COUNT="${ROI_TOKEN_COUNT:-4}"

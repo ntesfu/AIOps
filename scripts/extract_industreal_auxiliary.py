@@ -11,7 +11,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 
-DEFAULT_NAMES = frozenset({"OD_labels.json", "hands.csv", "gaze.csv", "pose.csv"})
+DEFAULT_NAMES = frozenset({"OD_labels.json", "hands.csv", "pose.csv"})
 
 
 def extract_auxiliary(

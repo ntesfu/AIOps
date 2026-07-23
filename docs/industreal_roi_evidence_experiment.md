@@ -8,11 +8,11 @@ global Swin3D-S and ConvNeXt features and adds four current-frame ROI embeddings
 
 1. left-hand keypoint box;
 2. right-hand keypoint box;
-3. gaze-centered connection region;
-4. the detected object nearest gaze or either hand.
+3. the active object selected by proximity to either hand;
+4. an interaction-context crop spanning the hands and active object.
 
 Every crop is encoded by a frozen ConvNeXt-Tiny model. Missing ROIs are represented by explicit
-masks and zero embeddings. Normalized boxes, gaze coordinates, and the selected object category
+masks and zero embeddings. Normalized boxes, hand-object distance, detection confidence, and the selected object category
 are appended to the ROI vector.
 
 ## Causal contract
@@ -70,7 +70,7 @@ large and the sealed test split remains untouched.
 
 ## Storage strategy
 
-The 29 GB recording archives are not expanded. Only `hands.csv`, `gaze.csv`, `pose.csv`, and
+The 29 GB recording archives are not expanded. Only `hands.csv`, `pose.csv`, and
 `OD_labels.json` are selectively extracted to a small overlay. Video frames are decoded from the
 86 root-level MP4 files. This avoids duplicating the 63 GB release on a nearly full workstation.
 
@@ -91,13 +91,13 @@ runs/industreal_roi_dual_selection_s7_dual_expert/validation.json
 
 The original ROI branch projects the complete 3,095-dimensional vector into one
 frame-level feature. That is inexpensive, but it erases the distinction between
-left hand, right hand, gaze, and active object before the component detector can
+left hand, right hand, active object, and interaction context before the component detector can
 reason about them. The opt-in structured branch keeps the same frozen cache and
 decodes its existing v1 layout:
 
 - four 768-dimensional ROI visual tokens;
 - four presence flags and four normalized boxes;
-- active-object category plus gaze coordinates;
+- active-object category, confidence, and normalized hand-object distance;
 - learned ROI-type embeddings;
 - explicit current-minus-previous and current-minus-lagged changes;
 - per-component queries attending only to present ROI tokens.

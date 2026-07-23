@@ -44,7 +44,7 @@ Two proposed remedies need qualification:
 ## Target architecture: StateGraph-PSR Evidence v2
 
 ```text
-causal video + optional hands/gaze
+causal video + hands/pose + optional depth
       |
       +--> frozen motion encoder --------------------------+
       |                                                    |
@@ -108,7 +108,7 @@ expected row exactly; no source frame index exceeds the prediction frame in caus
 - Build hand-centered and active-object ROI crops at the native current frame.
 - Add compact ROI embeddings for left hand, right hand, held object/tool, target component, and
   connection region. Missing detections get explicit masks, not zero-as-valid features.
-- Use AssemblyHands/Assembly101 hand supervision for pretraining and IndustReal hand/gaze/CAD data
+- Use AssemblyHands/Assembly101 hand supervision for pretraining and IndustReal hand/pose/CAD data
   for target adaptation.
 - Preserve the global streams for action context; route ROI evidence primarily to the event expert.
 - Cache detector version, crop coordinates, confidence, and feature hashes.

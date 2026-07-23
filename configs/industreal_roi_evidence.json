@@ -7,8 +7,8 @@
   "roi_sources": [
     "left hand keypoint box",
     "right hand keypoint box",
-    "gaze-centered connection region",
-    "object detection nearest gaze or hands"
+    "active object selected from hand proximity",
+    "interaction context spanning hands and active object"
   ],
   "roi_encoder": {
     "name": "ConvNeXt-Tiny ImageNet-1K V1",

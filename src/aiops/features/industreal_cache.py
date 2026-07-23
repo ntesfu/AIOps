@@ -404,7 +404,10 @@ def _sample_sensors(
 ) -> tuple[np.ndarray, np.ndarray]:
     maps = [
         read_numeric_timeseries(path)
-        for path in (recording.hands, recording.gaze, recording.pose)
+        # Gaze is intentionally excluded from the StateVerify contract. Hand
+        # joints and head pose are stable interaction/motion evidence, while
+        # RGB/object/depth streams provide the component state evidence.
+        for path in (recording.hands, recording.pose)
         if path is not None
     ]
     rows = np.zeros((len(frame_indices), sensor_dim), dtype=np.float32)
@@ -720,7 +723,7 @@ def main() -> None:
     parser.add_argument(
         "--auxiliary-root",
         default=None,
-        help="Overlay root containing recordings/{split}/{id}/hands.csv, gaze.csv, pose.csv, and OD_labels.json.",
+        help="Overlay root containing recordings/{split}/{id}/hands.csv, pose.csv, and OD_labels.json.",
     )
     parser.add_argument(
         "--recording-id",

@@ -11,7 +11,7 @@ This pilot changes the event representation. It creates a feature for every proc
 from four terms: causal event-temporal context, a learned component query, a dedicated appearance
 projection, and an optional sensor projection. A pre-launch audit found that this strict-causal
 cache has zero populated sensor rows, so the mask disables that term tonight; it remains ready for
-a future cache with hand/gaze/pose data. Shared component heads predict outcome, incorrect onset,
+a future cache with hand/pose data. Shared component heads predict outcome, incorrect onset,
 and normality from the component-conditioned features. The action expert still uses the original
 global fusion.
 
@@ -57,5 +57,5 @@ Secondary comparisons are normality AP, incorrect-state F1, and action F1@50.
 This is a component-conditioned global-evidence pilot, not the final hand/object image-ROI system.
 At launch time the original raw IndustReal RGB directory was no longer present on the Ubuntu
 machine, while the verified causal feature cache remained available. The audit also found zero
-populated sensor rows. True ROI and hand/gaze embeddings require restoring those sources. The code
+populated sensor rows. True ROI and hand/object embeddings require restoring those sources. The code
 does not claim or simulate spatial crops from globally pooled features.

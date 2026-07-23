@@ -132,7 +132,7 @@ The model should output the parent type, subtype, violated semantic role, time/P
 **Interaction/state stream**
 
 - Detect and track hands, tools, parts, fasteners, connectors, and mating points.
-- Pool ROI features from the RGB encoder; fuse depth, hand joints, gaze, and CAD/pose cues when present.
+- Pool ROI features from the RGB encoder; fuse depth, hand joints, and CAD/head-pose cues when present. Gaze is excluded from the StateVerify deployment contract.
 - Construct a dynamic relation graph with edges such as `holding`, `touching`, `aligned_with`, `inserted_into`, `connected_to`, and `fastening`.
 - Encode the graph with a small graph transformer or relation GNN.
 - Train the detector and state predicates with real images plus CAD-rendered synthetic images, domain randomization, and hard occlusion augmentation.

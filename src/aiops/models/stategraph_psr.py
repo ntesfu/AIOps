@@ -1042,8 +1042,8 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             factorized_incorrect_logits = None
             if config.factorized_mistake_detection:
                 # Pool component-local evidence before deciding whether any
-                # mistake happened. This lets a single strong hand, gaze,
-                # object, or connection anomaly drive event timing while the
+                # mistake happened. This lets a single strong hand, object,
+                # interaction, or connection anomaly drive event timing while the
                 # component logits remain a conditional localizer.
                 mistake_timing_features = (
                     component_evidence_features.max(dim=-2).values

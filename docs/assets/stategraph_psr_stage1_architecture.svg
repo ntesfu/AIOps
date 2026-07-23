@@ -20,7 +20,7 @@
   <rect x="70" y="158" width="260" height="104" class="box data"/>
   <text x="200" y="193" text-anchor="middle" class="h">Dataset streams</text>
   <text x="200" y="220" text-anchor="middle" class="t">egocentric RGB</text>
-  <text x="200" y="244" text-anchor="middle" class="tiny">hands &#8226; gaze &#8226; headset pose</text>
+  <text x="200" y="244" text-anchor="middle" class="tiny">hands &#8226; headset pose &#8226; optional depth</text>
   <rect x="395" y="145" width="300" height="130" class="box frozen"/>
   <text x="545" y="182" text-anchor="middle" class="h">Complementary motion encoders</text>
   <text x="545" y="210" text-anchor="middle" class="t">VideoMAEv2-giant + Swin3D-S</text>
