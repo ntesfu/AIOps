@@ -1067,7 +1067,10 @@ def build_stategraph_loss(config: StateGraphLossConfig):
         def _hard_negative_mask(logits, targets, valid_mask, ratio: float):
             """Keep all positives and the hardest declared number of negatives."""
 
-            expanded_valid = valid_mask.unsqueeze(-1).expand_as(targets)
+            expanded_valid = valid_mask
+            while expanded_valid.ndim < targets.ndim:
+                expanded_valid = expanded_valid.unsqueeze(-1)
+            expanded_valid = expanded_valid.expand_as(targets)
             if ratio <= 0:
                 return expanded_valid
             positive = expanded_valid & (targets > 0.5)
