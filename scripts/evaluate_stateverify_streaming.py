@@ -36,7 +36,14 @@ from aiops.training.train_stateverify_observer import (
 
 
 def _infer_record(
-    record, model, config, device, action_model=None
+    record,
+    model,
+    config,
+    device,
+    action_model=None,
+    action_sensor_dim=None,
+    hand_dim=0,
+    pose_dim=0,
 ) -> dict[str, Any]:
     import torch
 
@@ -54,11 +61,18 @@ def _infer_record(
         enabled=device.type == "cuda",
     ):
         output = model(**_observer_inputs(batch, config))
+        action_sensor = (
+            _adapt_gaze_free_sensor(
+                batch["sensor"], action_sensor_dim, hand_dim, pose_dim
+            )
+            if action_model is not None
+            else None
+        )
         action_output = (
             action_model(
                 batch["motion"],
                 batch["appearance"],
-                batch["sensor"],
+                action_sensor,
                 valid_mask=batch["valid_mask"],
                 modality_mask=batch["modality_mask"],
                 motion_aux=batch["motion_aux"],
@@ -95,6 +109,21 @@ def _infer_record(
             action_output["step_probabilities"][0].argmax(dim=-1).cpu().numpy()
         )
     return result
+
+
+def _adapt_gaze_free_sensor(sensor, target_dim, hand_dim, pose_dim):
+    """Map hands+pose into a legacy-width tensor while keeping gaze zeroed."""
+    if target_dim is None or sensor.shape[-1] == target_dim:
+        return sensor
+    if hand_dim + pose_dim != sensor.shape[-1] or target_dim < sensor.shape[-1]:
+        raise ValueError(
+            "Cannot safely adapt the gaze-free sensor contract to the action model."
+        )
+    adapted = sensor.new_zeros(*sensor.shape[:-1], target_dim)
+    adapted[..., :hand_dim] = sensor[..., :hand_dim]
+    if pose_dim:
+        adapted[..., -pose_dim:] = sensor[..., hand_dim : hand_dim + pose_dim]
+    return adapted
 
 
 def _duration_minutes(record: dict[str, Any]) -> float:
@@ -249,6 +278,7 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     model.to(device).eval()
     action_model = None
+    action_config = None
     if args.action_checkpoint:
         action_checkpoint = torch.load(
             args.action_checkpoint, map_location="cpu", weights_only=False
@@ -260,10 +290,20 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
         action_model.load_state_dict(action_checkpoint["model_state"])
         action_model.to(device).eval()
     records = []
+    sensor_contract = metadata["sensor_contract"]
     for index, record in enumerate(indexed_records, start=1):
         records.append(
             _infer_record(
-                record, model, model_config, device, action_model=action_model
+                record,
+                model,
+                model_config,
+                device,
+                action_model=action_model,
+                action_sensor_dim=(
+                    action_config.sensor_dim if action_config is not None else None
+                ),
+                hand_dim=int(sensor_contract["hand_dim"]),
+                pose_dim=int(sensor_contract["pose_dim"]),
             )
         )
         print(f"[{index}/{len(indexed_records)}] inferred {record.recording_id}", flush=True)
@@ -316,6 +356,12 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
                 else "component_only"
             ),
             "candidate_source": "observer P(complete_correct)+P(complete_incorrect)",
+            "action_sensor_contract": (
+                "hands + zeroed legacy gaze slot + headset pose"
+                if action_model is not None
+                and action_config.sensor_dim != int(sensor_contract["sensor_dim"])
+                else "native gaze-free hands + headset pose"
+            ),
             "max_training_false_alerts_per_minute": args.max_false_alerts_per_minute,
             "tolerance_seconds": args.tolerance_seconds,
         },
