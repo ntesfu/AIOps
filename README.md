@@ -76,6 +76,7 @@ The default trainable head is approximately four million parameters. Its outputs
 - Portable label contract: [`docs/procedure_schema_v2.md`](docs/procedure_schema_v2.md)
 - Reference implementation review: [`docs/reference_implementations_review.md`](docs/reference_implementations_review.md)
 - Critique response and evidence-first roadmap: [`docs/stategraph_psr_critique_response_plan.md`](docs/stategraph_psr_critique_response_plan.md)
+- State-centric inference core and typed belief tracker: [`docs/stateverify_psr_core.md`](docs/stateverify_psr_core.md)
 - Strict-causal IndustReal baseline protocol: [`docs/industreal_staged_baseline_protocol.md`](docs/industreal_staged_baseline_protocol.md)
 - Component-conditioned IndustReal evidence pilot: [`docs/industreal_component_evidence_experiment.md`](docs/industreal_component_evidence_experiment.md)
 - Strict-causal IndustReal ROI evidence experiment: [`docs/industreal_roi_evidence_experiment.md`](docs/industreal_roi_evidence_experiment.md)

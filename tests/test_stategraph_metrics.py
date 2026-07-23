@@ -23,6 +23,7 @@ from aiops.training.train_stategraph_psr import (
     _capture_rng_state,
     _class_f1_from_confusion,
     _event_timing_diagnostics,
+    _export_stateverify_emissions,
     _event_metrics_from_samples,
     _factorized_mistake_diagnostics,
     _macro_f1_from_confusion,
@@ -39,6 +40,42 @@ from aiops.training.train_stategraph_psr import (
 
 
 class StateGraphMetricsTest(unittest.TestCase):
+    def test_stateverify_export_uses_portable_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output_dir = Path(directory)
+            row = _export_stateverify_emissions(
+                output_dir,
+                "operator/recording 1",
+                np.asarray(
+                    [
+                        [[0.8, 0.1, 0.1], [0.7, 0.2, 0.1]],
+                        [[0.1, 0.2, 0.7], [0.1, 0.8, 0.1]],
+                    ],
+                    dtype=np.float32,
+                ),
+                np.asarray([0.1, 0.9], dtype=np.float32),
+                np.asarray([[0.1, 0.2], [0.9, 0.1]], dtype=np.float32),
+                np.asarray([[0.0, 0.0], [0.8, 0.0]], dtype=np.float32),
+                component_outcome=np.asarray(
+                    [[-100, -100], [1, -100]], dtype=np.int64
+                ),
+                seconds_per_step=0.5,
+                component_names=["pin", "wheel"],
+            )
+            self.assertEqual(row["recording_id"], "operator/recording 1")
+            self.assertEqual(row["rows"], 2)
+            self.assertEqual(row["components"], 2)
+            with np.load(output_dir / row["path"], allow_pickle=False) as archive:
+                self.assertEqual(
+                    archive["component_names"].tolist(), ["pin", "wheel"]
+                )
+                self.assertEqual(tuple(archive["state_emissions"].shape), (2, 2, 3))
+                self.assertEqual(
+                    archive["component_outcome"].tolist(),
+                    [[-100, -100], [1, -100]],
+                )
+                self.assertEqual(float(archive["seconds_per_step"]), 0.5)
+
     def test_event_scores_project_to_distinct_state_axis(self) -> None:
         try:
             import torch

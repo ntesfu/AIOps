@@ -832,6 +832,8 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         calibrate_events=True,
         calibrate_state=True,
         max_incorrect_false_alerts_per_minute=calibration_false_alert_limit,
+        stateverify_export_dir=output_dir / "stateverify_validation_emissions",
+        stateverify_component_names=metadata.get("completion_components") or None,
     )
     validation_event_thresholds = [
         final_metrics["correct_event_threshold"],
@@ -959,6 +961,8 @@ def evaluate(
     state_incorrect_threshold: float | None = None,
     calibrate_state: bool = True,
     max_incorrect_false_alerts_per_minute: float | None = None,
+    stateverify_export_dir: Path | None = None,
+    stateverify_component_names: Sequence[str] | None = None,
 ) -> dict[str, float]:
     import torch
 
@@ -997,6 +1001,13 @@ def evaluate(
                 outputs["component_outcome_logits"], dim=-1
             )
             state_probabilities = torch.softmax(outputs["state_logits"], dim=-1)
+            event_state_probabilities = state_probabilities[
+                ..., outputs["event_state_indices"], :
+            ]
+            # Historical state order is [incorrect, pending, correct].
+            # StateVerify's portable contract is
+            # [not_completed, installed_correct, installed_incorrect].
+            stateverify_emissions = event_state_probabilities[..., [1, 2, 0]]
             normality_anomaly_score = torch.sigmoid(-outputs["normality_logits"])
             if "mistake_action_probability" in outputs:
                 normality_anomaly_score = torch.maximum(
@@ -1049,6 +1060,27 @@ def evaluate(
                         "event_score": event_score.detach().float().cpu().numpy(),
                         "normality_score": normality_anomaly_score[sample_index, :length].detach().float().cpu().numpy(),
                         "state_incorrect_probability": state_incorrect_probability[sample_index, :length].detach().float().cpu().numpy(),
+                        "stateverify_emissions": stateverify_emissions[
+                            sample_index, :length
+                        ]
+                        .detach()
+                        .float()
+                        .cpu()
+                        .numpy(),
+                        "stateverify_procedure_residual": outputs[
+                            "procedure_violation_score"
+                        ][sample_index, :length]
+                        .detach()
+                        .float()
+                        .cpu()
+                        .numpy(),
+                        "stateverify_execution_residual": normality_anomaly_score[
+                            sample_index, :length
+                        ]
+                        .detach()
+                        .float()
+                        .cpu()
+                        .numpy(),
                         "state_score": state_score.detach().float().cpu().numpy(),
                         "state_other_prediction": (state_probabilities[sample_index, :length, :, 1:].argmax(dim=-1) + 1).detach().cpu().numpy(),
                         "incorrect_onset_probability": incorrect_onset_probability[sample_index, :length].detach().float().cpu().numpy(),
@@ -1088,7 +1120,8 @@ def evaluate(
     seen_action_correct = seen_action_total = 0
     unseen_action_correct = unseen_action_total = 0
     reconstructed_recordings: list[dict[str, np.ndarray]] = []
-    for chunks in recording_chunks.values():
+    stateverify_archives: list[dict[str, Any]] = []
+    for recording_id, chunks in recording_chunks.items():
         recording = _stitch_recording_chunks(chunks)
         reconstructed_recordings.append(recording)
         pred = recording["step_prediction"]
@@ -1129,6 +1162,20 @@ def evaluate(
         state_incorrect = recording["state_incorrect_probability"]
         previous = np.concatenate((np.zeros_like(state_incorrect[:1]), state_incorrect[:-1]), axis=0)
         state_onset = np.maximum(state_incorrect - previous, 0.0)
+        if stateverify_export_dir is not None:
+            stateverify_archives.append(
+                _export_stateverify_emissions(
+                    stateverify_export_dir,
+                    recording_id,
+                    recording["stateverify_emissions"],
+                    recording["stateverify_procedure_residual"],
+                    recording["stateverify_execution_residual"],
+                    state_onset,
+                    component_outcome=recording["component_outcome"],
+                    seconds_per_step=seconds_per_step,
+                    component_names=stateverify_component_names,
+                )
+            )
         prototype_fault = np.sqrt(np.maximum(state_onset * normality, 0.0))
         event_scores = recording["event_score"].copy()
         event_scores[..., 1] = np.maximum(event_scores[..., 1], prototype_fault)
@@ -1139,6 +1186,27 @@ def evaluate(
             event_scores[..., 1], recording["mistake_action_onset_score"]
         )
         event_samples.append((_target_events(outcomes), event_scores))
+    if stateverify_export_dir is not None:
+        stateverify_export_dir.mkdir(parents=True, exist_ok=True)
+        (stateverify_export_dir / "index.json").write_text(
+            json.dumps(
+                {
+                    "contract": "stateverify_emissions_v1",
+                    "state_order": [
+                        "not_completed",
+                        "installed_correct",
+                        "installed_incorrect",
+                    ],
+                    "procedure_residual": "global causal action/procedure incompatibility",
+                    "execution_residual": "component normality anomaly probability",
+                    "effect_residual": "positive onset of incorrect component state probability",
+                    "recordings": stateverify_archives,
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
     primary_tolerance = max(1, round(1.0 / seconds_per_step))
     if calibrate_events or event_thresholds is None:
         event_thresholds, calibrated_metrics, event_pr_auc = _calibrate_event_thresholds(
@@ -1397,6 +1465,72 @@ def _stitch_recording_chunks(
         )
     result["seen_action_mask"] = np.asarray(ordered[0]["seen_action_mask"])
     return result
+
+
+def _export_stateverify_emissions(
+    output_dir: Path,
+    recording_id: str,
+    state_emissions: np.ndarray,
+    procedure_residual: np.ndarray,
+    execution_residual: np.ndarray,
+    effect_residual: np.ndarray,
+    *,
+    component_outcome: np.ndarray | None = None,
+    seconds_per_step: float | None = None,
+    component_names: Sequence[str] | None = None,
+) -> dict[str, Any]:
+    """Write a replayable, model-agnostic StateVerify evidence archive."""
+
+    emissions = np.asarray(state_emissions, dtype=np.float32)
+    if emissions.ndim != 3 or emissions.shape[-1] != 3:
+        raise ValueError("StateVerify emissions must have shape [time, component, 3].")
+    components = emissions.shape[1]
+    names = (
+        [str(name) for name in component_names]
+        if component_names is not None
+        else [f"component_{index}" for index in range(components)]
+    )
+    if len(names) != components:
+        raise ValueError(
+            f"Received {len(names)} StateVerify component names for {components} emissions."
+        )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", recording_id).strip("._")
+    if not safe_name:
+        safe_name = hashlib.sha256(recording_id.encode("utf-8")).hexdigest()[:16]
+    archive_path = output_dir / f"{safe_name}.npz"
+    archive_payload: dict[str, Any] = {
+        "state_emissions": emissions,
+        "procedure_residual": np.asarray(procedure_residual, dtype=np.float32),
+        "execution_residual": np.asarray(execution_residual, dtype=np.float32),
+        "effect_residual": np.asarray(effect_residual, dtype=np.float32),
+        "component_names": np.asarray(names),
+        "recording_id": np.asarray(recording_id),
+    }
+    if component_outcome is not None:
+        outcomes = np.asarray(component_outcome, dtype=np.int64)
+        if outcomes.shape != emissions.shape[:2]:
+            raise ValueError(
+                f"component_outcome has shape {outcomes.shape}; expected "
+                f"{emissions.shape[:2]}."
+            )
+        archive_payload["component_outcome"] = outcomes
+    if seconds_per_step is not None:
+        if seconds_per_step <= 0:
+            raise ValueError("seconds_per_step must be positive.")
+        archive_payload["seconds_per_step"] = np.asarray(
+            seconds_per_step, dtype=np.float32
+        )
+    np.savez_compressed(
+        archive_path,
+        **archive_payload,
+    )
+    return {
+        "recording_id": recording_id,
+        "path": archive_path.name,
+        "rows": int(emissions.shape[0]),
+        "components": components,
+    }
 
 
 def _class_f1_from_confusion(confusion: np.ndarray, class_index: int) -> float:
