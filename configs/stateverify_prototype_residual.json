@@ -1,0 +1,15 @@
+{
+  "experiment": "StateVerify component-step normal prototype residual",
+  "observer_checkpoint": "runs/industreal_stateverify_observer_balanced_s7/best.pt",
+  "representation": "causal StateVerify per-component embedding",
+  "fit_data": "correct persistent-state frames from training recordings only",
+  "prototype_count": 5,
+  "initialization": "deterministic farthest-point spherical k-means",
+  "minimum_step_samples": 20,
+  "maximum_samples_per_group": 20000,
+  "fallback": "component-level prototype bank",
+  "score": "minimum cosine residual normalized by training median and p90 spread",
+  "incorrect_labels_usage": "threshold calibration only",
+  "calibration_false_candidate_alerts_per_minute": 0.1,
+  "gaze_excluded": true
+}
