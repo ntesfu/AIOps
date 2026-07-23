@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from aiops.evaluation.industreal_grouped import (
+    materialize_grouped_fold_indexes,
     prepare_grouped_evaluation,
     write_grouped_evaluation,
 )
@@ -27,6 +28,10 @@ def main() -> None:
     parser.add_argument("--episode-radius", type=int, default=32)
     parser.add_argument("--matches-per-incorrect", type=int, default=3)
     parser.add_argument(
+        "--fold-index-dir",
+        help="Optional directory for lightweight operator-disjoint fold cache indexes.",
+    )
+    parser.add_argument(
         "--operator-map",
         help="Optional JSON object mapping nonstandard recording IDs to operator IDs.",
     )
@@ -46,6 +51,13 @@ def main() -> None:
         operator_map=operator_map,
     )
     write_grouped_evaluation(args.output, payload)
+    fold_indexes = (
+        materialize_grouped_fold_indexes(
+            args.cache_index, payload, args.fold_index_dir
+        )
+        if args.fold_index_dir
+        else []
+    )
     print(
         json.dumps(
             {
@@ -54,6 +66,7 @@ def main() -> None:
                 "development_recordings": payload["development_recordings"],
                 "development_operators": len(payload["development_operators"]),
                 "official_test_sealed": payload["policy"]["official_test_sealed"],
+                "fold_indexes": [str(path.resolve()) for path in fold_indexes],
                 "fold_summary": [
                     {
                         "fold": fold["fold"],

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,9 +10,20 @@ import numpy as np
 
 from aiops.data.stategraph_cache import StateGraphCacheRecord, write_cache_index
 from aiops.evaluation.industreal_grouped import (
+    materialize_grouped_fold_indexes,
     parse_industreal_operator_id,
     prepare_grouped_evaluation,
 )
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SUMMARY_SPEC = importlib.util.spec_from_file_location(
+    "summarize_industreal_grouped_reference",
+    ROOT / "scripts" / "summarize_industreal_grouped_reference.py",
+)
+assert SUMMARY_SPEC and SUMMARY_SPEC.loader
+SUMMARY = importlib.util.module_from_spec(SUMMARY_SPEC)
+SUMMARY_SPEC.loader.exec_module(SUMMARY)
 
 
 class IndustRealGroupedEvaluationTest(unittest.TestCase):
@@ -64,6 +76,29 @@ class IndustRealGroupedEvaluationTest(unittest.TestCase):
                     any(recording.startswith("99_") for recording in fold["train_recording_ids"])
                 )
             self.assertEqual(sorted(seen_validation), ["01", "02", "03"])
+
+            fold_indexes = materialize_grouped_fold_indexes(
+                index, payload, root / "fold-indexes"
+            )
+            self.assertEqual(len(fold_indexes), 3)
+            for fold_index in fold_indexes:
+                fold_payload = json.loads(fold_index.read_text(encoding="utf-8"))
+                ids = {
+                    record["recording_id"] for record in fold_payload["records"]
+                }
+                self.assertEqual(
+                    ids, {"01_assy_0_1", "02_assy_0_1", "03_assy_0_1"}
+                )
+                self.assertFalse(any(recording.startswith("99_") for recording in ids))
+                self.assertEqual(
+                    sum(record["split"] == "val" for record in fold_payload["records"]),
+                    1,
+                )
+                self.assertTrue(
+                    fold_payload["metadata"]["grouped_evaluation"][
+                        "official_test_sealed"
+                    ]
+                )
 
     def test_zero_error_operators_balance_recording_load(self) -> None:
         from aiops.evaluation.industreal_grouped import _balanced_operator_assignment
@@ -129,6 +164,35 @@ class IndustRealGroupedEvaluationTest(unittest.TestCase):
                         self.assertEqual(error["component_index"], correct["component_index"])
                         self.assertIn(error["recording_id"], allowed_recordings)
                         self.assertIn(correct["recording_id"], allowed_recordings)
+
+    def test_grouped_summary_counts_operational_failures(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            metrics = {name: 1.0 for name in SUMMARY.METRICS}
+            validation = (
+                root
+                / "runs"
+                / "grouped_fold0_s7_dual_expert"
+                / "validation.json"
+            )
+            validation.parent.mkdir(parents=True)
+            validation.write_text(
+                json.dumps({"metrics": metrics}), encoding="utf-8"
+            )
+            failed = root / "runs" / "grouped_fold1_s7_event" / "history.jsonl"
+            failed.parent.mkdir(parents=True)
+            failed.write_text("{}\n", encoding="utf-8")
+
+            report = SUMMARY.summarize(
+                root, run_prefix_base="grouped", seed=7, folds=2
+            )
+
+            self.assertEqual(report["operational_checkpoint_folds"], 1)
+            self.assertEqual(report["operational_pass_rate"], 0.5)
+            self.assertEqual(
+                report["rows"][1]["status"], "no_operational_checkpoint"
+            )
+            self.assertTrue(report["test_remained_sealed"])
 
     @staticmethod
     def _write_record(path: Path, *, incorrect: bool) -> None:

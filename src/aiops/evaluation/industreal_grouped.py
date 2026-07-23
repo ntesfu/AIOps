@@ -10,13 +10,17 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import numpy as np
 
-from aiops.data.stategraph_cache import StateGraphCacheRecord, read_cache_index
+from aiops.data.stategraph_cache import (
+    StateGraphCacheRecord,
+    read_cache_index,
+    write_cache_index,
+)
 
 
 DEVELOPMENT_SPLITS = frozenset({"train", "val", "validation"})
@@ -220,6 +224,67 @@ def write_grouped_evaluation(path: str | Path, payload: Mapping[str, Any]) -> No
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def materialize_grouped_fold_indexes(
+    cache_index: str | Path,
+    grouped_payload: Mapping[str, Any],
+    output_dir: str | Path,
+) -> list[Path]:
+    """Write lightweight train/val indexes that reference the original NPZs."""
+
+    metadata, records = read_cache_index(cache_index)
+    development = {
+        record.recording_id: record
+        for record in records
+        if record.split.strip().lower() in DEVELOPMENT_SPLITS
+    }
+    test_ids = {
+        record.recording_id
+        for record in records
+        if record.split.strip().lower() in SEALED_SPLITS
+    }
+    destination = Path(output_dir)
+    outputs: list[Path] = []
+    for fold in grouped_payload["folds"]:
+        train_ids = set(fold["train_recording_ids"])
+        validation_ids = set(fold["validation_recording_ids"])
+        if train_ids & validation_ids:
+            raise ValueError(f"Fold {fold['fold']} has overlapping train/validation records")
+        selected_ids = train_ids | validation_ids
+        if selected_ids & test_ids:
+            raise ValueError(f"Fold {fold['fold']} attempts to include sealed test records")
+        if selected_ids != set(development):
+            missing = sorted(set(development) - selected_ids)
+            extra = sorted(selected_ids - set(development))
+            raise ValueError(
+                f"Fold {fold['fold']} does not partition development records: "
+                f"missing={missing}, extra={extra}"
+            )
+        fold_records = [
+            replace(
+                development[recording_id],
+                split=("val" if recording_id in validation_ids else "train"),
+            )
+            for recording_id in sorted(selected_ids)
+        ]
+        fold_metadata = dict(metadata)
+        fold_metadata["grouped_evaluation"] = {
+            "schema_version": grouped_payload["schema_version"],
+            "fold": int(fold["fold"]),
+            "group_unit": grouped_payload["policy"]["group_unit"],
+            "official_test_sealed": True,
+            "source_cache_index": str(Path(cache_index).resolve()),
+            "seed": int(grouped_payload["seed"]),
+            "validation_operator_ids": list(fold["validation_operator_ids"]),
+            "validation_incorrect_events": int(
+                fold["validation"]["incorrect_event_count"]
+            ),
+        }
+        index_path = destination / f"fold-{int(fold['fold'])}" / "index.json"
+        write_cache_index(index_path, fold_records, fold_metadata)
+        outputs.append(index_path)
+    return outputs
 
 
 def _read_record_episodes(

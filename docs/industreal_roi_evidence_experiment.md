@@ -141,6 +141,7 @@ Use the operator-grouped manifest for the promotion runs:
 PYTHONPATH=src "$PYTHON_BIN" scripts/prepare_industreal_grouped_evaluation.py \
   --cache-index "$CACHE_INDEX" \
   --output experiments/industreal_grouped_eval_s7.json \
+  --fold-index-dir experiments/industreal_grouped_folds_s7 \
   --folds 5 --seed 7 --episode-radius 32 --matches-per-incorrect 3
 ```
 
@@ -151,6 +152,24 @@ opened. The current cache yields 52 development recordings, 17 operators, and
 19 incorrect events; each incorrect event has three same-component correct
 matches. This is a more defensible rare-event screen than repeatedly tuning on
 the five mistakes in the official validation split.
+
+Train the flat reference across all operator-disjoint folds before comparing
+another architecture:
+
+```bash
+FOLD_INDEX_DIR=experiments/industreal_grouped_folds_s7 \
+RUN_PREFIX_BASE=industreal_grouped_flat_v1 \
+EXPERIMENT_TIER=quick \
+bash scripts/run_industreal_grouped_flat_reference.sh
+
+PYTHONPATH=src "$PYTHON_BIN" scripts/summarize_industreal_grouped_reference.py \
+  --run-prefix-base industreal_grouped_flat_v1 \
+  --output experiments/industreal_grouped_flat_v1_summary.json
+```
+
+The runner attempts every fold even when one fold cannot produce an operational
+checkpoint. The summary reports that as a failure rather than averaging only
+successful folds silently.
 
 ## Hybrid recovery experiment
 
