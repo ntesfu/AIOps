@@ -63,7 +63,7 @@ def test_predicted_step_scoring_uses_step_bank_without_label_input():
             samples=10,
         ),
     }
-    features = np.asarray([[[0.0, 1.0]], [[1.0, 0.0]]], dtype=np.float32)
+    features = np.asarray([[[0.0, 1.0]], [[0.0, 1.0]]], dtype=np.float32)
     scores, mask, sources = predicted_step_anomaly_scores(
         features, np.asarray([4, 8]), bank
     )
