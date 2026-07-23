@@ -29,7 +29,7 @@ def fit_prototype_group(
     centers = [values[int(rng.integers(len(values)))]]
     while len(centers) < count:
         distance = _cosine_distance(values, np.stack(centers)).min(axis=1)
-        probability = distance.square()
+        probability = np.square(distance)
         total = float(probability.sum())
         index = (
             int(rng.integers(len(values)))
