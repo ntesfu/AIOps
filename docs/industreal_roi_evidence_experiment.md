@@ -29,6 +29,13 @@ modality gate. A separate projection feeds ROI evidence only into the component-
 branch. This isolates fault-evidence gains from action segmentation and keeps the comparison with
 the strict-causal baseline interpretable.
 
+Mistake detection is factorized into a shared temporal decision and a conditional component
+selector. The temporal detector max-pools the component-conditioned ROI tokens, so one strong
+hand/object/connection anomaly can trigger an alert without ten independent component detectors
+each paying the full class-imbalance penalty. Its positive weight is 17, derived from the audited
+235 correct versus 14 incorrect training events. Event checkpoints use the operational harmonic
+selector and must satisfy the two-false-alerts-per-minute budget.
+
 ## Storage strategy
 
 The 29 GB recording archives are not expanded. Only `hands.csv`, `gaze.csv`, `pose.csv`, and

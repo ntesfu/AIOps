@@ -25,6 +25,10 @@ component_evidence="${COMPONENT_EVIDENCE:-0}"
 component_rank_weight="${COMPONENT_RANK_WEIGHT:-0.0}"
 component_rank_margin="${COMPONENT_RANK_MARGIN:-0.5}"
 event_only_motion_aux="${EVENT_ONLY_MOTION_AUX:-0}"
+factorized_mistake_detection="${FACTORIZED_MISTAKE_DETECTION:-0}"
+any_mistake_weight="${ANY_MISTAKE_WEIGHT:-1.0}"
+mistake_component_weight="${MISTAKE_COMPONENT_WEIGHT:-1.0}"
+any_mistake_pos_weight="${ANY_MISTAKE_POS_WEIGHT:-1.0}"
 resume="${RESUME:-0}"
 python_bin="${PYTHON_BIN:-.venv/bin/python}"
 export PYTHONPATH=".deps:src${PYTHONPATH:+:${PYTHONPATH}}"
@@ -90,6 +94,14 @@ if [[ "$component_evidence" == "1" ]]; then
 fi
 if [[ "$event_only_motion_aux" == "1" ]]; then
   common_args+=(--event-only-motion-aux)
+fi
+if [[ "$factorized_mistake_detection" == "1" ]]; then
+  common_args+=(
+    --factorized-mistake-detection
+    --any-mistake-weight "$any_mistake_weight"
+    --mistake-component-weight "$mistake_component_weight"
+    --any-mistake-pos-weight "$any_mistake_pos_weight"
+  )
 fi
 
 train_action() {

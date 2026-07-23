@@ -255,6 +255,50 @@ class StateGraphModelTest(unittest.TestCase):
         losses["total"].backward()
         self.assertIsNotNone(model.any_mistake_onset_head.weight.grad)
 
+    def test_factorized_timing_uses_event_only_component_evidence(self) -> None:
+        import torch
+
+        torch.manual_seed(11)
+        config = StateGraphPSRConfig(
+            motion_dim=4,
+            motion_aux_dim=8,
+            appearance_dim=3,
+            sensor_dim=2,
+            num_steps=2,
+            num_completion_components=2,
+            num_components=2,
+            hidden_dim=8,
+            num_temporal_blocks=1,
+            attention_every=0,
+            num_heads=2,
+            dropout=0.0,
+            component_evidence=True,
+            event_only_motion_aux=True,
+            factorized_mistake_detection=True,
+        )
+        model = build_stategraph_psr(config).eval()
+        motion = torch.randn(1, 6, 4)
+        appearance = torch.randn(1, 6, 3)
+        sensor = torch.randn(1, 6, 2)
+        auxiliary = torch.randn(1, 6, 8)
+        with torch.no_grad():
+            first = model(motion, appearance, sensor, motion_aux=auxiliary)
+            changed = model(
+                motion,
+                appearance,
+                sensor,
+                motion_aux=auxiliary + torch.randn_like(auxiliary) * 3.0,
+            )
+        torch.testing.assert_close(
+            first["step_logits"], changed["step_logits"], rtol=0.0, atol=0.0
+        )
+        self.assertFalse(
+            torch.equal(
+                first["any_mistake_onset_logits"],
+                changed["any_mistake_onset_logits"],
+            )
+        )
+
     def test_legacy_model_has_no_factorized_parameters(self) -> None:
         config = StateGraphPSRConfig(
             motion_dim=4,

@@ -20,6 +20,9 @@
   "model_changes": {
     "component_evidence": true,
     "event_only_motion_aux": true,
+    "factorized_mistake_detection": true,
+    "any_mistake_pos_weight": 17.0,
+    "event_selection": "operational_harmonic",
     "component_rank_weight": 0.25,
     "component_rank_margin": 0.5
   },
