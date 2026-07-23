@@ -270,7 +270,7 @@ def main() -> None:
         "--prototype-counts", type=int, nargs="+", default=[1, 3, 5]
     )
     parser.add_argument("--minimum-step-samples", type=int, default=20)
-    parser.add_argument("--maximum-samples-per-group", type=int, default=4000)
+    parser.add_argument("--maximum-samples-per-group", type=int, default=20000)
     parser.add_argument("--max-false-alerts-per-minute", type=float, default=2.0)
     parser.add_argument("--device", default=None)
     parser.add_argument("--seed", type=int, default=7)

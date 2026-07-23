@@ -25,17 +25,13 @@ def fit_prototype_group(
     if values.ndim != 2 or len(values) == 0:
         raise ValueError("features must be a non-empty [samples, dimension] array.")
     count = min(max(int(prototypes), 1), len(values))
-    rng = np.random.default_rng(seed)
-    centers = [values[int(rng.integers(len(values)))]]
+    del seed  # deterministic farthest-point initialization
+    mean_direction = _normalize(values.mean(axis=0, keepdims=True))[0]
+    first = int(np.argmax(values @ mean_direction))
+    centers = [values[first]]
     while len(centers) < count:
         distance = _cosine_distance(values, np.stack(centers)).min(axis=1)
-        probability = np.square(distance)
-        total = float(probability.sum())
-        index = (
-            int(rng.integers(len(values)))
-            if total <= 1e-12
-            else int(rng.choice(len(values), p=probability / total))
-        )
+        index = int(np.argmax(distance))
         centers.append(values[index])
     centers_array = np.stack(centers)
     for _ in range(iterations):
