@@ -185,6 +185,66 @@ def _targets(records, event_state_indices):
     return targets
 
 
+def _target_signal_diagnostics(records, event_state_indices):
+    rows = []
+    for record in records:
+        event_rows, event_components = np.where(record["component_outcome"] == 1)
+        for row, event_component in zip(event_rows, event_components):
+            state_component = int(event_state_indices[event_component])
+            effect = record["effect_probabilities"][row, state_component]
+            item = {
+                "recording_id": record["recording_id"],
+                "row": int(row),
+                "timestamp": float(record["timestamps"][row]),
+                "event_component": int(event_component),
+                "state_component": state_component,
+                "true_step": int(record["step"][row]),
+                "completion_probability": float(effect[1] + effect[2]),
+                "incorrect_effect_probability": float(effect[2]),
+                "incorrect_state_probability": float(
+                    record["state_probabilities"][row, state_component, 2]
+                ),
+                "component_anomaly_score": float(
+                    record["anomaly_scores"][row, state_component]
+                ),
+            }
+            if "predicted_step" in record:
+                item["predicted_step"] = int(record["predicted_step"][row])
+                item["predicted_step_correct"] = bool(
+                    item["predicted_step"] == item["true_step"]
+                )
+            rows.append(item)
+    completion = np.asarray(
+        [row["completion_probability"] for row in rows], dtype=np.float64
+    )
+    anomaly = np.asarray(
+        [row["component_anomaly_score"] for row in rows], dtype=np.float64
+    )
+    return {
+        "events": rows,
+        "completion_probability_mean": (
+            float(completion.mean()) if len(completion) else None
+        ),
+        "completion_probability_max": (
+            float(completion.max()) if len(completion) else None
+        ),
+        "completion_candidate_recall": {
+            str(threshold): (
+                100.0 * float((completion >= threshold).mean())
+                if len(completion)
+                else 0.0
+            )
+            for threshold in (0.1, 0.2, 0.35, 0.5)
+        },
+        "component_anomaly_mean": (
+            float(anomaly.mean()) if len(anomaly) else None
+        ),
+        "component_anomaly_max": (
+            float(anomaly.max()) if len(anomaly) else None
+        ),
+    }
+
+
 def _evaluate_config(records, targets, config, tolerance_seconds):
     alerts = []
     duration = 0.0
@@ -428,6 +488,12 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
         "prototype_score_sources": _score_source_totals(records),
         "train_incorrect_events": len(train_targets),
         "validation_incorrect_events": len(validation_targets),
+        "train_target_signal_diagnostics": _target_signal_diagnostics(
+            train_records, event_state_indices
+        ),
+        "validation_target_signal_diagnostics": _target_signal_diagnostics(
+            validation_records, event_state_indices
+        ),
         "selected": selection,
         "validation": validation_metrics,
         "train_selected_operating_curve": operating_curve,
