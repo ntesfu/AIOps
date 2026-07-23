@@ -78,6 +78,7 @@ The default trainable head is approximately four million parameters. Its outputs
 - Critique response and evidence-first roadmap: [`docs/stategraph_psr_critique_response_plan.md`](docs/stategraph_psr_critique_response_plan.md)
 - Strict-causal IndustReal baseline protocol: [`docs/industreal_staged_baseline_protocol.md`](docs/industreal_staged_baseline_protocol.md)
 - Component-conditioned IndustReal evidence pilot: [`docs/industreal_component_evidence_experiment.md`](docs/industreal_component_evidence_experiment.md)
+- Strict-causal IndustReal ROI evidence experiment: [`docs/industreal_roi_evidence_experiment.md`](docs/industreal_roi_evidence_experiment.md)
 
 Audit an extracted release, build a cache, and train:
 

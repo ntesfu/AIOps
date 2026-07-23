@@ -11,6 +11,7 @@ import numpy as np
 
 from aiops.data.industreal import (
     IndustRealRecording,
+    attach_industreal_auxiliary,
     audit_industreal_root,
     dense_action_labels,
     discover_industreal_recordings,
@@ -83,6 +84,8 @@ def build_industreal_cache(args: argparse.Namespace) -> dict[str, Any]:
     if clip_anchor not in {"trailing", "centered"}:
         raise ValueError("clip_anchor must be 'trailing' or 'centered'")
     recordings = discover_industreal_recordings(args.data_root)
+    if getattr(args, "auxiliary_root", None):
+        recordings = attach_industreal_auxiliary(recordings, args.auxiliary_root)
     official = [
         recording
         for recording in recordings
@@ -175,6 +178,7 @@ def build_industreal_cache(args: argparse.Namespace) -> dict[str, Any]:
         "clip_anchor": clip_anchor,
         "causal_clips": clip_anchor == "trailing" and motion_provenance["causality_verified"],
         "strict_causal": strict_causal,
+        "auxiliary_root": str(args.auxiliary_root) if getattr(args, "auxiliary_root", None) else None,
         "temporal_contract": (
             "prediction-aligned_past-only"
             if clip_anchor == "trailing" and motion_provenance["causality_verified"]
@@ -713,6 +717,11 @@ def main() -> None:
     parser.add_argument("--motion-aux-features-dir", default=None)
     parser.add_argument("--motion-aux-backend-name", default=None)
     parser.add_argument("--appearance-features-dir", default=None)
+    parser.add_argument(
+        "--auxiliary-root",
+        default=None,
+        help="Overlay root containing recordings/{split}/{id}/hands.csv, gaze.csv, pose.csv, and OD_labels.json.",
+    )
     parser.add_argument(
         "--recording-id",
         action="append",

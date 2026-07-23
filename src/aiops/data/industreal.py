@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import re
+from dataclasses import replace
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable
@@ -110,6 +111,29 @@ def discover_industreal_recordings(root: str | Path) -> list[IndustRealRecording
         )
         for video in video_files
     ]
+
+
+def attach_industreal_auxiliary(
+    recordings: Iterable[IndustRealRecording], auxiliary_root: str | Path
+) -> list[IndustRealRecording]:
+    """Attach selectively extracted release metadata without duplicating RGB."""
+
+    root = Path(auxiliary_root).expanduser().resolve()
+    base = root / "recordings" if (root / "recordings").is_dir() else root
+    attached: list[IndustRealRecording] = []
+    for recording in recordings:
+        directory = base / recording.split / recording.recording_id
+        attached.append(
+            replace(
+                recording,
+                object_labels=recording.object_labels
+                or _first_existing(directory, ("OD_labels.json",)),
+                hands=recording.hands or _first_existing(directory, ("hands.csv",)),
+                gaze=recording.gaze or _first_existing(directory, ("gaze.csv",)),
+                pose=recording.pose or _first_existing(directory, ("pose.csv",)),
+            )
+        )
+    return attached
 
 
 def audit_industreal_root(root: str | Path) -> IndustRealAudit:

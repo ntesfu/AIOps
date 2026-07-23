@@ -165,6 +165,20 @@ def audit_stategraph_cache(index_path: str | Path) -> dict[str, Any]:
         )
     if metadata.get("strict_causal") and metadata.get("causal_clips") is not True:
         warnings.append("Strict-causal cache is not backed by verified causal motion provenance.")
+    has_motion_aux = any(record.motion_aux_dim > 0 for record in records)
+    auxiliary_provenance = metadata.get("motion_aux_provenance")
+    auxiliary_causal = (
+        not has_motion_aux
+        or (
+            isinstance(auxiliary_provenance, dict)
+            and auxiliary_provenance.get("causality_verified") is True
+            and int(auxiliary_provenance.get("max_future_offset_frames", 1)) <= 0
+        )
+    )
+    if metadata.get("strict_causal") and not auxiliary_causal:
+        warnings.append(
+            "Auxiliary features exist without verified current/past-only provenance."
+        )
 
     background_id = metadata.get("background_action_id")
     background_index = action_names.index(background_id) if background_id in action_names else None
@@ -207,6 +221,8 @@ def audit_stategraph_cache(index_path: str | Path) -> dict[str, Any]:
             "verified_records": temporal_provenance_records,
             "max_future_offset_frames": max_future_offset_frames,
             "motion_provenance": metadata.get("motion_provenance"),
+            "motion_aux_provenance": auxiliary_provenance,
+            "motion_aux_causality_verified": auxiliary_causal,
         },
         "warnings": warnings,
     }
@@ -245,6 +261,7 @@ def main() -> None:
             and temporal["verified_records"] == report["recordings"]
             and maximum_offset is not None
             and maximum_offset <= 0
+            and temporal["motion_aux_causality_verified"] is True
         )
         if not causal_ok:
             raise SystemExit(3)

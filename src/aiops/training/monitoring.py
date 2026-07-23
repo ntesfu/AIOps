@@ -15,6 +15,7 @@ class TrainingMonitor:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.enabled = enabled
         self.system_path = self.output_dir / "system.jsonl"
+        self.error_path = self.output_dir / "monitoring_errors.jsonl"
         self.writer = None
         if enabled:
             try:
@@ -32,9 +33,12 @@ class TrainingMonitor:
         if not self.enabled:
             return
         if self.writer is not None:
-            for name, value in values.items():
-                if isinstance(value, (int, float)):
-                    self.writer.add_scalar(f"{group}/{name}", float(value), step)
+            try:
+                for name, value in values.items():
+                    if isinstance(value, (int, float)):
+                        self.writer.add_scalar(f"{group}/{name}", float(value), step)
+            except Exception as exc:  # TensorBoard must never terminate training.
+                self._disable_tensorboard("log_scalars", exc)
 
     def log_system(self, step: int, device: Any) -> dict[str, float]:
         if not self.enabled:
@@ -62,8 +66,37 @@ class TrainingMonitor:
 
     def close(self) -> None:
         if self.writer is not None:
-            self.writer.flush()
-            self.writer.close()
+            writer = self.writer
+            self.writer = None
+            try:
+                writer.flush()
+                writer.close()
+            except Exception as exc:  # Preserve checkpoints/JSONL on writer failure.
+                self._record_error("close", exc)
+
+    def _disable_tensorboard(self, operation: str, exc: Exception) -> None:
+        self.writer = None
+        self._record_error(operation, exc)
+        print(
+            f"TensorBoard disabled after {operation} failed: {type(exc).__name__}: {exc}. "
+            "Training and JSONL telemetry will continue.",
+            flush=True,
+        )
+
+    def _record_error(self, operation: str, exc: Exception) -> None:
+        payload = {
+            "wall_time": time.time(),
+            "operation": operation,
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+        try:
+            with self.error_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload) + "\n")
+        except OSError:
+            # Logging failure is diagnostic only and cannot be allowed to hide
+            # a successfully trained/checkpointed model.
+            pass
 
 
 def _nvidia_smi_metrics(index: int) -> dict[str, float]:

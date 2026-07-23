@@ -70,6 +70,9 @@ class StateGraphPSRConfig:
     # appearance projection, and optional cached sensors. This branch is
     # deliberately event-only so rare supervision cannot destabilize actions.
     component_evidence: bool = False
+    # Keep high-dimensional ROI/auxiliary evidence out of the action fusion and
+    # route it only through the component event branch.
+    event_only_motion_aux: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -306,7 +309,11 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             self.motion_aux_stem = ProjectionStem(config.motion_aux_dim)
             self.appearance_stem = ProjectionStem(config.appearance_dim)
             self.sensor_stem = ProjectionStem(config.sensor_dim)
-            modality_count = 4 if config.motion_aux_dim > 0 else 3
+            modality_count = (
+                4
+                if config.motion_aux_dim > 0 and not config.event_only_motion_aux
+                else 3
+            )
             self.modality_gate = nn.Sequential(
                 nn.LayerNorm(config.hidden_dim * modality_count),
                 nn.Linear(config.hidden_dim * modality_count, config.hidden_dim),
@@ -427,6 +434,7 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                     config.appearance_dim
                 )
                 self.component_evidence_sensor_stem = ProjectionStem(config.sensor_dim)
+                self.component_evidence_aux_stem = ProjectionStem(config.motion_aux_dim)
                 self.component_evidence_event = nn.Sequential(
                     nn.LayerNorm(config.hidden_dim),
                     nn.Linear(config.hidden_dim, config.hidden_dim),
@@ -438,6 +446,11 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                     nn.GELU(),
                 )
                 self.component_evidence_appearance = nn.Sequential(
+                    nn.LayerNorm(config.hidden_dim),
+                    nn.Linear(config.hidden_dim, config.hidden_dim),
+                    nn.GELU(),
+                )
+                self.component_evidence_aux = nn.Sequential(
                     nn.LayerNorm(config.hidden_dim),
                     nn.Linear(config.hidden_dim, config.hidden_dim),
                     nn.GELU(),
@@ -509,7 +522,7 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             projected = [
                 self.motion_stem(motion) if config.motion_dim > 0 else zeros,
             ]
-            if config.motion_aux_dim > 0:
+            if config.motion_aux_dim > 0 and not config.event_only_motion_aux:
                 projected.append(
                     self.motion_aux_stem(motion_aux) if motion_aux is not None else zeros
                 )
@@ -523,7 +536,11 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             gate_input = torch.cat(projected, dim=-1)
             gate_logits = self.modality_gate(gate_input)
             if modality_mask is not None:
-                if config.motion_aux_dim > 0 and modality_mask.shape[-1] == 3:
+                if (
+                    config.motion_aux_dim > 0
+                    and not config.event_only_motion_aux
+                    and modality_mask.shape[-1] == 3
+                ):
                     aux_mask = torch.full_like(modality_mask[..., :1], motion_aux is not None)
                     modality_mask = torch.cat(
                         [modality_mask[..., :1], aux_mask, modality_mask[..., 1:]], dim=-1
@@ -726,10 +743,20 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                     )
                     sensor_evidence = sensor_evidence * sensor_present.unsqueeze(-1)
                     sensor_evidence = self.component_evidence_sensor(sensor_evidence)
+                auxiliary_evidence = (
+                    self.component_evidence_aux_stem(motion_aux)
+                    if motion_aux is not None
+                    else None
+                )
+                if auxiliary_evidence is None:
+                    auxiliary_evidence = event_features.new_zeros(event_features.shape)
+                else:
+                    auxiliary_evidence = self.component_evidence_aux(auxiliary_evidence)
                 component_evidence_features = self.component_evidence_norm(
                     self.component_evidence_event(event_features).unsqueeze(-2)
                     + appearance_evidence.unsqueeze(-2)
                     + sensor_evidence.unsqueeze(-2)
+                    + auxiliary_evidence.unsqueeze(-2)
                     + self.component_evidence_queries.view(
                         1, 1, config.num_completion_components, config.hidden_dim
                     )

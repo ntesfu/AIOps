@@ -81,6 +81,7 @@ class StateGraphModelTest(unittest.TestCase):
             learned_event_fusion=True,
             factorized_mistake_detection=True,
             component_evidence=True,
+            event_only_motion_aux=True,
         )
         transition = torch.tensor([[1.0, 1.0, 0.0], [0.0, 1.0, 1.0], [0.0, 0.0, 1.0]])
         model = build_stategraph_psr(config, transition).eval()
@@ -126,13 +127,35 @@ class StateGraphModelTest(unittest.TestCase):
         self.assertEqual(tuple(output["state_outcome_probabilities"].shape), (2, 7, 2, 3))
         self.assertEqual(output["event_state_indices"].tolist(), [0, 1])
         self.assertEqual(tuple(output["progress_logits"].shape), (2, 7))
-        self.assertEqual(tuple(output["modality_gates"].shape), (2, 7, 4))
+        self.assertEqual(tuple(output["modality_gates"].shape), (2, 7, 3))
         self.assertEqual(tuple(output["modality_disagreement"].shape), (2, 7, 16))
         self.assertEqual(len(output["refinement_step_logits"]), 2)
         self.assertEqual(tuple(output["refinement_step_logits"][-1].shape), (2, 7, 3))
         self.assertTrue(bool((output["atomic_step_logits"][..., 2] == 0).all()))
         self.assertTrue(bool((output["raw_step_logits"][..., 2] != 0).any()))
         self.assertTrue(bool(((output["uncertainty"] >= 0) & (output["uncertainty"] <= 1.0001)).all()))
+
+        changed_aux = motion_aux.clone()
+        changed_aux[..., 0] += 50.0
+        changed_aux_output = model(
+            motion,
+            appearance,
+            sensor,
+            valid,
+            modalities,
+            motion_aux=changed_aux,
+        )
+        torch.testing.assert_close(
+            output["step_logits"], changed_aux_output["step_logits"]
+        )
+        self.assertFalse(
+            bool(
+                torch.allclose(
+                    output["component_outcome_logits"],
+                    changed_aux_output["component_outcome_logits"],
+                )
+            )
+        )
 
         changed = motion.clone()
         changed[:, 4:] += 100.0

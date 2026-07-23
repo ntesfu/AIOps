@@ -271,6 +271,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         learned_event_fusion=args.learned_event_fusion,
         factorized_mistake_detection=args.factorized_mistake_detection,
         component_evidence=args.component_evidence,
+        event_only_motion_aux=args.event_only_motion_aux,
     )
     loss_config = StateGraphLossConfig(
         step_weight=args.step_weight,
@@ -1685,8 +1686,10 @@ def _model_configs_compatible(stored: Any, current: dict[str, Any]) -> bool:
     normalized_current = dict(current)
     normalized.setdefault("factorized_mistake_detection", False)
     normalized.setdefault("component_evidence", False)
+    normalized.setdefault("event_only_motion_aux", False)
     normalized_current.setdefault("factorized_mistake_detection", False)
     normalized_current.setdefault("component_evidence", False)
+    normalized_current.setdefault("event_only_motion_aux", False)
     return normalized == normalized_current
 
 
@@ -2277,6 +2280,11 @@ def main() -> None:
         "--component-evidence",
         action="store_true",
         help="Use component queries and the cached hand/gaze/pose stream in an event-only evidence branch.",
+    )
+    parser.add_argument(
+        "--event-only-motion-aux",
+        action="store_true",
+        help="Exclude motion_aux/ROI features from action fusion and route them only to component evidence.",
     )
     parser.add_argument("--graph-strength", type=float, default=0.12)
     parser.add_argument("--learning-rate", type=float, default=3e-4)

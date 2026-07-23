@@ -1,0 +1,32 @@
+{
+  "experiment": "IndustReal strict-causal ROI evidence",
+  "baseline": "industreal_strict_causal_s7",
+  "data_root": "/home/aiops/Desktop/ego_psr_repro/industreal",
+  "base_cache": "data/processed/industreal_strict_swin_convnext/index.json",
+  "roi_cache": "data/processed/industreal_strict_swin_convnext_roi/index.json",
+  "roi_sources": [
+    "left hand keypoint box",
+    "right hand keypoint box",
+    "gaze-centered connection region",
+    "object detection nearest gaze or hands"
+  ],
+  "roi_encoder": {
+    "name": "ConvNeXt-Tiny ImageNet-1K V1",
+    "frozen": true,
+    "embedding_dim_per_roi": 768,
+    "prediction_contract": "current frame only",
+    "event_only": true
+  },
+  "model_changes": {
+    "component_evidence": true,
+    "event_only_motion_aux": true,
+    "component_rank_weight": 0.25,
+    "component_rank_margin": 0.5
+  },
+  "success_gate": {
+    "incorrect_event_recall_minimum": 20.0,
+    "incorrect_false_alerts_per_minute_maximum": 2.0,
+    "normality_ap_must_exceed_prevalence": true,
+    "action_f1_50_regression_tolerance": 1.0
+  }
+}

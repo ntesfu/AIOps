@@ -24,6 +24,7 @@ max_false_alerts="${MAX_INCORRECT_FALSE_ALERTS_PER_MINUTE:-2.0}"
 component_evidence="${COMPONENT_EVIDENCE:-0}"
 component_rank_weight="${COMPONENT_RANK_WEIGHT:-0.0}"
 component_rank_margin="${COMPONENT_RANK_MARGIN:-0.5}"
+event_only_motion_aux="${EVENT_ONLY_MOTION_AUX:-0}"
 resume="${RESUME:-0}"
 python_bin="${PYTHON_BIN:-.venv/bin/python}"
 export PYTHONPATH=".deps:src${PYTHONPATH:+:${PYTHONPATH}}"
@@ -86,6 +87,9 @@ if [[ "$component_evidence" == "1" ]]; then
     --component-rank-weight "$component_rank_weight"
     --component-rank-margin "$component_rank_margin"
   )
+fi
+if [[ "$event_only_motion_aux" == "1" ]]; then
+  common_args+=(--event-only-motion-aux)
 fi
 
 train_action() {
