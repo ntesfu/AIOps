@@ -59,6 +59,40 @@ def component_anomaly_scores(
     return scores, mask
 
 
+def predicted_step_anomaly_scores(
+    component_features: np.ndarray,
+    predicted_steps: np.ndarray,
+    bank: dict[tuple[int, int | None], PrototypeGroup],
+) -> tuple[np.ndarray, np.ndarray, dict[str, int]]:
+    """Score with causal predicted steps, falling back to component prototypes."""
+    features = np.asarray(component_features, dtype=np.float32)
+    steps = np.asarray(predicted_steps, dtype=np.int64)
+    if features.ndim != 3:
+        raise ValueError("component_features must have shape [time, component, feature].")
+    if steps.shape != (features.shape[0],):
+        raise ValueError("predicted_steps must have shape [time].")
+    scores = np.full(features.shape[:2], np.nan, dtype=np.float32)
+    mask = np.zeros(features.shape[:2], dtype=np.bool_)
+    sources = {"component_step": 0, "component_fallback": 0, "missing": 0}
+    for row, step in enumerate(steps):
+        for component in range(features.shape[1]):
+            key = (component, int(step))
+            source = "component_step"
+            if key not in bank:
+                key = (component, None)
+                source = "component_fallback"
+            group = bank.get(key)
+            if group is None:
+                sources["missing"] += 1
+                continue
+            scores[row, component] = prototype_anomaly_score(
+                features[row, component][None], group
+            )[0]
+            mask[row, component] = True
+            sources[source] += 1
+    return scores, mask, sources
+
+
 def build_streaming_evidence(
     anomaly_scores: np.ndarray,
     anomaly_available: np.ndarray,

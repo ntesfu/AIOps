@@ -21,8 +21,10 @@ from aiops.evaluation.stateverify_streaming import (
     StreamingConfig,
     component_anomaly_scores,
     match_streaming_alerts,
+    predicted_step_anomaly_scores,
     run_streaming_tracker,
 )
+from aiops.models.stategraph_psr import StateGraphPSRConfig, build_stategraph_psr
 from aiops.models.stateverify_effect import (
     StateEffectObserverConfig,
     build_state_effect_observer,
@@ -33,7 +35,9 @@ from aiops.training.train_stateverify_observer import (
 )
 
 
-def _infer_record(record, model, config, device) -> dict[str, Any]:
+def _infer_record(
+    record, model, config, device, action_model=None
+) -> dict[str, Any]:
     import torch
 
     with np.load(record.path, allow_pickle=False) as archive:
@@ -50,10 +54,22 @@ def _infer_record(record, model, config, device) -> dict[str, Any]:
         enabled=device.type == "cuda",
     ):
         output = model(**_observer_inputs(batch, config))
+        action_output = (
+            action_model(
+                batch["motion"],
+                batch["appearance"],
+                batch["sensor"],
+                valid_mask=batch["valid_mask"],
+                modality_mask=batch["modality_mask"],
+                motion_aux=batch["motion_aux"],
+            )
+            if action_model is not None
+            else None
+        )
     timestamps = arrays.get("timestamps")
     if timestamps is None:
         timestamps = np.arange(length, dtype=np.float64) * 0.5
-    return {
+    result = {
         "recording_id": record.recording_id,
         "split": record.split,
         "timestamps": np.asarray(timestamps, dtype=np.float64),
@@ -74,6 +90,11 @@ def _infer_record(record, model, config, device) -> dict[str, Any]:
         .cpu()
         .numpy(),
     }
+    if action_output is not None:
+        result["predicted_step"] = (
+            action_output["step_probabilities"][0].argmax(dim=-1).cpu().numpy()
+        )
+    return result
 
 
 def _duration_minutes(record: dict[str, Any]) -> float:
@@ -103,9 +124,18 @@ def _normal_examples(records):
 
 def _attach_anomaly_scores(records, bank) -> None:
     for record in records:
-        score, mask = component_anomaly_scores(
-            record["component_features"], bank
-        )
+        if "predicted_step" in record:
+            score, mask, sources = predicted_step_anomaly_scores(
+                record["component_features"], record["predicted_step"], bank
+            )
+            record["prototype_score_sources"] = sources
+        else:
+            score, mask = component_anomaly_scores(record["component_features"], bank)
+            record["prototype_score_sources"] = {
+                "component_step": 0,
+                "component_fallback": int(mask.sum()),
+                "missing": int((~mask).sum()),
+            }
         record["anomaly_scores"] = score
         record["anomaly_available"] = mask
 
@@ -166,6 +196,7 @@ def _evaluate_config(records, targets, config, tolerance_seconds):
 def _calibrate(args, records, targets):
     trials = []
     best = None
+    eligible_trials = 0
     for values in itertools.product(
         args.completion_thresholds,
         args.anomaly_thresholds,
@@ -188,6 +219,7 @@ def _calibrate(args, records, targets):
             metrics["false_alerts_per_minute"]
             <= args.max_false_alerts_per_minute + 1e-12
         )
+        eligible_trials += int(eligible)
         rank = (
             int(eligible),
             metrics["recall"] if eligible else -metrics["false_alerts_per_minute"],
@@ -198,7 +230,11 @@ def _calibrate(args, records, targets):
         if best is None or rank > best[0]:
             best = (rank, row)
     assert best is not None
-    return best[1], trials
+    selection = dict(best[1])
+    selection["constraint_satisfied"] = eligible_trials > 0
+    selection["eligible_trials"] = eligible_trials
+    selection["total_trials"] = len(trials)
+    return selection, trials
 
 
 def evaluate(args: argparse.Namespace) -> dict[str, Any]:
@@ -212,9 +248,24 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
     model.load_state_dict(checkpoint["model"])
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     model.to(device).eval()
+    action_model = None
+    if args.action_checkpoint:
+        action_checkpoint = torch.load(
+            args.action_checkpoint, map_location="cpu", weights_only=False
+        )
+        action_config = StateGraphPSRConfig(**action_checkpoint["model_config"])
+        action_model = build_stategraph_psr(
+            action_config, action_checkpoint["transition_matrix"]
+        )
+        action_model.load_state_dict(action_checkpoint["model_state"])
+        action_model.to(device).eval()
     records = []
     for index, record in enumerate(indexed_records, start=1):
-        records.append(_infer_record(record, model, model_config, device))
+        records.append(
+            _infer_record(
+                record, model, model_config, device, action_model=action_model
+            )
+        )
         print(f"[{index}/{len(indexed_records)}] inferred {record.recording_id}", flush=True)
     train_records = [record for record in records if record["split"] == "train"]
     validation_records = [record for record in records if record["split"] == "val"]
@@ -233,7 +284,11 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
             "cache_index": str(Path(args.cache_index).resolve()),
             "prototypes": args.prototypes,
             "fit_split": "train_correct_states_only",
-            "online_scoring": "component_fallback_only",
+            "online_scoring": (
+                "causal_predicted_step_with_component_fallback"
+                if action_model is not None
+                else "component_fallback_only"
+            ),
         },
     )
     _attach_anomaly_scores(records, bank)
@@ -255,15 +310,30 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
             "calibration_split": "train",
             "evaluation_split": "val",
             "ground_truth_step_used_online": False,
-            "prototype_online_grouping": "component_only",
+            "prototype_online_grouping": (
+                "predicted_step_with_component_fallback"
+                if action_model is not None
+                else "component_only"
+            ),
             "candidate_source": "observer P(complete_correct)+P(complete_incorrect)",
             "max_training_false_alerts_per_minute": args.max_false_alerts_per_minute,
             "tolerance_seconds": args.tolerance_seconds,
         },
         "checkpoint": str(Path(args.checkpoint).resolve()),
+        "action_checkpoint": (
+            str(Path(args.action_checkpoint).resolve())
+            if args.action_checkpoint
+            else None
+        ),
         "cache_index": str(Path(args.cache_index).resolve()),
         "prototype_bank": str(Path(args.prototype_bank).resolve()),
         "prototype_groups": len(bank),
+        "validation_action_frame_accuracy": (
+            _action_frame_accuracy(validation_records)
+            if action_model is not None
+            else None
+        ),
+        "prototype_score_sources": _score_source_totals(records),
         "train_incorrect_events": len(train_targets),
         "validation_incorrect_events": len(validation_targets),
         "selected": selection,
@@ -276,10 +346,32 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
     return result
 
 
+def _action_frame_accuracy(records) -> float:
+    correct = 0
+    total = 0
+    for record in records:
+        mask = record["step"] >= 0
+        correct += int((record["predicted_step"][mask] == record["step"][mask]).sum())
+        total += int(mask.sum())
+    return 100.0 * correct / max(total, 1)
+
+
+def _score_source_totals(records) -> dict[str, int]:
+    totals = {"component_step": 0, "component_fallback": 0, "missing": 0}
+    for record in records:
+        for key in totals:
+            totals[key] += int(record["prototype_score_sources"][key])
+    return totals
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--cache-index", required=True)
     parser.add_argument("--checkpoint", required=True)
+    parser.add_argument(
+        "--action-checkpoint",
+        help="Optional causal StateGraph checkpoint for predicted-step prototype routing.",
+    )
     parser.add_argument("--prototype-bank", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--prototypes", type=int, default=5)

@@ -8,6 +8,7 @@ from aiops.evaluation.stateverify_streaming import (
     build_streaming_evidence,
     component_anomaly_scores,
     match_streaming_alerts,
+    predicted_step_anomaly_scores,
 )
 
 
@@ -45,6 +46,31 @@ def test_streaming_evidence_is_masked_until_completion_candidate():
     assert not evidence.execution_mask[0, 0]
     assert evidence.execution_mask[1, 0]
     assert evidence.effect[1, 0] > 0.7
+
+
+def test_predicted_step_scoring_uses_step_bank_without_label_input():
+    bank = {
+        (0, None): PrototypeGroup(
+            centers=np.asarray([[1.0, 0.0]], dtype=np.float32),
+            residual_median=0.0,
+            residual_scale=0.1,
+            samples=10,
+        ),
+        (0, 4): PrototypeGroup(
+            centers=np.asarray([[0.0, 1.0]], dtype=np.float32),
+            residual_median=0.0,
+            residual_scale=0.1,
+            samples=10,
+        ),
+    }
+    features = np.asarray([[[0.0, 1.0]], [[1.0, 0.0]]], dtype=np.float32)
+    scores, mask, sources = predicted_step_anomaly_scores(
+        features, np.asarray([4, 8]), bank
+    )
+    assert mask.all()
+    assert scores[0, 0] < scores[1, 0]
+    assert sources["component_step"] == 1
+    assert sources["component_fallback"] == 1
 
 
 def test_matching_is_recording_and_component_aware():
