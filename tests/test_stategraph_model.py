@@ -390,6 +390,78 @@ class StateGraphModelTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cache dimension mismatch"):
             build_stategraph_psr(config)
 
+    def test_hybrid_roi_residual_starts_as_exact_flat_path(self) -> None:
+        import torch
+
+        torch.manual_seed(23)
+        config = StateGraphPSRConfig(
+            motion_dim=4,
+            motion_aux_dim=18,
+            appearance_dim=3,
+            sensor_dim=2,
+            num_steps=2,
+            num_completion_components=2,
+            num_components=2,
+            hidden_dim=8,
+            num_temporal_blocks=1,
+            attention_every=0,
+            num_heads=2,
+            dropout=0.0,
+            component_evidence=True,
+            event_only_motion_aux=True,
+            structured_roi_tokens=True,
+            hybrid_roi_residual=True,
+            roi_token_count=2,
+            roi_embedding_dim=3,
+            roi_global_dim=2,
+            roi_change_lag=2,
+        )
+        model = build_stategraph_psr(config).eval()
+        motion = torch.randn(1, 5, 4)
+        appearance = torch.randn(1, 5, 3)
+        sensor = torch.randn(1, 5, 2)
+        auxiliary = torch.randn(1, 5, 18)
+        auxiliary[..., 6:8] = 1.0
+        with torch.no_grad():
+            initial = model(motion, appearance, sensor, motion_aux=auxiliary)
+            model.roi_type_embeddings.add_(5.0)
+            still_flat = model(motion, appearance, sensor, motion_aux=auxiliary)
+            model.structured_roi_gate_raw.fill_(0.5)
+            active = model(motion, appearance, sensor, motion_aux=auxiliary)
+
+        torch.testing.assert_close(
+            initial["structured_roi_gate"], torch.zeros(2)
+        )
+        torch.testing.assert_close(
+            initial["component_outcome_logits"],
+            still_flat["component_outcome_logits"],
+        )
+        self.assertFalse(
+            torch.equal(
+                still_flat["component_outcome_logits"],
+                active["component_outcome_logits"],
+            )
+        )
+
+    def test_hybrid_roi_requires_structured_tokens(self) -> None:
+        config = StateGraphPSRConfig(
+            motion_dim=4,
+            motion_aux_dim=18,
+            appearance_dim=3,
+            sensor_dim=2,
+            num_steps=2,
+            num_completion_components=2,
+            num_components=2,
+            hidden_dim=8,
+            num_temporal_blocks=1,
+            attention_every=0,
+            num_heads=2,
+            component_evidence=True,
+            hybrid_roi_residual=True,
+        )
+        with self.assertRaisesRegex(ValueError, "requires structured_roi_tokens"):
+            build_stategraph_psr(config)
+
     def test_legacy_model_has_no_factorized_parameters(self) -> None:
         config = StateGraphPSRConfig(
             motion_dim=4,

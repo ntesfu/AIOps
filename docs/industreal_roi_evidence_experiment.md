@@ -152,6 +152,33 @@ opened. The current cache yields 52 development recordings, 17 operators, and
 matches. This is a more defensible rare-event screen than repeatedly tuning on
 the five mistakes in the official validation split.
 
+## Hybrid recovery experiment
+
+The structured-only quick screen preserved action segmentation within one
+point, but event refinement produced no checkpoint with positive incorrect
+recall under the two-false-alerts-per-minute budget. The next candidate retains
+the proven flat ROI projection and adds the structured component-attention
+feature through a bounded `tanh` gate initialized to exactly zero:
+
+```text
+component evidence = flat ROI + tanh(gate) * structured ROI change
+```
+
+This makes the initial evidence path identical to the flat branch and lets
+training adopt or reject structured evidence independently for each component.
+Run it against the already completed paired flat seed-7 baseline:
+
+```bash
+EXPERIMENT_TIER=quick \
+RUN_PREFIX=industreal_roi_hybrid_quick_s7 \
+bash scripts/run_industreal_structured_roi_experiment.sh hybrid all
+```
+
+TensorBoard records the mean, absolute mean, and per-component residual gates
+under `optimizer/structured_roi_gate*`. A gate that remains near zero means the
+structured evidence is not useful under the current supervision; a large gate
+without improved operational metrics is evidence of overfitting.
+
 The separate frozen-backbone experiment is specified in
 `docs/industreal_backbone_ablation_protocol.md`. It compares Swin3D-S with a
 genuine VideoMAE V2-B strict-causal cache; it must not relabel the extractor's

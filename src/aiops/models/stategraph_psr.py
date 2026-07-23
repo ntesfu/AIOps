@@ -85,6 +85,10 @@ class StateGraphPSRConfig:
     roi_embedding_dim: int = 0
     roi_global_dim: int = 3
     roi_change_lag: int = 4
+    # Preserve the proven flat ROI projection and add structured evidence as a
+    # zero-initialized, bounded residual. This protects the baseline at
+    # initialization while allowing component-specific change cues to emerge.
+    hybrid_roi_residual: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -160,6 +164,8 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 f"{expected_aux_dim} = R*embedding + R*presence + R*box + global, "
                 f"got motion_aux_dim={config.motion_aux_dim}."
             )
+    if config.hybrid_roi_residual and not config.structured_roi_tokens:
+        raise ValueError("hybrid_roi_residual requires structured_roi_tokens.")
 
     if config.action_verb_indices:
         if len(config.action_verb_indices) != config.num_steps:
@@ -524,6 +530,10 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                         batch_first=True,
                     )
                     self.component_roi_attention_norm = nn.LayerNorm(config.hidden_dim)
+                    if config.hybrid_roi_residual:
+                        self.structured_roi_gate_raw = nn.Parameter(
+                            torch.zeros(config.num_completion_components)
+                        )
                 # ROI evidence is extracted per frame. Give it a small causal
                 # temporal adapter so the event branch can learn before/after
                 # changes without increasing the global action backbone.
@@ -917,6 +927,27 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                         roi_change_features,
                         component_roi_attention_weights,
                     ) = self._structured_roi_evidence(motion_aux, event_features)
+                    if config.hybrid_roi_residual:
+                        flat_auxiliary_evidence = (
+                            self.component_evidence_aux_stem(motion_aux)
+                            if motion_aux is not None
+                            else event_features.new_zeros(event_features.shape)
+                        )
+                        if motion_aux is not None:
+                            flat_auxiliary_evidence = self.component_evidence_aux(
+                                flat_auxiliary_evidence
+                            )
+                            for auxiliary_block in self.component_evidence_aux_temporal:
+                                flat_auxiliary_evidence = auxiliary_block(
+                                    flat_auxiliary_evidence
+                                )
+                        structured_gate = torch.tanh(
+                            self.structured_roi_gate_raw
+                        ).view(1, 1, -1, 1)
+                        component_auxiliary_evidence = (
+                            flat_auxiliary_evidence.unsqueeze(-2)
+                            + structured_gate * component_auxiliary_evidence
+                        )
                 else:
                     auxiliary_evidence = (
                         self.component_evidence_aux_stem(motion_aux)
@@ -1070,6 +1101,13 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 "component_roi_attention_weights": (
                     component_roi_attention_weights
                     if config.component_evidence and config.structured_roi_tokens
+                    else None
+                ),
+                "structured_roi_gate": (
+                    torch.tanh(self.structured_roi_gate_raw)
+                    if config.component_evidence
+                    and config.structured_roi_tokens
+                    and config.hybrid_roi_residual
                     else None
                 ),
                 "completion_logits": self.completion_head(event_features),

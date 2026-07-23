@@ -36,6 +36,7 @@ roi_token_count="${ROI_TOKEN_COUNT:-4}"
 roi_embedding_dim="${ROI_EMBEDDING_DIM:-0}"
 roi_global_dim="${ROI_GLOBAL_DIM:-3}"
 roi_change_lag="${ROI_CHANGE_LAG:-4}"
+hybrid_roi_residual="${HYBRID_ROI_RESIDUAL:-0}"
 action_selection="${ACTION_SELECTION_STRATEGY:-action_only}"
 resume="${RESUME:-0}"
 python_bin="${PYTHON_BIN:-.venv/bin/python}"
@@ -110,6 +111,9 @@ if [[ "$structured_roi_tokens" == "1" ]]; then
     --roi-global-dim "$roi_global_dim"
     --roi-change-lag "$roi_change_lag"
   )
+fi
+if [[ "$hybrid_roi_residual" == "1" ]]; then
+  common_args+=(--hybrid-roi-residual)
 fi
 if [[ "$event_only_motion_aux" == "1" ]]; then
   common_args+=(--event-only-motion-aux)

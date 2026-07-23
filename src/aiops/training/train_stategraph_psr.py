@@ -278,6 +278,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         roi_embedding_dim=args.roi_embedding_dim,
         roi_global_dim=args.roi_global_dim,
         roi_change_lag=args.roi_change_lag,
+        hybrid_roi_residual=args.hybrid_roi_residual,
     )
     loss_config = StateGraphLossConfig(
         step_weight=args.step_weight,
@@ -665,6 +666,36 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                 "learning_rate": optimizer.param_groups[0]["lr"],
                 "graph_strength": float(torch.sigmoid(model.graph_strength_raw).detach().cpu()),
             }
+            optimizer_metrics = {
+                "learning_rate": row["learning_rate"],
+                "graph_strength": row["graph_strength"],
+            }
+            if hasattr(model, "structured_roi_gate_raw"):
+                structured_roi_gates = torch.tanh(
+                    model.structured_roi_gate_raw.detach()
+                ).cpu()
+                row["structured_roi_gate_mean"] = float(
+                    structured_roi_gates.mean()
+                )
+                row["structured_roi_gate_abs_mean"] = float(
+                    structured_roi_gates.abs().mean()
+                )
+                optimizer_metrics.update(
+                    {
+                        "structured_roi_gate_mean": row[
+                            "structured_roi_gate_mean"
+                        ],
+                        "structured_roi_gate_abs_mean": row[
+                            "structured_roi_gate_abs_mean"
+                        ],
+                    }
+                )
+                optimizer_metrics.update(
+                    {
+                        f"structured_roi_gate/component_{index}": float(value)
+                        for index, value in enumerate(structured_roi_gates.tolist())
+                    }
+                )
             selection = _validation_selection_result(
                 metrics,
                 strategy=args.selection_strategy,
@@ -683,10 +714,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
             monitor.log_scalars("validation", metrics, epoch)
             monitor.log_scalars(
                 "optimizer",
-                {
-                    "learning_rate": row["learning_rate"],
-                    "graph_strength": row["graph_strength"],
-                },
+                optimizer_metrics,
                 epoch,
             )
             monitor.log_system(global_update, device)
@@ -1699,6 +1727,7 @@ def _model_configs_compatible(stored: Any, current: dict[str, Any]) -> bool:
     normalized.setdefault("roi_embedding_dim", 0)
     normalized.setdefault("roi_global_dim", 3)
     normalized.setdefault("roi_change_lag", 4)
+    normalized.setdefault("hybrid_roi_residual", False)
     normalized_current.setdefault("factorized_mistake_detection", False)
     normalized_current.setdefault("component_evidence", False)
     normalized_current.setdefault("event_only_motion_aux", False)
@@ -1708,6 +1737,7 @@ def _model_configs_compatible(stored: Any, current: dict[str, Any]) -> bool:
     normalized_current.setdefault("roi_embedding_dim", 0)
     normalized_current.setdefault("roi_global_dim", 3)
     normalized_current.setdefault("roi_change_lag", 4)
+    normalized_current.setdefault("hybrid_roi_residual", False)
     return normalized == normalized_current
 
 
@@ -1725,6 +1755,7 @@ def _event_branch_parameter_prefixes() -> tuple[str, ...]:
         "roi_",
         "component_roi_attention.",
         "component_roi_attention_norm.",
+        "structured_roi_gate_raw",
         "completion_head.",
         "component_outcome_head.",
         "incorrect_onset_head.",
@@ -2326,6 +2357,11 @@ def main() -> None:
         type=int,
         default=4,
         help="Past-only reference lag used by the structured ROI change encoder.",
+    )
+    parser.add_argument(
+        "--hybrid-roi-residual",
+        action="store_true",
+        help="Add structured ROI evidence as a zero-initialized residual over the flat ROI path.",
     )
     parser.add_argument("--graph-strength", type=float, default=0.12)
     parser.add_argument("--learning-rate", type=float, default=3e-4)

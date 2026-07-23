@@ -63,6 +63,7 @@ class StateGraphMetricsTest(unittest.TestCase):
         self.assertTrue("incorrect_onset_head.weight".startswith(prefixes))
         self.assertTrue("roi_visual_stem.1.weight".startswith(prefixes))
         self.assertTrue("component_roi_attention.in_proj_weight".startswith(prefixes))
+        self.assertTrue("structured_roi_gate_raw".startswith(prefixes))
         self.assertFalse("step_classifier.weight".startswith(prefixes))
 
     def test_legacy_model_config_accepts_only_default_off_new_field(self) -> None:

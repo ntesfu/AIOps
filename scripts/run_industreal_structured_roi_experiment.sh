@@ -6,16 +6,26 @@ stage="${2:-all}"
 case "$variant" in
   flat)
     export STRUCTURED_ROI_TOKENS=0
+    export HYBRID_ROI_RESIDUAL=0
     ;;
   structured)
     export STRUCTURED_ROI_TOKENS=1
+    export HYBRID_ROI_RESIDUAL=0
+    export ROI_TOKEN_COUNT="${ROI_TOKEN_COUNT:-4}"
+    export ROI_EMBEDDING_DIM="${ROI_EMBEDDING_DIM:-768}"
+    export ROI_GLOBAL_DIM="${ROI_GLOBAL_DIM:-3}"
+    export ROI_CHANGE_LAG="${ROI_CHANGE_LAG:-4}"
+    ;;
+  hybrid)
+    export STRUCTURED_ROI_TOKENS=1
+    export HYBRID_ROI_RESIDUAL=1
     export ROI_TOKEN_COUNT="${ROI_TOKEN_COUNT:-4}"
     export ROI_EMBEDDING_DIM="${ROI_EMBEDDING_DIM:-768}"
     export ROI_GLOBAL_DIM="${ROI_GLOBAL_DIM:-3}"
     export ROI_CHANGE_LAG="${ROI_CHANGE_LAG:-4}"
     ;;
   *)
-    echo "Usage: $0 {flat|structured} {action|event|compose|all}" >&2
+    echo "Usage: $0 {flat|structured|hybrid} {action|event|compose|all}" >&2
     exit 2
     ;;
 esac
