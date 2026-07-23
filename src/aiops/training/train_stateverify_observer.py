@@ -309,8 +309,9 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=max(args.epochs, 1), eta_min=args.learning_rate * 0.05
     )
-    scaler = torch.cuda.amp.GradScaler(
-        enabled=device.type == "cuda" and args.precision == "fp16"
+    scaler = torch.amp.GradScaler(
+        device.type,
+        enabled=device.type == "cuda" and args.precision == "fp16",
     )
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

@@ -3,6 +3,7 @@ set -euo pipefail
 
 PHASE="${1:-all}"
 PYTHON="${PYTHON:-python}"
+export PYTHONPATH="${PYTHONPATH:+${PYTHONPATH}:}src"
 DATA_ROOT="${DATA_ROOT:-/home/aiops/Desktop/ego_psr_repro/industreal}"
 AUXILIARY_ROOT="${AUXILIARY_ROOT:-/home/aiops/AIOps-stategraph-industreal/data/processed/industreal_auxiliary}"
 BASE_INDEX="${BASE_INDEX:-data/processed/industreal_strict_swin_convnext/index.json}"
@@ -48,6 +49,7 @@ smoke_train() {
     --sequence-stride 96 \
     --hidden-dim 128 \
     --temporal-blocks 2 \
+    --event-centered-crop-radius 40 \
     --workers 0 \
     --max-train-batches 3
 }

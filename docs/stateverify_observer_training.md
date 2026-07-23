@@ -25,14 +25,14 @@ replaces only the sensor tensor using the raw hand and pose CSV files. It then
 extracts the four new ROI streams and attaches them to the rebuilt cache:
 
 ```bash
-PYTHON=/home/aiops/AIOps/.venv/bin/python \
+PYTHON=/home/aiops/miniconda3/envs/psr_env/bin/python \
   bash scripts/run_stateverify_observer_pipeline.sh all
 ```
 
 The `all` phase ends with a one-epoch, three-batch smoke run. After that passes:
 
 ```bash
-PYTHON=/home/aiops/AIOps/.venv/bin/python \
+PYTHON=/home/aiops/miniconda3/envs/psr_env/bin/python \
   bash scripts/run_stateverify_observer_pipeline.sh train
 ```
 
