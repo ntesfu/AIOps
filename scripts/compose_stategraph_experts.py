@@ -33,6 +33,12 @@ def main() -> None:
     parser.add_argument("--precision", choices=("fp32", "bf16", "fp16"), default="bf16")
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--sequence-length", type=int, default=512)
+    parser.add_argument(
+        "--sequence-stride",
+        type=int,
+        default=None,
+        help="Validation window stride; defaults to half the sequence length.",
+    )
     parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument("--max-incorrect-false-alerts-per-minute", type=float, default=2.0)
     args = parser.parse_args()
@@ -65,7 +71,11 @@ def main() -> None:
         StateGraphCacheDataset(
             validation_records,
             sequence_length=args.sequence_length,
-            sequence_stride=max(1, args.sequence_length // 2),
+            sequence_stride=(
+                args.sequence_stride
+                if args.sequence_stride is not None
+                else max(1, args.sequence_length // 2)
+            ),
             training=False,
         ),
         batch_size=args.batch_size,
@@ -118,6 +128,12 @@ def main() -> None:
                 "event": event_checkpoint.get("epoch"),
             },
             "event_thresholds": event_thresholds,
+            "sequence_length": args.sequence_length,
+            "sequence_stride": (
+                args.sequence_stride
+                if args.sequence_stride is not None
+                else max(1, args.sequence_length // 2)
+            ),
             "validation_metrics": metrics,
         },
         output_checkpoint,
@@ -128,6 +144,12 @@ def main() -> None:
         "event_checkpoint": str(Path(args.event_checkpoint).resolve()),
         "output_checkpoint": str(output_checkpoint.resolve()),
         "recordings": len(validation_records),
+        "sequence_length": args.sequence_length,
+        "sequence_stride": (
+            args.sequence_stride
+            if args.sequence_stride is not None
+            else max(1, args.sequence_length // 2)
+        ),
         "metrics": metrics,
     }
     rendered = json.dumps(_json_safe(payload), indent=2, allow_nan=False) + "\n"

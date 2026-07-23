@@ -165,6 +165,7 @@ compose_experts() {
     --precision bf16 \
     --batch-size 2 \
     --sequence-length 384 \
+    --sequence-stride 288 \
     --num-workers 4 \
     --max-incorrect-false-alerts-per-minute "$max_false_alerts"
 }
