@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from dataclasses import fields
+from dataclasses import fields, replace
 
 from aiops.models.stateverify_effect import (
     StateEffectLossConfig,
@@ -76,6 +76,27 @@ class StateEffectObserverTest(unittest.TestCase):
             + output["effect_logits"].mean()
         ).backward()
         self.assertIsNotNone(model.component_queries.grad)
+
+    def test_procedural_step_head_conditions_component_features(self) -> None:
+        torch = self.torch
+        config = replace(self._config(), num_steps=5)
+        model = build_state_effect_observer(config)
+        output = model(**self._inputs())
+        self.assertEqual(tuple(output["step_logits"].shape), (2, 7, 5))
+        self.assertEqual(tuple(output["step_probabilities"].shape), (2, 7, 5))
+        targets = {
+            "step": torch.randint(0, 5, (2, 7)),
+            "state": torch.randint(0, 3, (2, 7, 3)),
+            "state_mask": torch.ones(2, 7, 3, dtype=torch.bool),
+            "valid_mask": torch.ones(2, 7, dtype=torch.bool),
+            "component_outcome": torch.full((2, 7, 2), -100, dtype=torch.long),
+        }
+        losses = build_state_effect_loss(StateEffectLossConfig())(
+            output, targets, (0, 2)
+        )
+        self.assertIn("step", losses)
+        losses["total"].backward()
+        self.assertIsNotNone(model.step_head[-1].weight.grad)
 
     def test_future_changes_do_not_affect_past_outputs(self) -> None:
         torch = self.torch

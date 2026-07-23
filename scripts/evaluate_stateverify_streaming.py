@@ -108,6 +108,10 @@ def _infer_record(
         result["predicted_step"] = (
             action_output["step_probabilities"][0].argmax(dim=-1).cpu().numpy()
         )
+    elif output["step_probabilities"] is not None:
+        result["predicted_step"] = (
+            output["step_probabilities"][0].argmax(dim=-1).cpu().numpy()
+        )
     return result
 
 
@@ -171,14 +175,20 @@ def _attach_anomaly_scores(records, bank) -> None:
 
 def _targets(records, event_state_indices):
     targets = []
+    seen = set()
     for record in records:
         rows, event_components = np.where(record["component_outcome"] == 1)
         for row, event_component in zip(rows, event_components):
+            state_component = int(event_state_indices[event_component])
+            key = (record["recording_id"], int(row), state_component)
+            if key in seen:
+                continue
+            seen.add(key)
             targets.append(
                 (
                     record["recording_id"],
                     int(row),
-                    int(event_state_indices[event_component]),
+                    state_component,
                     float(record["timestamps"][row]),
                 )
             )
@@ -458,7 +468,7 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
             "ground_truth_step_used_online": False,
             "prototype_online_grouping": (
                 "predicted_step_with_component_fallback"
-                if action_model is not None
+                if "predicted_step" in records[0]
                 else "component_only"
             ),
             "candidate_source": "observer P(complete_correct)+P(complete_incorrect)",
@@ -482,7 +492,7 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
         "prototype_groups": len(bank),
         "validation_action_frame_accuracy": (
             _action_frame_accuracy(validation_records)
-            if action_model is not None
+            if "predicted_step" in validation_records[0]
             else None
         ),
         "prototype_score_sources": _score_source_totals(records),

@@ -191,6 +191,11 @@ def _evaluate(model, criterion, loader, device, config, event_state_indices, wei
     totals: dict[str, list[float]] = {}
     state_confusion = np.zeros((3, 3), dtype=np.int64)
     effect_confusion = np.zeros((4, 4), dtype=np.int64)
+    step_confusion = (
+        np.zeros((config.num_steps, config.num_steps), dtype=np.int64)
+        if config.num_steps > 0
+        else None
+    )
     with torch.inference_mode():
         for batch in loader:
             batch = _move_batch(batch, device)
@@ -215,11 +220,20 @@ def _evaluate(model, criterion, loader, device, config, event_state_indices, wei
                 typed["effect"],
                 typed["effect_mask"],
             )
+            if step_confusion is not None:
+                _update_confusion(
+                    step_confusion,
+                    outputs["step_logits"],
+                    batch["step"],
+                    batch["valid_mask"].bool() & (batch["step"] >= 0),
+                )
             for name, value in losses.items():
                 totals.setdefault(name, []).append(float(value.detach().cpu()))
     metrics = {f"loss_{name}": float(np.mean(values)) for name, values in totals.items()}
     metrics.update(_confusion_metrics("state", state_confusion))
     metrics.update(_confusion_metrics("effect", effect_confusion))
+    if step_confusion is not None:
+        metrics.update(_confusion_metrics("step", step_confusion))
     return metrics
 
 
@@ -251,6 +265,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         global_dim=first.motion_dim + first.appearance_dim,
         roi_dim=roi_dim,
         num_components=first.num_components,
+        num_steps=len(metadata.get("action_ids", [])),
         hand_dim=int(sensor_contract["hand_dim"]),
         pose_dim=int(sensor_contract["pose_dim"]),
         hidden_dim=args.hidden_dim,
@@ -262,6 +277,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     loss_config = StateEffectLossConfig(
         state_weight=args.state_weight,
         effect_weight=args.effect_weight,
+        step_weight=args.step_weight,
         transition_consistency_weight=args.transition_consistency_weight,
         focal_gamma=args.focal_gamma,
         effect_no_change_ratio=args.effect_no_change_ratio,
@@ -386,6 +402,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                 + val_metrics["effect_macro_recall"]
                 + val_metrics["state_recall_class_2"]
                 + 2.0 * val_metrics["effect_recall_class_2"]
+                + 0.25 * val_metrics.get("step_accuracy", 0.0)
             )
             epoch_result = {
                 "epoch": epoch,
@@ -457,6 +474,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--state-weight", type=float, default=1.0)
     parser.add_argument("--effect-weight", type=float, default=1.0)
+    parser.add_argument("--step-weight", type=float, default=0.5)
     parser.add_argument("--transition-consistency-weight", type=float, default=0.25)
     parser.add_argument("--focal-gamma", type=float, default=1.5)
     parser.add_argument("--effect-no-change-ratio", type=float, default=4.0)

@@ -11,6 +11,7 @@ class StateEffectObserverConfig:
     global_dim: int
     roi_dim: int
     num_components: int
+    num_steps: int = 0
     roi_count: int = 4
     hand_dim: int = 0
     pose_dim: int = 0
@@ -26,6 +27,8 @@ class StateEffectObserverConfig:
             raise ValueError("global_dim and roi_dim must be positive.")
         if self.num_components <= 0 or self.roi_count <= 0:
             raise ValueError("num_components and roi_count must be positive.")
+        if self.num_steps < 0:
+            raise ValueError("num_steps cannot be negative.")
         if min(self.hand_dim, self.pose_dim, self.depth_dim) < 0:
             raise ValueError("Optional input dimensions cannot be negative.")
         if self.hidden_dim <= 0 or self.hidden_dim % self.num_heads:
@@ -45,6 +48,7 @@ class StateEffectLossConfig:
 
     state_weight: float = 1.0
     effect_weight: float = 1.0
+    step_weight: float = 0.5
     transition_consistency_weight: float = 0.25
     focal_gamma: float = 1.5
     effect_no_change_ratio: float = 4.0
@@ -54,6 +58,7 @@ class StateEffectLossConfig:
         if min(
             self.state_weight,
             self.effect_weight,
+            self.step_weight,
             self.transition_consistency_weight,
             self.focal_gamma,
             self.effect_no_change_ratio,
@@ -206,6 +211,13 @@ def build_state_effect_loss(config: StateEffectLossConfig):
                     effect_class_weights,
                 ),
             }
+            if outputs.get("step_logits") is not None:
+                step_mask = targets["valid_mask"].bool() & (targets["step"] >= 0)
+                losses["step"] = self._focal_cross_entropy(
+                    outputs["step_logits"],
+                    targets["step"],
+                    step_mask,
+                )
 
             state_probability = torch.softmax(outputs["state_logits"], dim=-1)
             effect_probability = torch.softmax(outputs["effect_logits"], dim=-1)
@@ -239,6 +251,8 @@ def build_state_effect_loss(config: StateEffectLossConfig):
                 + config.transition_consistency_weight
                 * losses["transition_consistency"]
             )
+            if "step" in losses:
+                losses["total"] = losses["total"] + config.step_weight * losses["step"]
             return losses
 
     return StateEffectLoss()
@@ -372,6 +386,26 @@ def build_state_effect_observer(config: StateEffectObserverConfig):
                 ]
             )
             self.state_head = nn.Linear(config.hidden_dim, 3)
+            self.step_head = (
+                nn.Sequential(
+                    nn.LayerNorm(config.hidden_dim),
+                    nn.Linear(config.hidden_dim, config.num_steps),
+                )
+                if config.num_steps > 0
+                else None
+            )
+            self.step_embedding = (
+                nn.Parameter(torch.empty(config.num_steps, config.hidden_dim))
+                if config.num_steps > 0
+                else None
+            )
+            self.step_context_gate = (
+                nn.Parameter(torch.tensor(0.0))
+                if config.num_steps > 0
+                else None
+            )
+            if self.step_embedding is not None:
+                nn.init.trunc_normal_(self.step_embedding, std=0.02)
             self.effect_head = nn.Sequential(
                 nn.LayerNorm(2 * config.hidden_dim),
                 nn.Linear(2 * config.hidden_dim, config.hidden_dim),
@@ -473,6 +507,19 @@ def build_state_effect_observer(config: StateEffectObserverConfig):
             for block in self.temporal_blocks:
                 component_features = block(component_features, valid_mask)
 
+            step_logits = (
+                self.step_head(component_features.mean(dim=-2))
+                if self.step_head is not None
+                else None
+            )
+            if step_logits is not None:
+                step_probabilities = torch.softmax(step_logits, dim=-1)
+                step_context = step_probabilities @ self.step_embedding
+                component_features = component_features + torch.tanh(
+                    self.step_context_gate
+                ) * step_context.unsqueeze(-2)
+            else:
+                step_probabilities = None
             state_logits = self.state_head(component_features)
             indices = torch.arange(time, device=component_features.device)
             reference = (indices - config.effect_lag).clamp_min(0)
@@ -505,6 +552,8 @@ def build_state_effect_observer(config: StateEffectObserverConfig):
                 effect_residual = effect_residual.clamp(0.0, 1.0)
             return {
                 "component_features": component_features,
+                "step_logits": step_logits,
+                "step_probabilities": step_probabilities,
                 "state_logits": state_logits,
                 "state_probabilities": torch.softmax(state_logits, dim=-1),
                 "effect_logits": effect_logits,
