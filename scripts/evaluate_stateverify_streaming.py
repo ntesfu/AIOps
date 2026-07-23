@@ -266,6 +266,34 @@ def _calibrate(args, records, targets):
     return selection, trials
 
 
+def _select_existing_trials(trials, max_false_alerts_per_minute):
+    best = None
+    eligible_trials = 0
+    for row in trials:
+        metrics = row["metrics"]
+        eligible = (
+            metrics["false_alerts_per_minute"]
+            <= max_false_alerts_per_minute + 1e-12
+        )
+        eligible_trials += int(eligible)
+        rank = (
+            int(eligible),
+            metrics["recall"] if eligible else -metrics["false_alerts_per_minute"],
+            metrics["precision"],
+            -metrics["false_alerts_per_minute"],
+            -abs(metrics["mean_signed_delay_seconds"] or 0.0),
+        )
+        if best is None or rank > best[0]:
+            best = (rank, row)
+    assert best is not None
+    selection = dict(best[1])
+    selection["constraint_satisfied"] = eligible_trials > 0
+    selection["eligible_trials"] = eligible_trials
+    selection["total_trials"] = len(trials)
+    selection["max_false_alerts_per_minute"] = max_false_alerts_per_minute
+    return selection
+
+
 def evaluate(args: argparse.Namespace) -> dict[str, Any]:
     import torch
 
@@ -343,6 +371,24 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
         selected_config,
         args.tolerance_seconds,
     )
+    operating_curve = {}
+    budgets = list(
+        dict.fromkeys(
+            [args.max_false_alerts_per_minute, *args.false_alert_budgets]
+        )
+    )
+    for budget in budgets:
+        budget_selection = _select_existing_trials(trials, budget)
+        budget_config = StreamingConfig(**budget_selection["config"])
+        operating_curve[str(budget)] = {
+            "selection": budget_selection,
+            "validation": _evaluate_config(
+                validation_records,
+                validation_targets,
+                budget_config,
+                args.tolerance_seconds,
+            ),
+        }
     result = {
         "protocol": {
             "causal": True,
@@ -384,6 +430,7 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
         "validation_incorrect_events": len(validation_targets),
         "selected": selection,
         "validation": validation_metrics,
+        "train_selected_operating_curve": operating_curve,
         "calibration_trials": trials,
     }
     output = Path(args.output)
@@ -429,6 +476,13 @@ def main() -> None:
     parser.add_argument("--confirmation-steps", type=int, nargs="+", default=[1, 2])
     parser.add_argument("--anomaly-temperature", type=float, default=0.75)
     parser.add_argument("--max-false-alerts-per-minute", type=float, default=0.1)
+    parser.add_argument(
+        "--false-alert-budgets",
+        type=float,
+        nargs="+",
+        default=[0.1, 0.25, 0.5, 1.0],
+        help="Additional train-only operating points evaluated unchanged on validation.",
+    )
     parser.add_argument("--tolerance-seconds", type=float, default=2.0)
     parser.add_argument("--device", default=None)
     parser.add_argument("--seed", type=int, default=7)
