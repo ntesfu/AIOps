@@ -24,6 +24,7 @@ class StreamingConfig:
     alert_threshold: float = 0.60
     confirmation_steps: int = 2
     gate_incorrect_state_to_completion: bool = True
+    effect_positive_threshold: float = 0.5
 
     def validate(self) -> None:
         if not 0.0 <= self.completion_threshold <= 1.0:
@@ -34,6 +35,8 @@ class StreamingConfig:
             raise ValueError("alert_threshold must lie in (0, 1).")
         if self.confirmation_steps <= 0:
             raise ValueError("confirmation_steps must be positive.")
+        if not 0.0 <= self.effect_positive_threshold <= 1.0:
+            raise ValueError("effect_positive_threshold must lie in [0, 1].")
 
 
 def component_anomaly_scores(
@@ -114,6 +117,9 @@ def build_streaming_evidence(
         (anomaly - config.anomaly_threshold) / config.anomaly_temperature
     )
     conditional_incorrect = effect[..., 2] / np.maximum(completion, 1e-8)
+    effect_positive = (
+        candidate & (conditional_incorrect >= config.effect_positive_threshold)
+    )
     zeros = np.zeros_like(anomaly)
     return TripleResidualEvidence.from_arrays(
         zeros,
@@ -122,7 +128,7 @@ def build_streaming_evidence(
         num_components=anomaly.shape[1],
         procedure_mask=np.zeros_like(candidate),
         execution_mask=candidate,
-        effect_mask=candidate,
+        effect_mask=effect_positive,
     )
 
 

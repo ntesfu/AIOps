@@ -47,6 +47,18 @@ def test_streaming_evidence_is_masked_until_completion_candidate():
     assert not evidence.execution_mask[0, 0]
     assert evidence.execution_mask[1, 0]
     assert evidence.effect[1, 0] > 0.7
+    assert evidence.effect_mask[1, 0]
+
+
+def test_low_confidence_supervised_effect_cannot_veto_execution_residual():
+    anomaly = np.asarray([[4.0]])
+    available = np.ones_like(anomaly, dtype=bool)
+    effect = np.asarray([[[0.1, 0.895, 0.005, 0.0]]])
+    evidence = build_streaming_evidence(
+        anomaly, available, effect, StreamingConfig(completion_threshold=0.5)
+    )
+    assert evidence.execution_mask[0, 0]
+    assert not evidence.effect_mask[0, 0]
 
 
 def test_predicted_step_scoring_uses_step_bank_without_label_input():
