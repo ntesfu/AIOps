@@ -31,6 +31,11 @@ mistake_component_weight="${MISTAKE_COMPONENT_WEIGHT:-1.0}"
 any_mistake_pos_weight="${ANY_MISTAKE_POS_WEIGHT:-1.0}"
 incorrect_hard_negative_ratio="${INCORRECT_HARD_NEGATIVE_RATIO:-0.0}"
 component_evidence_temporal_blocks="${COMPONENT_EVIDENCE_TEMPORAL_BLOCKS:-0}"
+structured_roi_tokens="${STRUCTURED_ROI_TOKENS:-0}"
+roi_token_count="${ROI_TOKEN_COUNT:-4}"
+roi_embedding_dim="${ROI_EMBEDDING_DIM:-0}"
+roi_global_dim="${ROI_GLOBAL_DIM:-3}"
+roi_change_lag="${ROI_CHANGE_LAG:-4}"
 action_selection="${ACTION_SELECTION_STRATEGY:-action_only}"
 resume="${RESUME:-0}"
 python_bin="${PYTHON_BIN:-.venv/bin/python}"
@@ -95,6 +100,15 @@ if [[ "$component_evidence" == "1" ]]; then
     --component-rank-weight "$component_rank_weight"
     --component-rank-margin "$component_rank_margin"
     --component-evidence-temporal-blocks "$component_evidence_temporal_blocks"
+  )
+fi
+if [[ "$structured_roi_tokens" == "1" ]]; then
+  common_args+=(
+    --structured-roi-tokens
+    --roi-token-count "$roi_token_count"
+    --roi-embedding-dim "$roi_embedding_dim"
+    --roi-global-dim "$roi_global_dim"
+    --roi-change-lag "$roi_change_lag"
   )
 fi
 if [[ "$event_only_motion_aux" == "1" ]]; then

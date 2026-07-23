@@ -300,6 +300,96 @@ class StateGraphModelTest(unittest.TestCase):
             )
         )
 
+    def test_structured_roi_tokens_are_causal_and_event_only(self) -> None:
+        import torch
+
+        torch.manual_seed(17)
+        # Two ROI tokens with 3 visual values, presence + four box values per
+        # token, and two global metadata values: 2*3 + 2*5 + 2 = 18.
+        config = StateGraphPSRConfig(
+            motion_dim=4,
+            motion_aux_dim=18,
+            appearance_dim=3,
+            sensor_dim=2,
+            num_steps=2,
+            num_completion_components=2,
+            num_components=2,
+            hidden_dim=8,
+            num_temporal_blocks=1,
+            attention_every=0,
+            num_heads=2,
+            dropout=0.0,
+            component_evidence=True,
+            event_only_motion_aux=True,
+            structured_roi_tokens=True,
+            roi_token_count=2,
+            roi_embedding_dim=3,
+            roi_global_dim=2,
+            roi_change_lag=2,
+        )
+        model = build_stategraph_psr(config).eval()
+        motion = torch.randn(1, 6, 4)
+        appearance = torch.randn(1, 6, 3)
+        sensor = torch.randn(1, 6, 2)
+        auxiliary = torch.randn(1, 6, 18)
+        # Presence occupies columns 6:8 in this compact test contract.
+        auxiliary[..., 6] = 1.0
+        auxiliary[..., 7] = 0.0
+        with torch.no_grad():
+            first = model(motion, appearance, sensor, motion_aux=auxiliary)
+            changed_auxiliary = auxiliary.clone()
+            changed_auxiliary[:, 4, 0] += 20.0
+            changed = model(
+                motion, appearance, sensor, motion_aux=changed_auxiliary
+            )
+
+        self.assertEqual(tuple(first["roi_token_features"].shape), (1, 6, 2, 8))
+        self.assertEqual(tuple(first["roi_change_features"].shape), (1, 6, 2, 8))
+        self.assertEqual(
+            tuple(first["component_roi_attention_weights"].shape), (1, 6, 2, 2)
+        )
+        torch.testing.assert_close(
+            first["component_roi_attention_weights"].sum(dim=-1),
+            torch.ones(1, 6, 2),
+        )
+        torch.testing.assert_close(
+            first["component_roi_attention_weights"][..., 1],
+            torch.zeros(1, 6, 2),
+        )
+        torch.testing.assert_close(first["step_logits"], changed["step_logits"])
+        torch.testing.assert_close(
+            first["component_outcome_logits"][:, :4],
+            changed["component_outcome_logits"][:, :4],
+        )
+        self.assertFalse(
+            torch.equal(
+                first["component_outcome_logits"][:, 4:],
+                changed["component_outcome_logits"][:, 4:],
+            )
+        )
+
+    def test_structured_roi_contract_is_validated(self) -> None:
+        config = StateGraphPSRConfig(
+            motion_dim=4,
+            motion_aux_dim=17,
+            appearance_dim=3,
+            sensor_dim=2,
+            num_steps=2,
+            num_completion_components=2,
+            num_components=2,
+            hidden_dim=8,
+            num_temporal_blocks=1,
+            attention_every=0,
+            num_heads=2,
+            component_evidence=True,
+            structured_roi_tokens=True,
+            roi_token_count=2,
+            roi_embedding_dim=3,
+            roi_global_dim=2,
+        )
+        with self.assertRaisesRegex(ValueError, "cache dimension mismatch"):
+            build_stategraph_psr(config)
+
     def test_legacy_model_has_no_factorized_parameters(self) -> None:
         config = StateGraphPSRConfig(
             motion_dim=4,
@@ -315,6 +405,7 @@ class StateGraphModelTest(unittest.TestCase):
         )
         model = build_stategraph_psr(config)
         self.assertFalse(hasattr(model, "any_mistake_onset_head"))
+        self.assertFalse(hasattr(model, "roi_visual_stem"))
 
     def test_dense_incorrect_states_supervise_normality_without_events(self) -> None:
         import torch

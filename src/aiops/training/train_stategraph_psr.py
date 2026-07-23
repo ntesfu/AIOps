@@ -273,6 +273,11 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         component_evidence=args.component_evidence,
         event_only_motion_aux=args.event_only_motion_aux,
         component_evidence_temporal_blocks=args.component_evidence_temporal_blocks,
+        structured_roi_tokens=args.structured_roi_tokens,
+        roi_token_count=args.roi_token_count,
+        roi_embedding_dim=args.roi_embedding_dim,
+        roi_global_dim=args.roi_global_dim,
+        roi_change_lag=args.roi_change_lag,
     )
     loss_config = StateGraphLossConfig(
         step_weight=args.step_weight,
@@ -1689,10 +1694,20 @@ def _model_configs_compatible(stored: Any, current: dict[str, Any]) -> bool:
     normalized.setdefault("component_evidence", False)
     normalized.setdefault("event_only_motion_aux", False)
     normalized.setdefault("component_evidence_temporal_blocks", 0)
+    normalized.setdefault("structured_roi_tokens", False)
+    normalized.setdefault("roi_token_count", 4)
+    normalized.setdefault("roi_embedding_dim", 0)
+    normalized.setdefault("roi_global_dim", 3)
+    normalized.setdefault("roi_change_lag", 4)
     normalized_current.setdefault("factorized_mistake_detection", False)
     normalized_current.setdefault("component_evidence", False)
     normalized_current.setdefault("event_only_motion_aux", False)
     normalized_current.setdefault("component_evidence_temporal_blocks", 0)
+    normalized_current.setdefault("structured_roi_tokens", False)
+    normalized_current.setdefault("roi_token_count", 4)
+    normalized_current.setdefault("roi_embedding_dim", 0)
+    normalized_current.setdefault("roi_global_dim", 3)
+    normalized_current.setdefault("roi_change_lag", 4)
     return normalized == normalized_current
 
 
@@ -1707,6 +1722,9 @@ def _event_branch_parameter_prefixes() -> tuple[str, ...]:
         "procedure_event_context.",
         "event_norm.",
         "component_evidence_",
+        "roi_",
+        "component_roi_attention.",
+        "component_roi_attention_norm.",
         "completion_head.",
         "component_outcome_head.",
         "incorrect_onset_head.",
@@ -2294,6 +2312,20 @@ def main() -> None:
         type=int,
         default=0,
         help="Causal depthwise temporal blocks applied only to ROI/component evidence.",
+    )
+    parser.add_argument(
+        "--structured-roi-tokens",
+        action="store_true",
+        help="Decode the flat ROI v1 auxiliary cache into typed visual/geometry tokens.",
+    )
+    parser.add_argument("--roi-token-count", type=int, default=4)
+    parser.add_argument("--roi-embedding-dim", type=int, default=0)
+    parser.add_argument("--roi-global-dim", type=int, default=3)
+    parser.add_argument(
+        "--roi-change-lag",
+        type=int,
+        default=4,
+        help="Past-only reference lag used by the structured ROI change encoder.",
     )
     parser.add_argument("--graph-strength", type=float, default=0.12)
     parser.add_argument("--learning-rate", type=float, default=3e-4)

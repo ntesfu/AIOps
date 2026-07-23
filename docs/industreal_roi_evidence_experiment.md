@@ -87,5 +87,65 @@ The final validation report is:
 runs/industreal_roi_dual_selection_s7_dual_expert/validation.json
 ```
 
+## Next controlled architecture experiment: structured ROI change tokens
+
+The original ROI branch projects the complete 3,095-dimensional vector into one
+frame-level feature. That is inexpensive, but it erases the distinction between
+left hand, right hand, gaze, and active object before the component detector can
+reason about them. The opt-in structured branch keeps the same frozen cache and
+decodes its existing v1 layout:
+
+- four 768-dimensional ROI visual tokens;
+- four presence flags and four normalized boxes;
+- active-object category plus gaze coordinates;
+- learned ROI-type embeddings;
+- explicit current-minus-previous and current-minus-lagged changes;
+- per-component queries attending only to present ROI tokens.
+
+All changes are past-only. The auxiliary path remains event-only, so enabling it
+cannot alter action logits through the forward graph. It is disabled by default
+for checkpoint compatibility.
+
+Run the paired seed-7 screen with identical cache, optimizer, windows, and
+checkpoint selectors:
+
+```bash
+export CACHE_INDEX=data/processed/industreal_strict_swin_convnext_roi/index.json
+export PYTHON_BIN=/home/aiops/miniconda3/envs/psr_env/bin/python
+
+EXPERIMENT_TIER=quick bash scripts/run_industreal_structured_roi_experiment.sh flat all
+EXPERIMENT_TIER=quick bash scripts/run_industreal_structured_roi_experiment.sh structured all
+```
+
+The structured branch is promoted to seeds 7, 17, and 29 only if it:
+
+1. preserves action F1@50 within 1 point of the paired flat branch;
+2. has positive incorrect-event recall;
+3. does not exceed 2 incorrect false alerts per minute;
+4. improves either incorrect-event AP/F1 or matched-episode separation;
+5. remains below 23 GiB peak training VRAM.
+
+Use the operator-grouped manifest for the promotion runs:
+
+```bash
+PYTHONPATH=src "$PYTHON_BIN" scripts/prepare_industreal_grouped_evaluation.py \
+  --cache-index "$CACHE_INDEX" \
+  --output experiments/industreal_grouped_eval_s7.json \
+  --folds 5 --seed 7 --episode-radius 32 --matches-per-incorrect 3
+```
+
+This grouped evaluation pools official train and validation data only. Operators
+are disjoint across folds, matching stays inside each fold partition, causal
+episodes end at the labelled event row, and official test arrays are never
+opened. The current cache yields 52 development recordings, 17 operators, and
+19 incorrect events; each incorrect event has three same-component correct
+matches. This is a more defensible rare-event screen than repeatedly tuning on
+the five mistakes in the official validation split.
+
+The separate frozen-backbone experiment is specified in
+`docs/industreal_backbone_ablation_protocol.md`. It compares Swin3D-S with a
+genuine VideoMAE V2-B strict-causal cache; it must not relabel the extractor's
+default Giant checkpoint as Base.
+
 The primary gate is positive incorrect-event recall at no more than two false alerts per minute.
 Normality AP, incorrect-state F1, detection delay, and action F1@50 are secondary metrics.

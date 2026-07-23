@@ -76,6 +76,15 @@ class StateGraphPSRConfig:
     # Number of lightweight causal depthwise blocks on the event-only ROI
     # stream. Zero preserves compatibility with the frame-local ablation.
     component_evidence_temporal_blocks: int = 0
+    # Interpret the flat motion_aux cache using the IndustReal ROI v1 contract:
+    # [R * visual, R * presence, R * box(x1,y1,x2,y2), global metadata].
+    # Disabled by default so legacy checkpoints retain an identical parameter
+    # set. The cache itself remains flat; no data-loader migration is required.
+    structured_roi_tokens: bool = False
+    roi_token_count: int = 4
+    roi_embedding_dim: int = 0
+    roi_global_dim: int = 3
+    roi_change_lag: int = 4
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -131,6 +140,26 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
         config.component_evidence_temporal_blocks,
     ) < 0:
         raise ValueError("Refinement stage/block counts cannot be negative.")
+    if config.structured_roi_tokens:
+        if not config.component_evidence:
+            raise ValueError("structured_roi_tokens requires component_evidence.")
+        if config.roi_token_count <= 0 or config.roi_embedding_dim <= 0:
+            raise ValueError(
+                "roi_token_count and roi_embedding_dim must be positive for structured ROI tokens."
+            )
+        if config.roi_global_dim < 0 or config.roi_change_lag <= 0:
+            raise ValueError("roi_global_dim cannot be negative and roi_change_lag must be positive.")
+        expected_aux_dim = (
+            config.roi_token_count * config.roi_embedding_dim
+            + 5 * config.roi_token_count
+            + config.roi_global_dim
+        )
+        if config.motion_aux_dim != expected_aux_dim:
+            raise ValueError(
+                "Structured ROI cache dimension mismatch: expected "
+                f"{expected_aux_dim} = R*embedding + R*presence + R*box + global, "
+                f"got motion_aux_dim={config.motion_aux_dim}."
+            )
 
     if config.action_verb_indices:
         if len(config.action_verb_indices) != config.num_steps:
@@ -459,6 +488,42 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                     nn.Linear(config.hidden_dim, config.hidden_dim),
                     nn.GELU(),
                 )
+                if config.structured_roi_tokens:
+                    self.roi_visual_stem = nn.Sequential(
+                        nn.LayerNorm(config.roi_embedding_dim),
+                        nn.Linear(config.roi_embedding_dim, config.hidden_dim),
+                        nn.GELU(),
+                    )
+                    self.roi_geometry_stem = nn.Sequential(
+                        nn.LayerNorm(5),
+                        nn.Linear(5, config.hidden_dim),
+                        nn.GELU(),
+                    )
+                    self.roi_global_stem = (
+                        nn.Sequential(
+                            nn.LayerNorm(config.roi_global_dim),
+                            nn.Linear(config.roi_global_dim, config.hidden_dim),
+                            nn.GELU(),
+                        )
+                        if config.roi_global_dim > 0
+                        else None
+                    )
+                    self.roi_type_embeddings = nn.Parameter(
+                        torch.empty(config.roi_token_count, config.hidden_dim)
+                    )
+                    nn.init.trunc_normal_(self.roi_type_embeddings, std=0.02)
+                    self.roi_change_stem = nn.Sequential(
+                        nn.LayerNorm(3 * config.hidden_dim),
+                        nn.Linear(3 * config.hidden_dim, config.hidden_dim),
+                        nn.GELU(),
+                    )
+                    self.component_roi_attention = nn.MultiheadAttention(
+                        config.hidden_dim,
+                        config.num_heads,
+                        dropout=config.dropout,
+                        batch_first=True,
+                    )
+                    self.component_roi_attention_norm = nn.LayerNorm(config.hidden_dim)
                 # ROI evidence is extracted per frame. Give it a small causal
                 # temporal adapter so the event branch can learn before/after
                 # changes without increasing the global action backbone.
@@ -583,6 +648,94 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             if valid_mask is not None:
                 posterior = torch.where(valid_mask.unsqueeze(-1), posterior, evidence)
             return torch.log(posterior.clamp_min(1e-7)), posterior
+
+        def _structured_roi_evidence(self, motion_aux, event_features):
+            """Decode flat ROI v1 features and compare only current/past tokens."""
+
+            batch, length = event_features.shape[:2]
+            if motion_aux is None:
+                empty_tokens = event_features.new_zeros(
+                    batch, length, config.roi_token_count, config.hidden_dim
+                )
+                empty_components = event_features.new_zeros(
+                    batch,
+                    length,
+                    config.num_completion_components,
+                    config.hidden_dim,
+                )
+                return empty_components, empty_tokens, empty_tokens, None
+
+            visual_end = config.roi_token_count * config.roi_embedding_dim
+            presence_end = visual_end + config.roi_token_count
+            geometry_end = presence_end + 4 * config.roi_token_count
+            visual = motion_aux[..., :visual_end].reshape(
+                batch, length, config.roi_token_count, config.roi_embedding_dim
+            )
+            presence = motion_aux[..., visual_end:presence_end].reshape(
+                batch, length, config.roi_token_count, 1
+            )
+            boxes = motion_aux[..., presence_end:geometry_end].reshape(
+                batch, length, config.roi_token_count, 4
+            )
+            geometry = torch.cat([presence, boxes], dim=-1)
+            tokens = (
+                self.roi_visual_stem(visual) * presence
+                + self.roi_geometry_stem(geometry)
+                + self.roi_type_embeddings.view(
+                    1, 1, config.roi_token_count, config.hidden_dim
+                )
+            )
+            if self.roi_global_stem is not None:
+                global_metadata = motion_aux[
+                    ..., geometry_end : geometry_end + config.roi_global_dim
+                ]
+                tokens = tokens + self.roi_global_stem(global_metadata).unsqueeze(-2)
+
+            time = torch.arange(length, device=tokens.device)
+            previous_indices = (time - 1).clamp_min(0)
+            reference_indices = (time - config.roi_change_lag).clamp_min(0)
+            short_delta = tokens - tokens[:, previous_indices]
+            reference_delta = tokens - tokens[:, reference_indices]
+            change_tokens = self.roi_change_stem(
+                torch.cat([tokens, short_delta, reference_delta], dim=-1)
+            )
+
+            query = self.component_evidence_queries.view(
+                1, config.num_completion_components, config.hidden_dim
+            ).expand(batch * length, -1, -1)
+            key_value = change_tokens.reshape(
+                batch * length, config.roi_token_count, config.hidden_dim
+            )
+            missing_tokens = presence.squeeze(-1) < 0.5
+            # MultiheadAttention produces NaNs when every key is masked. Keep
+            # the first typed/global token as a deterministic fallback; its
+            # visual and box content is zero because presence is false.
+            all_missing = missing_tokens.all(dim=-1)
+            safe_missing_tokens = missing_tokens.clone()
+            safe_missing_tokens[..., 0] = (
+                safe_missing_tokens[..., 0] & ~all_missing
+            )
+            attended, attention_weights = self.component_roi_attention(
+                query,
+                key_value,
+                key_value,
+                key_padding_mask=safe_missing_tokens.reshape(
+                    batch * length, config.roi_token_count
+                ),
+                need_weights=True,
+            )
+            # Component identity already enters through the attention query and
+            # is added once by the outer component-evidence residual below.
+            component_features = self.component_roi_attention_norm(attended).reshape(
+                batch,
+                length,
+                config.num_completion_components,
+                config.hidden_dim,
+            )
+            attention_weights = attention_weights.reshape(
+                batch, length, config.num_completion_components, config.roi_token_count
+            )
+            return component_features, tokens, change_tokens, attention_weights
 
         def forward(
             self,
@@ -754,22 +907,34 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                     )
                     sensor_evidence = sensor_evidence * sensor_present.unsqueeze(-1)
                     sensor_evidence = self.component_evidence_sensor(sensor_evidence)
-                auxiliary_evidence = (
-                    self.component_evidence_aux_stem(motion_aux)
-                    if motion_aux is not None
-                    else None
-                )
-                if auxiliary_evidence is None:
-                    auxiliary_evidence = event_features.new_zeros(event_features.shape)
+                roi_token_features = None
+                roi_change_features = None
+                component_roi_attention_weights = None
+                if config.structured_roi_tokens:
+                    (
+                        component_auxiliary_evidence,
+                        roi_token_features,
+                        roi_change_features,
+                        component_roi_attention_weights,
+                    ) = self._structured_roi_evidence(motion_aux, event_features)
                 else:
-                    auxiliary_evidence = self.component_evidence_aux(auxiliary_evidence)
-                    for auxiliary_block in self.component_evidence_aux_temporal:
-                        auxiliary_evidence = auxiliary_block(auxiliary_evidence)
+                    auxiliary_evidence = (
+                        self.component_evidence_aux_stem(motion_aux)
+                        if motion_aux is not None
+                        else None
+                    )
+                    if auxiliary_evidence is None:
+                        auxiliary_evidence = event_features.new_zeros(event_features.shape)
+                    else:
+                        auxiliary_evidence = self.component_evidence_aux(auxiliary_evidence)
+                        for auxiliary_block in self.component_evidence_aux_temporal:
+                            auxiliary_evidence = auxiliary_block(auxiliary_evidence)
+                    component_auxiliary_evidence = auxiliary_evidence.unsqueeze(-2)
                 component_evidence_features = self.component_evidence_norm(
                     self.component_evidence_event(event_features).unsqueeze(-2)
                     + appearance_evidence.unsqueeze(-2)
                     + sensor_evidence.unsqueeze(-2)
-                    + auxiliary_evidence.unsqueeze(-2)
+                    + component_auxiliary_evidence
                     + self.component_evidence_queries.view(
                         1, 1, config.num_completion_components, config.hidden_dim
                     )
@@ -891,6 +1056,21 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 "event_features": event_features,
                 "component_evidence_features": (
                     component_evidence_features if config.component_evidence else None
+                ),
+                "roi_token_features": (
+                    roi_token_features
+                    if config.component_evidence and config.structured_roi_tokens
+                    else None
+                ),
+                "roi_change_features": (
+                    roi_change_features
+                    if config.component_evidence and config.structured_roi_tokens
+                    else None
+                ),
+                "component_roi_attention_weights": (
+                    component_roi_attention_weights
+                    if config.component_evidence and config.structured_roi_tokens
+                    else None
                 ),
                 "completion_logits": self.completion_head(event_features),
                 "component_outcome_logits": component_outcome_logits,

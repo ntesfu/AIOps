@@ -61,6 +61,8 @@ class StateGraphMetricsTest(unittest.TestCase):
         prefixes = _event_branch_parameter_prefixes()
         self.assertTrue("procedure_event_context.weight".startswith(prefixes))
         self.assertTrue("incorrect_onset_head.weight".startswith(prefixes))
+        self.assertTrue("roi_visual_stem.1.weight".startswith(prefixes))
+        self.assertTrue("component_roi_attention.in_proj_weight".startswith(prefixes))
         self.assertFalse("step_classifier.weight".startswith(prefixes))
 
     def test_legacy_model_config_accepts_only_default_off_new_field(self) -> None:
@@ -83,6 +85,19 @@ class StateGraphMetricsTest(unittest.TestCase):
         self.assertFalse(
             _model_configs_compatible(
                 legacy, {"hidden_dim": 256, "event_only_motion_aux": True}
+            )
+        )
+        self.assertTrue(
+            _model_configs_compatible(
+                legacy,
+                {
+                    "hidden_dim": 256,
+                    "structured_roi_tokens": False,
+                    "roi_token_count": 4,
+                    "roi_embedding_dim": 0,
+                    "roi_global_dim": 3,
+                    "roi_change_lag": 4,
+                },
             )
         )
 

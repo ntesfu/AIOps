@@ -1,0 +1,56 @@
+{
+  "protocol_version": 1,
+  "name": "industreal_swin3d_s_vs_videomaev2_b",
+  "hypothesis": "A frozen VideoMAE V2-B motion cache improves causal action segmentation over frozen Swin3D-S without degrading operational mistake detection.",
+  "selection_split": "official validation only",
+  "test_policy": "sealed until the backbone, architecture, thresholds, and checkpoint-selection rule are frozen",
+  "cache_contract": "strict_causal",
+  "backbones": {
+    "swin3d_s": {
+      "role": "reference",
+      "cache_argument": "swin_cache"
+    },
+    "videomaev2_b": {
+      "role": "candidate",
+      "cache_argument": "videomae_cache"
+    }
+  },
+  "stages": {
+    "quick": {
+      "seeds": [7],
+      "trainer_stage": "action",
+      "action_epochs": 12,
+      "action_patience": 12,
+      "event_epochs": 0,
+      "purpose": "Reject a representation that cannot improve action segmentation before event-head expenditure."
+    },
+    "promotion": {
+      "seeds": [7, 17, 29],
+      "trainer_stage": "all",
+      "action_epochs": 30,
+      "action_patience": 12,
+      "event_epochs": 16,
+      "event_patience": 8,
+      "purpose": "Measure paired seed stability using independent action-best and event-best checkpoints."
+    }
+  },
+  "fixed_environment": {
+    "CACHE_CONTRACT": "strict_causal",
+    "ACTION_SELECTION_STRATEGY": "action_only",
+    "EVENT_SELECTION_STRATEGY": "operational_harmonic",
+    "MAX_INCORRECT_FALSE_ALERTS_PER_MINUTE": "2.0",
+    "COMPONENT_EVIDENCE": "1",
+    "EVENT_ONLY_MOTION_AUX": "1",
+    "FACTORIZED_MISTAKE_DETECTION": "1",
+    "COMPONENT_RANK_WEIGHT": "0.1",
+    "RESUME": "0"
+  },
+  "promotion_gates": {
+    "minimum_paired_f1_at_50_gain_points": 2.0,
+    "maximum_frame_accuracy_regression_points": 2.0,
+    "maximum_incorrect_false_alerts_per_minute": 2.0,
+    "require_positive_incorrect_event_recall": true,
+    "maximum_peak_training_vram_gib": 23.0
+  },
+  "resource_sampling_seconds": 10
+}
