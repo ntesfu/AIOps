@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+from pathlib import Path
 from typing import Iterable
 
 import numpy as np
@@ -12,6 +14,65 @@ class PrototypeGroup:
     residual_median: float
     residual_scale: float
     samples: int
+
+
+def save_prototype_bank(
+    path: str | Path,
+    bank: dict[tuple[int, int | None], PrototypeGroup],
+    *,
+    metadata: dict[str, object] | None = None,
+) -> None:
+    """Persist a prototype bank without pickle so it is portable and auditable."""
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    manifest: list[dict[str, object]] = []
+    arrays: dict[str, np.ndarray] = {}
+    for index, ((component, step), group) in enumerate(
+        sorted(bank.items(), key=lambda item: (item[0][0], item[0][1] is None, item[0][1] or -1))
+    ):
+        array_key = f"centers_{index}"
+        arrays[array_key] = np.asarray(group.centers, dtype=np.float32)
+        manifest.append(
+            {
+                "component": int(component),
+                "step": None if step is None else int(step),
+                "centers": array_key,
+                "residual_median": float(group.residual_median),
+                "residual_scale": float(group.residual_scale),
+                "samples": int(group.samples),
+            }
+        )
+    payload = {
+        "format": "aiops.stateverify.prototype_bank",
+        "version": 1,
+        "groups": manifest,
+        "metadata": metadata or {},
+    }
+    arrays["manifest_json"] = np.asarray(json.dumps(payload, sort_keys=True))
+    np.savez_compressed(destination, **arrays)
+
+
+def load_prototype_bank(
+    path: str | Path,
+) -> tuple[dict[tuple[int, int | None], PrototypeGroup], dict[str, object]]:
+    """Load a bank written by :func:`save_prototype_bank`."""
+    with np.load(Path(path), allow_pickle=False) as archive:
+        payload = json.loads(str(archive["manifest_json"].item()))
+        if (
+            payload.get("format") != "aiops.stateverify.prototype_bank"
+            or payload.get("version") != 1
+        ):
+            raise ValueError("Unsupported StateVerify prototype-bank format.")
+        bank: dict[tuple[int, int | None], PrototypeGroup] = {}
+        for row in payload["groups"]:
+            key = (int(row["component"]), None if row["step"] is None else int(row["step"]))
+            bank[key] = PrototypeGroup(
+                centers=np.asarray(archive[row["centers"]], dtype=np.float32),
+                residual_median=float(row["residual_median"]),
+                residual_scale=float(row["residual_scale"]),
+                samples=int(row["samples"]),
+            )
+    return bank, dict(payload.get("metadata", {}))
 
 
 def fit_prototype_group(

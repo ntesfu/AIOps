@@ -1,0 +1,59 @@
+from __future__ import annotations
+
+import numpy as np
+
+from aiops.evaluation.stateverify_prototypes import PrototypeGroup
+from aiops.evaluation.stateverify_streaming import (
+    StreamingConfig,
+    build_streaming_evidence,
+    component_anomaly_scores,
+    match_streaming_alerts,
+)
+
+
+def test_component_anomaly_scoring_uses_only_component_fallback():
+    bank = {
+        (0, None): PrototypeGroup(
+            centers=np.asarray([[1.0, 0.0]], dtype=np.float32),
+            residual_median=0.0,
+            residual_scale=0.1,
+            samples=10,
+        ),
+        (0, 9): PrototypeGroup(
+            centers=np.asarray([[0.0, 1.0]], dtype=np.float32),
+            residual_median=0.0,
+            residual_scale=0.1,
+            samples=10,
+        ),
+    }
+    features = np.asarray([[[1.0, 0.0]], [[0.0, 1.0]]], dtype=np.float32)
+    scores, mask = component_anomaly_scores(features, bank)
+    assert mask.all()
+    assert scores[0, 0] < scores[1, 0]
+
+
+def test_streaming_evidence_is_masked_until_completion_candidate():
+    anomaly = np.asarray([[4.0], [4.0]])
+    available = np.ones_like(anomaly, dtype=bool)
+    effect = np.asarray([[[0.9, 0.05, 0.05, 0.0]], [[0.1, 0.2, 0.7, 0.0]]])
+    evidence = build_streaming_evidence(
+        anomaly,
+        available,
+        effect,
+        StreamingConfig(completion_threshold=0.5),
+    )
+    assert not evidence.execution_mask[0, 0]
+    assert evidence.execution_mask[1, 0]
+    assert evidence.effect[1, 0] > 0.7
+
+
+def test_matching_is_recording_and_component_aware():
+    targets = [("r1", 10, 2, 5.0), ("r2", 10, 2, 5.0)]
+    alerts = [("r1", 11, 2, 5.4), ("r1", 11, 1, 5.4)]
+    metrics = match_streaming_alerts(
+        alerts, targets, duration_minutes=2.0, tolerance_seconds=1.0
+    )
+    assert metrics["true_positives"] == 1
+    assert metrics["false_positives"] == 1
+    assert metrics["false_negatives"] == 1
+    assert metrics["false_alerts_per_minute"] == 0.5

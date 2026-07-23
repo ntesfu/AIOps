@@ -7,7 +7,9 @@ from aiops.evaluation.stateverify_prototypes import (
     calibrate_threshold,
     fit_prototype_bank,
     fit_prototype_group,
+    load_prototype_bank,
     prototype_anomaly_score,
+    save_prototype_bank,
     score_with_bank,
     threshold_metrics,
 )
@@ -46,3 +48,18 @@ def test_threshold_calibration_respects_false_alert_budget():
     assert metrics["recall"] == 100.0
     assert metrics["false_alerts_per_minute"] == 0.0
     assert binary_average_precision(scores, labels) == 100.0
+
+
+def test_prototype_bank_round_trip_without_pickle(tmp_path):
+    bank = fit_prototype_bank(
+        {(2, 4): [np.asarray([1.0, 0.1], dtype=np.float32)] * 25},
+        minimum_step_samples=20,
+    )
+    path = tmp_path / "bank.npz"
+    save_prototype_bank(path, bank, metadata={"split": "train"})
+    restored, metadata = load_prototype_bank(path)
+    assert metadata == {"split": "train"}
+    assert restored.keys() == bank.keys()
+    for key in bank:
+        np.testing.assert_allclose(restored[key].centers, bank[key].centers)
+        assert restored[key].samples == bank[key].samples
