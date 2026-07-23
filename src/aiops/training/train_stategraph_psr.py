@@ -1,0 +1,2778 @@
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import math
+import random
+import re
+from dataclasses import asdict
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+import numpy as np
+
+from aiops.data.stategraph_cache import (
+    StateGraphCacheDataset,
+    StateGraphCacheRecord,
+    build_transition_matrix,
+    pad_stategraph_batch,
+    read_cache_index,
+)
+from aiops.evaluation.temporal_metrics import edit_score, segmental_f1
+from aiops.models.stategraph_psr import (
+    StateGraphLossConfig,
+    StateGraphPSRConfig,
+    build_stategraph_loss,
+    build_stategraph_psr,
+)
+from aiops.data.procedure_schema import CACHE_SCHEMA_VERSION
+from aiops.training.monitoring import TrainingMonitor
+
+
+def _effective_rare_window_boost(requested: float, rare_per_batch: int) -> float:
+    """Use either guaranteed rare slots or weighted rare sampling, never both."""
+
+    return 1.0 if rare_per_batch > 0 else requested
+
+
+def _initialization_enabled(args: argparse.Namespace) -> bool:
+    """Return whether provenance checkpoints should initialize model weights.
+
+    ``init_checkpoint`` and ``event_init_checkpoint`` remain part of the run
+    manifest on resume, but the exact resume checkpoint is authoritative for
+    weights and optimizer state.
+    """
+
+    return not bool(args.resume)
+
+
+def _project_event_scores_to_states(event_scores, event_state_indices, num_states: int):
+    """Map per-event-component scores onto the persistent-state component axis."""
+
+    if event_scores.shape[-1] != len(event_state_indices):
+        raise ValueError(
+            "Event score width does not match the event-to-state mapping: "
+            f"{event_scores.shape[-1]} versus {len(event_state_indices)}."
+        )
+    projected = event_scores.new_zeros((*event_scores.shape[:-1], num_states))
+    for event_component, state_component in enumerate(event_state_indices.tolist()):
+        if not 0 <= state_component < num_states:
+            raise ValueError(
+                f"Mapped state component {state_component} is outside [0, {num_states})."
+            )
+        projected[..., state_component] = projected[..., state_component].maximum(
+            event_scores[..., event_component]
+        )
+    return projected
+
+
+def _checkpoint_argument_error(args: argparse.Namespace) -> str | None:
+    """Validate checkpoint relationships without rejecting staged resumes."""
+
+    if args.event_init_checkpoint and not args.init_checkpoint:
+        return "--event-init-checkpoint requires --init-checkpoint"
+    if args.freeze_action_backbone and not args.init_checkpoint:
+        return "--freeze-action-backbone requires --init-checkpoint"
+    return None
+
+
+def _initialize_run_directory(args: argparse.Namespace) -> tuple[Path, str]:
+    """Claim a fresh run directory and persist its immutable launch contract."""
+
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = output_dir / "run_manifest.json"
+    configuration = {
+        key: value
+        for key, value in vars(args).items()
+        if key not in {"resume"}
+    }
+    configuration["cache_index"] = str(Path(args.cache_index).resolve())
+    payload = {
+        "format_version": 1,
+        "configuration": configuration,
+    }
+    payload = json.loads(json.dumps(payload, default=str))
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    payload["configuration_sha256"] = digest
+    if args.resume:
+        if not manifest_path.exists():
+            raise ValueError("Resume run is missing immutable run_manifest.json")
+        existing = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if existing != payload:
+            raise ValueError("Resume configuration does not match immutable run manifest")
+    else:
+        existing_entries = list(output_dir.iterdir())
+        if existing_entries:
+            raise FileExistsError(
+                f"Refusing to overwrite non-empty run directory: {output_dir}"
+            )
+        # Exclusive creation prevents two schedulers from claiming the same
+        # directory between the emptiness check and manifest write.
+        with manifest_path.open("x", encoding="utf-8") as stream:
+            json.dump(payload, stream, indent=2, default=str)
+            stream.write("\n")
+    return output_dir, digest
+
+
+class OutcomeAwareBatchSampler:
+    """Deterministic batches with guaranteed exposure to rare event windows."""
+
+    def __init__(
+        self,
+        dataset_size: int,
+        batch_size: int,
+        rare_indices: list[int],
+        rare_per_batch: int = 1,
+        sampling_weights: np.ndarray | None = None,
+        matched_correct_candidates: Mapping[int, Sequence[int]] | None = None,
+        seed: int = 7,
+    ) -> None:
+        if dataset_size <= 0 or batch_size <= 0:
+            raise ValueError("dataset_size and batch_size must be positive")
+        if rare_per_batch < 0 or rare_per_batch > batch_size:
+            raise ValueError("rare_per_batch must be between zero and batch_size")
+        self.dataset_size = dataset_size
+        self.batch_size = batch_size
+        self.rare_indices = np.asarray(sorted(set(rare_indices)), dtype=np.int64)
+        self.rare_per_batch = rare_per_batch if len(self.rare_indices) else 0
+        if sampling_weights is None:
+            sampling_weights = np.ones(dataset_size, dtype=np.float64)
+        self.sampling_weights = np.asarray(sampling_weights, dtype=np.float64)
+        if self.sampling_weights.shape != (dataset_size,):
+            raise ValueError("sampling_weights must contain one value per dataset item")
+        if not np.isfinite(self.sampling_weights).all() or (self.sampling_weights < 0).any():
+            raise ValueError("sampling_weights must be finite and non-negative")
+        weight_sum = float(self.sampling_weights.sum())
+        if weight_sum <= 0:
+            raise ValueError("sampling_weights must contain at least one positive value")
+        self.sampling_probabilities = self.sampling_weights / weight_sum
+        self.matched_correct_candidates = {
+            int(rare): np.asarray(sorted(set(candidates)), dtype=np.int64)
+            for rare, candidates in (matched_correct_candidates or {}).items()
+            if candidates
+        }
+        invalid_rare = set(self.matched_correct_candidates) - set(
+            int(value) for value in self.rare_indices
+        )
+        if invalid_rare:
+            raise ValueError("matched candidates contain non-rare window indices")
+        for candidates in self.matched_correct_candidates.values():
+            if (candidates < 0).any() or (candidates >= dataset_size).any():
+                raise ValueError("matched candidate indices must belong to the dataset")
+        self.pairable_rare_indices = np.asarray(
+            sorted(self.matched_correct_candidates), dtype=np.int64
+        )
+        self.seed = seed
+        self.epoch = 0
+
+    def __len__(self) -> int:
+        return math.ceil(self.dataset_size / self.batch_size)
+
+    def __iter__(self):
+        rng = np.random.default_rng(self.seed + self.epoch)
+        self.epoch += 1
+        all_indices = np.arange(self.dataset_size, dtype=np.int64)
+        remaining = self.dataset_size
+        for _ in range(len(self)):
+            current_size = min(self.batch_size, remaining)
+            rare_count = min(self.rare_per_batch, current_size)
+            batch: list[int] = []
+            if rare_count:
+                if len(self.pairable_rare_indices):
+                    rare_count = min(rare_count, current_size // 2)
+                    selected_rare = rng.choice(
+                        self.pairable_rare_indices, size=rare_count, replace=True
+                    )
+                    for value in selected_rare:
+                        rare = int(value)
+                        batch.append(rare)
+                        batch.append(
+                            int(rng.choice(self.matched_correct_candidates[rare]))
+                        )
+                else:
+                    batch.extend(
+                        int(value)
+                        for value in rng.choice(
+                            self.rare_indices, size=rare_count, replace=True
+                        )
+                    )
+            fill = current_size - len(batch)
+            if fill:
+                batch.extend(
+                    int(value)
+                    for value in rng.choice(
+                        all_indices,
+                        size=fill,
+                        replace=True,
+                        p=self.sampling_probabilities,
+                    )
+                )
+            rng.shuffle(batch)
+            yield batch
+            remaining -= current_size
+
+
+def set_seed(seed: int) -> None:
+    import torch
+
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+def train(args: argparse.Namespace) -> dict[str, Any]:
+    import torch
+    from torch.utils.data import DataLoader
+
+    set_seed(args.seed)
+    output_dir, run_configuration_sha256 = _initialize_run_directory(args)
+    metadata, records = read_cache_index(args.cache_index)
+    _validate_cache_schema(metadata, records)
+    _validate_records(records)
+    train_records = [record for record in records if record.split.lower() == "train"]
+    all_train_records = train_records.copy()
+    val_records = [record for record in records if record.split.lower() in {"val", "validation"}]
+    test_records = [record for record in records if record.split.lower() == "test"]
+    if not train_records:
+        raise ValueError("The cache index contains no train recordings.")
+    overfit_recordings = list(args.overfit_recording_id or [])
+    if overfit_recordings:
+        by_id = {record.recording_id: record for record in train_records}
+        missing = sorted(set(overfit_recordings) - set(by_id))
+        if missing:
+            raise ValueError(f"Overfit recording IDs are not in the train split: {missing}")
+        selected = [by_id[recording_id] for recording_id in overfit_recordings]
+        train_records = selected
+        val_records = selected
+        test_records = []
+    elif not val_records:
+        train_records, val_records = _recording_level_split(train_records, args.val_fraction, args.seed)
+
+    num_steps = train_records[0].num_steps
+    factorization = _action_factorization(metadata, all_train_records, num_steps)
+    event_state_mapping = _infer_event_state_mapping(
+        all_train_records,
+        train_records[0].num_completion_components,
+        train_records[0].num_components,
+        metadata,
+    )
+    active_action_mask = (
+        _action_presence(train_records, num_steps)
+        if overfit_recordings
+        else [True] * num_steps
+    )
+    transition_matrix = build_transition_matrix(train_records, num_steps, args.transition_smoothing)
+    model_config = StateGraphPSRConfig(
+        motion_dim=train_records[0].motion_dim,
+        motion_aux_dim=train_records[0].motion_aux_dim,
+        appearance_dim=train_records[0].appearance_dim,
+        sensor_dim=train_records[0].sensor_dim,
+        num_steps=num_steps,
+        num_action_verbs=len(factorization["verb_names"]),
+        num_action_objects=len(factorization["object_names"]),
+        action_verb_indices=tuple(factorization["verb_indices"]),
+        action_object_indices=tuple(factorization["object_indices"]),
+        seen_action_mask=tuple(factorization["seen_mask"]),
+        active_action_mask=tuple(active_action_mask),
+        mistake_action_mask=tuple(factorization["mistake_action_mask"]),
+        action_event_component_indices=tuple(
+            factorization["action_event_component_indices"]
+        ),
+        event_state_indices=tuple(event_state_mapping["indices"]),
+        num_completion_components=train_records[0].num_completion_components,
+        num_event_outcomes=len(metadata["event_outcomes"]),
+        num_components=train_records[0].num_components,
+        hidden_dim=args.hidden_dim,
+        num_temporal_blocks=args.num_temporal_blocks,
+        attention_every=args.attention_every,
+        num_heads=args.num_heads,
+        num_action_refinement_stages=args.num_action_refinement_stages,
+        num_refinement_blocks=args.num_refinement_blocks,
+        num_event_blocks=args.num_event_blocks,
+        dropout=args.dropout,
+        graph_strength_init=args.graph_strength,
+        max_sequence_length=args.max_sequence_length,
+        positional_dropout=args.positional_dropout,
+        procedural_event_context=args.procedural_event_context,
+        learned_event_fusion=args.learned_event_fusion,
+        factorized_mistake_detection=args.factorized_mistake_detection,
+        component_evidence=args.component_evidence,
+        event_only_motion_aux=args.event_only_motion_aux,
+        component_evidence_temporal_blocks=args.component_evidence_temporal_blocks,
+        structured_roi_tokens=args.structured_roi_tokens,
+        roi_token_count=args.roi_token_count,
+        roi_embedding_dim=args.roi_embedding_dim,
+        roi_global_dim=args.roi_global_dim,
+        roi_change_lag=args.roi_change_lag,
+        hybrid_roi_residual=args.hybrid_roi_residual,
+    )
+    loss_config = StateGraphLossConfig(
+        step_weight=args.step_weight,
+        completion_weight=args.completion_weight,
+        component_outcome_weight=args.component_outcome_weight,
+        incorrect_onset_weight=args.incorrect_onset_weight,
+        state_weight=args.state_weight,
+        boundary_weight=args.boundary_weight,
+        next_step_weight=args.next_step_weight,
+        smoothing_weight=args.smoothing_weight,
+        graph_weight=args.graph_weight,
+        consistency_weight=args.consistency_weight,
+        progress_weight=args.progress_weight,
+        normality_weight=args.normality_weight,
+        refinement_weight=args.refinement_weight,
+        focal_gamma=args.focal_gamma,
+        asl_negative_gamma=args.asl_negative_gamma,
+        asl_clip=args.asl_clip,
+        normality_error_weight=args.normality_error_weight,
+        event_label_horizon=args.event_label_horizon,
+        incorrect_hard_negative_ratio=args.incorrect_hard_negative_ratio,
+        any_mistake_weight=args.any_mistake_weight,
+        mistake_component_weight=args.mistake_component_weight,
+        any_mistake_pos_weight=args.any_mistake_pos_weight,
+        component_rank_weight=args.component_rank_weight,
+        component_rank_margin=args.component_rank_margin,
+    )
+    device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
+    model = build_stategraph_psr(model_config, transition_matrix).to(device)
+    # Keep initialization paths in the immutable run manifest during resume,
+    # but do not reload them: the resume checkpoint already contains the exact
+    # model and optimizer state.  This also makes frozen event-only stages
+    # resumable without losing their initialization provenance.
+    initialize_from_provenance = _initialization_enabled(args)
+    if args.init_checkpoint and initialize_from_provenance:
+        initialization = torch.load(
+            args.init_checkpoint, map_location=device, weights_only=False
+        )
+        if not _model_configs_compatible(
+            initialization.get("model_config"), model_config.to_dict()
+        ):
+            raise ValueError("Initialization checkpoint model configuration does not match.")
+        model.load_state_dict(initialization["model_state"])
+        print(f"Initialized model weights from {args.init_checkpoint}", flush=True)
+    if args.event_init_checkpoint and initialize_from_provenance:
+        event_initialization = torch.load(
+            args.event_init_checkpoint, map_location=device, weights_only=False
+        )
+        if not _model_configs_compatible(
+            event_initialization.get("model_config"), model_config.to_dict()
+        ):
+            raise ValueError("Event initialization checkpoint model configuration does not match.")
+        current_state = model.state_dict()
+        transplanted = {
+            name: value
+            for name, value in event_initialization["model_state"].items()
+            if name.startswith(_event_branch_parameter_prefixes())
+        }
+        if not transplanted:
+            raise ValueError("Event initialization checkpoint contains no event-branch parameters.")
+        current_state.update(transplanted)
+        model.load_state_dict(current_state)
+        print(
+            f"Initialized {len(transplanted)} event tensors from {args.event_init_checkpoint}",
+            flush=True,
+        )
+    if args.freeze_action_backbone:
+        trainable_prefixes = _event_branch_parameter_prefixes()
+        for name, parameter in model.named_parameters():
+            parameter.requires_grad_(name.startswith(trainable_prefixes))
+    criterion = build_stategraph_loss(loss_config).to(device)
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
+    peak_training_vram_gib = _enforce_vram_limit(
+        torch, device, args.max_vram_gib, phase="initialization"
+    )
+    step_weights = torch.from_numpy(
+        _class_weights(
+            train_records,
+            "step",
+            num_steps,
+            power=args.step_class_weight_power,
+        )
+    ).to(device)
+    completion_pos_weights = torch.from_numpy(
+        _completion_pos_weights(
+            train_records,
+            model_config.num_completion_components,
+            cap=args.completion_pos_weight_cap,
+        )
+    ).to(device)
+    component_outcome_weights = torch.from_numpy(
+        _class_weights(train_records, "component_outcome", model_config.num_event_outcomes)
+    ).to(device)
+    state_class_weights = torch.from_numpy(
+        _state_class_weights(
+            train_records,
+            model_config.num_components,
+            cap=args.state_class_weight_cap,
+            power=args.state_class_weight_power,
+        )
+    ).to(device)
+    incorrect_pos_weights = torch.from_numpy(
+        _outcome_pos_weights(
+            train_records,
+            model_config.num_completion_components,
+            outcome_index=1,
+            cap=args.incorrect_pos_weight_cap,
+        )
+    ).to(device)
+
+    train_dataset = StateGraphCacheDataset(
+        train_records,
+        sequence_length=args.sequence_length,
+        sequence_stride=args.sequence_stride,
+        training=True,
+        seed=args.seed,
+        preload=args.preload_cache,
+        event_centered_crops_per_event=args.event_centered_crops_per_event,
+        event_centered_crop_radius=args.event_centered_crop_radius,
+    )
+    # Guaranteed rare slots already control rare exposure. Applying the global
+    # boost to the remaining slots as well makes the effective probability hard
+    # to interpret and confounds ablations, so use exactly one mechanism.
+    effective_rare_window_boost = _effective_rare_window_boost(
+        args.rare_window_boost, args.rare_windows_per_batch
+    )
+    sampling_weights = train_dataset.window_sampling_weights(
+        incorrect_outcome_index=1,
+        rare_window_boost=effective_rare_window_boost,
+    )
+    matched_correct_candidates = (
+        train_dataset.matched_correct_window_candidates()
+        if args.matched_component_batches
+        else {}
+    )
+    batch_sampler = OutcomeAwareBatchSampler(
+        dataset_size=len(train_dataset),
+        batch_size=args.batch_size,
+        rare_indices=train_dataset.rare_window_indices(),
+        rare_per_batch=args.rare_windows_per_batch,
+        sampling_weights=sampling_weights,
+        matched_correct_candidates=matched_correct_candidates,
+        seed=args.seed,
+    )
+    train_loader = DataLoader(
+        train_dataset,
+        batch_sampler=batch_sampler,
+        num_workers=args.num_workers,
+        pin_memory=device.type == "cuda",
+        collate_fn=pad_stategraph_batch,
+    )
+    val_loader = DataLoader(
+        StateGraphCacheDataset(
+            val_records,
+            sequence_length=args.sequence_length,
+            # Half-overlap gives each retained row useful causal history near a
+            # model-window boundary. Evaluation stitches duplicate rows back to
+            # one recording timeline before scoring.
+            sequence_stride=max(1, args.sequence_length // 2),
+            training=False,
+            preload=args.preload_cache,
+        ),
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=device.type == "cuda",
+        collate_fn=pad_stategraph_batch,
+    )
+    optimizer = torch.optim.AdamW(
+        [parameter for parameter in model.parameters() if parameter.requires_grad],
+        lr=args.learning_rate,
+        weight_decay=args.weight_decay,
+        betas=(0.9, 0.98),
+    )
+    total_updates = max(1, math.ceil(len(train_loader) / args.accumulation_steps) * args.epochs)
+    warmup_updates = max(1, int(total_updates * args.warmup_fraction))
+    scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer, lambda update: _warmup_cosine(update, total_updates, warmup_updates)
+    )
+    use_amp = device.type == "cuda" and args.precision in {"bf16", "fp16"}
+    amp_dtype = torch.bfloat16 if args.precision == "bf16" else torch.float16
+    try:
+        scaler = torch.amp.GradScaler(
+            "cuda", enabled=use_amp and args.precision == "fp16"
+        )
+    except (AttributeError, TypeError):  # torch 2.3 compatibility
+        scaler = torch.cuda.amp.GradScaler(enabled=use_amp and args.precision == "fp16")
+
+    history_path = output_dir / "history.jsonl"
+    if not args.resume:
+        history_path.write_text("", encoding="utf-8")
+    monitor = TrainingMonitor(output_dir, enabled=not args.disable_dashboard)
+    best_score = -float("inf")
+    best_selection_key: tuple[float, float, float, int] | None = None
+    best_metrics: dict[str, Any] | None = None
+    patience_left = args.patience
+    global_update = 0
+    event_thresholds: list[float] | None = None
+    state_incorrect_threshold: float | None = None
+    fps = float(metadata.get("fps", 10.0))
+    stride_frames = float(metadata.get("stride_frames", 5.0))
+    seconds_per_step = stride_frames / fps if fps > 0 and stride_frames > 0 else 0.5
+    calibration_false_alert_limit = args.max_incorrect_false_alerts_per_minute
+    if args.selection_strategy == "operational_harmonic":
+        calibration_false_alert_limit = (
+            args.selection_max_false_alerts_per_minute
+            if calibration_false_alert_limit is None
+            else min(
+                calibration_false_alert_limit,
+                args.selection_max_false_alerts_per_minute,
+            )
+        )
+    start_epoch = 1
+    if args.resume:
+        resume_path = Path(args.resume)
+        if resume_path.parent.resolve() != output_dir.resolve():
+            raise ValueError("--resume must point to last_checkpoint.pt inside --output-dir.")
+        if not (output_dir / "best_checkpoint.pt").exists():
+            raise ValueError("Resume output directory is missing best_checkpoint.pt.")
+        checkpoint = torch.load(resume_path, map_location=device, weights_only=False)
+        if not _model_configs_compatible(
+            checkpoint.get("model_config"), model_config.to_dict()
+        ):
+            raise ValueError("Resume checkpoint model configuration does not match this run.")
+        if checkpoint.get("loss_config") != asdict(loss_config):
+            raise ValueError("Resume checkpoint loss configuration does not match this run.")
+        model.load_state_dict(checkpoint["model_state"])
+        optimizer.load_state_dict(checkpoint["optimizer_state"])
+        scheduler.load_state_dict(checkpoint["scheduler_state"])
+        training_state = checkpoint.get("training_state") or {}
+        start_epoch = int(checkpoint["epoch"]) + 1
+        checkpoint_metrics = checkpoint.get("metrics")
+        if training_state:
+            best_score = float(training_state.get("best_score", best_score))
+            stored_key = training_state.get("best_selection_key")
+            best_selection_key = tuple(stored_key) if stored_key is not None else None
+            best_metrics = training_state.get("best_metrics", best_metrics)
+            if best_selection_key is None and best_metrics is not None:
+                # Compatibility with checkpoints created before tie metadata
+                # was persisted: retain their score rather than allowing the
+                # next merely eligible epoch to overwrite a better checkpoint.
+                action_score = (
+                    0.40 * best_metrics["frame_accuracy"]
+                    + 0.30 * best_metrics["edit"]
+                    + 0.30 * best_metrics["f1@50"]
+                )
+                best_selection_key = (
+                    best_score,
+                    best_metrics.get("incorrect_event_recall", 0.0),
+                    action_score,
+                    0,
+                )
+        elif checkpoint_metrics:
+            # A best checkpoint intentionally omits mutable training state. It
+            # can still recover an interrupted run: its own calibrated metrics
+            # are authoritative for selection, while optimizer/scheduler state
+            # is already stored alongside the weights.
+            best_metrics = checkpoint_metrics
+            fallback_selection = _validation_selection_result(
+                checkpoint_metrics,
+                strategy=args.selection_strategy,
+                epoch=int(checkpoint["epoch"]),
+                mistake_weight=args.incorrect_selection_weight,
+                max_false_alerts_per_minute=args.selection_max_false_alerts_per_minute,
+                minimum_normality_ap=args.selection_min_normality_ap,
+            )
+            best_score = fallback_selection["score"]
+            best_selection_key = tuple(fallback_selection["tie_key"])
+        patience_left = int(training_state.get("patience_left", patience_left))
+        global_update = int(
+            training_state.get("global_update", max(0, scheduler.last_epoch))
+        )
+        fallback_event_thresholds = (
+            [
+                checkpoint_metrics["correct_event_threshold"],
+                checkpoint_metrics["incorrect_event_threshold"],
+                checkpoint_metrics["remove_event_threshold"],
+            ]
+            if checkpoint_metrics
+            else event_thresholds
+        )
+        event_thresholds = training_state.get(
+            "event_thresholds", fallback_event_thresholds
+        )
+        state_incorrect_threshold = training_state.get(
+            "state_incorrect_threshold",
+            checkpoint_metrics.get("state_incorrect_threshold")
+            if checkpoint_metrics
+            else state_incorrect_threshold,
+        )
+        batch_sampler.epoch = int(
+            training_state.get("batch_sampler_epoch", checkpoint["epoch"])
+        )
+        _restore_rng_state(checkpoint.get("rng_state"))
+        print(f"Resuming {resume_path} at epoch {start_epoch}", flush=True)
+    if start_epoch > args.epochs:
+        raise ValueError(
+            f"Resume checkpoint already completed epoch {start_epoch - 1}, "
+            f"which is not below --epochs {args.epochs}."
+        )
+
+    try:
+        for epoch in range(start_epoch, args.epochs + 1):
+            train_dataset.set_epoch(epoch)
+            model.train()
+            optimizer.zero_grad(set_to_none=True)
+            running: dict[str, list[float]] = {}
+            for batch_index, batch in enumerate(train_loader, start=1):
+                batch = _move_batch(batch, device)
+                with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
+                    outputs = model(
+                        batch["motion"],
+                        batch["appearance"],
+                        batch["sensor"],
+                        valid_mask=batch["valid_mask"],
+                        modality_mask=batch["modality_mask"],
+                        motion_aux=batch.get("motion_aux"),
+                    )
+                    losses = criterion(
+                        outputs,
+                        batch,
+                        transition_matrix=model.transition_matrix,
+                        step_class_weights=step_weights,
+                        completion_pos_weights=completion_pos_weights,
+                        component_outcome_class_weights=component_outcome_weights,
+                        state_class_weights=state_class_weights,
+                        incorrect_pos_weights=incorrect_pos_weights,
+                    )
+                    scaled_loss = losses["total"] / args.accumulation_steps
+                scaler.scale(scaled_loss).backward()
+                for name, value in losses.items():
+                    running.setdefault(name, []).append(float(value.detach().cpu()))
+                if batch_index % args.accumulation_steps == 0 or batch_index == len(train_loader):
+                    scaler.unscale_(optimizer)
+                    gradient_norm = torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), args.max_grad_norm
+                    )
+                    scaler.step(optimizer)
+                    scaler.update()
+                    optimizer.zero_grad(set_to_none=True)
+                    scheduler.step()
+                    global_update += 1
+                    peak_training_vram_gib = max(
+                        peak_training_vram_gib,
+                        _enforce_vram_limit(
+                            torch, device, args.max_vram_gib, phase="training"
+                        ),
+                    )
+                    update_values = {
+                        name: float(values[-1]) for name, values in running.items()
+                    }
+                    update_values["learning_rate"] = optimizer.param_groups[0]["lr"]
+                    update_values["gradient_norm"] = float(gradient_norm.detach().cpu())
+                    monitor.log_scalars("train_update", update_values, global_update)
+                    if global_update % args.gpu_log_interval == 0:
+                        monitor.log_system(global_update, device)
+
+            train_loss = {name: float(np.mean(values)) for name, values in running.items()}
+            calibrate_events = epoch == 1 or epoch % args.calibration_interval == 0
+            metrics = evaluate(
+                model,
+                val_loader,
+                device,
+                use_amp,
+                amp_dtype,
+                model_config.num_components,
+                seconds_per_step=seconds_per_step,
+                event_thresholds=event_thresholds,
+                calibrate_events=calibrate_events,
+                state_incorrect_threshold=state_incorrect_threshold,
+                calibrate_state=calibrate_events,
+                max_incorrect_false_alerts_per_minute=calibration_false_alert_limit,
+            )
+            event_thresholds = [
+                metrics["correct_event_threshold"],
+                metrics["incorrect_event_threshold"],
+                metrics["remove_event_threshold"],
+            ]
+            state_incorrect_threshold = metrics["state_incorrect_threshold"]
+            peak_training_vram_gib = max(
+                peak_training_vram_gib,
+                _enforce_vram_limit(
+                    torch, device, args.max_vram_gib, phase="validation"
+                ),
+            )
+            row = {
+                "epoch": epoch,
+                "train_loss": train_loss,
+                "validation": metrics,
+                "learning_rate": optimizer.param_groups[0]["lr"],
+                "graph_strength": float(torch.sigmoid(model.graph_strength_raw).detach().cpu()),
+            }
+            optimizer_metrics = {
+                "learning_rate": row["learning_rate"],
+                "graph_strength": row["graph_strength"],
+            }
+            if hasattr(model, "structured_roi_gate_raw"):
+                structured_roi_gates = torch.tanh(
+                    model.structured_roi_gate_raw.detach()
+                ).cpu()
+                row["structured_roi_gate_mean"] = float(
+                    structured_roi_gates.mean()
+                )
+                row["structured_roi_gate_abs_mean"] = float(
+                    structured_roi_gates.abs().mean()
+                )
+                optimizer_metrics.update(
+                    {
+                        "structured_roi_gate_mean": row[
+                            "structured_roi_gate_mean"
+                        ],
+                        "structured_roi_gate_abs_mean": row[
+                            "structured_roi_gate_abs_mean"
+                        ],
+                    }
+                )
+                optimizer_metrics.update(
+                    {
+                        f"structured_roi_gate/component_{index}": float(value)
+                        for index, value in enumerate(structured_roi_gates.tolist())
+                    }
+                )
+            selection = _validation_selection_result(
+                metrics,
+                strategy=args.selection_strategy,
+                epoch=epoch,
+                mistake_weight=args.incorrect_selection_weight,
+                max_false_alerts_per_minute=args.selection_max_false_alerts_per_minute,
+                minimum_normality_ap=args.selection_min_normality_ap,
+            )
+            score = selection["score"]
+            row["selection_score"] = score
+            row["selection_eligible"] = calibrate_events and selection["operationally_eligible"]
+            row["selection"] = selection
+            with history_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(row) + "\n")
+            monitor.log_scalars("train_epoch", train_loss, epoch)
+            monitor.log_scalars("validation", metrics, epoch)
+            monitor.log_scalars(
+                "optimizer",
+                optimizer_metrics,
+                epoch,
+            )
+            monitor.log_system(global_update, device)
+            print(json.dumps(row), flush=True)
+
+            selection_key = tuple(selection["tie_key"])
+            if row["selection_eligible"] and (
+                best_selection_key is None or selection_key > best_selection_key
+            ):
+                best_score = score
+                best_selection_key = selection_key
+                best_metrics = metrics
+                patience_left = args.patience
+                _save_checkpoint(
+                    output_dir / "best_checkpoint.pt",
+                    model,
+                    optimizer,
+                    scheduler,
+                    model_config,
+                    loss_config,
+                    metadata,
+                    transition_matrix,
+                    epoch,
+                    metrics,
+                )
+                should_stop = False
+            else:
+                patience_left -= 1
+                should_stop = patience_left <= 0
+            training_state = {
+                "best_score": best_score,
+                "best_selection_key": best_selection_key,
+                "best_metrics": best_metrics,
+                "patience_left": patience_left,
+                "global_update": global_update,
+                "event_thresholds": event_thresholds,
+                "state_incorrect_threshold": state_incorrect_threshold,
+                "batch_sampler_epoch": batch_sampler.epoch,
+            }
+            _save_checkpoint(
+                output_dir / "last_checkpoint.pt",
+                model,
+                optimizer,
+                scheduler,
+                model_config,
+                loss_config,
+                metadata,
+                transition_matrix,
+                epoch,
+                metrics,
+                training_state=training_state,
+                rng_state=_capture_rng_state(),
+            )
+            if should_stop:
+                print(f"Early stopping at epoch {epoch}", flush=True)
+                break
+    finally:
+        monitor.close()
+
+    # Report and test the selected checkpoint, not the last (possibly worse)
+    # early-stopping epoch.
+    best_path = output_dir / "best_checkpoint.pt"
+    if not best_path.exists():
+        raise RuntimeError(
+            "No checkpoint satisfied the configured selection eligibility; "
+            "inspect history.jsonl rather than promoting a silent model."
+        )
+    best_checkpoint = torch.load(best_path, map_location=device, weights_only=False)
+    model.load_state_dict(best_checkpoint["model_state"])
+    final_metrics = evaluate(
+        model,
+        val_loader,
+        device,
+        use_amp,
+        amp_dtype,
+        model_config.num_components,
+        seconds_per_step=seconds_per_step,
+        calibrate_events=True,
+        calibrate_state=True,
+        max_incorrect_false_alerts_per_minute=calibration_false_alert_limit,
+        stateverify_export_dir=output_dir / "stateverify_validation_emissions",
+        stateverify_component_names=metadata.get("completion_components") or None,
+    )
+    validation_event_thresholds = [
+        final_metrics["correct_event_threshold"],
+        final_metrics["incorrect_event_threshold"],
+        final_metrics["remove_event_threshold"],
+    ]
+    validation_state_incorrect_threshold = final_metrics[
+        "state_incorrect_threshold"
+    ]
+    test_metrics = None
+    if test_records and args.evaluate_test:
+        test_loader = DataLoader(
+            StateGraphCacheDataset(
+                test_records,
+                sequence_length=args.sequence_length,
+                sequence_stride=max(1, args.sequence_length // 2),
+                training=False,
+            ),
+            batch_size=args.batch_size,
+            shuffle=False,
+            num_workers=args.num_workers,
+            collate_fn=pad_stategraph_batch,
+        )
+        test_metrics = evaluate(
+            model,
+            test_loader,
+            device,
+            use_amp,
+            amp_dtype,
+            model_config.num_components,
+            seconds_per_step=seconds_per_step,
+            event_thresholds=validation_event_thresholds,
+            calibrate_events=False,
+            state_incorrect_threshold=validation_state_incorrect_threshold,
+            calibrate_state=False,
+        )
+    export_path = (
+        Path(args.export_checkpoint)
+        if args.export_checkpoint
+        else output_dir / "inference_checkpoint.pt"
+    )
+    _save_inference_checkpoint(
+        export_path,
+        model,
+        model_config,
+        metadata,
+        transition_matrix,
+        validation_event_thresholds,
+        final_metrics,
+        test_metrics,
+    )
+    summary = {
+        "architecture": "StateGraph-PSR Lite Stage 1",
+        "run_configuration_sha256": run_configuration_sha256,
+        "selection_strategy": args.selection_strategy,
+        "selection_max_false_alerts_per_minute": args.selection_max_false_alerts_per_minute,
+        "selection_min_normality_ap": args.selection_min_normality_ap,
+        "best_selection": _validation_selection_result(
+            best_metrics,
+            strategy=args.selection_strategy,
+            epoch=int(best_checkpoint["epoch"]),
+            mistake_weight=args.incorrect_selection_weight,
+            max_false_alerts_per_minute=args.selection_max_false_alerts_per_minute,
+            minimum_normality_ap=args.selection_min_normality_ap,
+        ),
+        "device": str(device),
+        "parameters": sum(parameter.numel() for parameter in model.parameters()),
+        "trainable_parameters": sum(
+            parameter.numel() for parameter in model.parameters() if parameter.requires_grad
+        ),
+        "initialization_checkpoint": args.init_checkpoint,
+        "event_initialization_checkpoint": args.event_init_checkpoint,
+        "freeze_action_backbone": args.freeze_action_backbone,
+        "peak_training_vram_gib": peak_training_vram_gib,
+        "maximum_allowed_vram_gib": args.max_vram_gib,
+        "train_windows": len(train_dataset),
+        "rare_train_windows": len(train_dataset.rare_window_indices()),
+        "rare_window_boost": args.rare_window_boost,
+        "effective_rare_window_boost": effective_rare_window_boost,
+        "rare_windows_per_batch": args.rare_windows_per_batch,
+        "incorrect_training_events": train_dataset.incorrect_event_count,
+        "matched_component_batches": args.matched_component_batches,
+        "matched_rare_windows": len(matched_correct_candidates),
+        "matched_window_candidates": sum(
+            len(candidates) for candidates in matched_correct_candidates.values()
+        ),
+        "event_centered_crops_per_event": args.event_centered_crops_per_event,
+        "event_centered_crop_radius": args.event_centered_crop_radius,
+        "event_centered_train_windows": len(train_dataset.event_centered_indices()),
+        "train_recordings": len(train_records),
+        "validation_recordings": len(val_records),
+        "test_recordings": len(test_records),
+        "overfit_recording_ids": overfit_recordings,
+        "completion_pos_weight_cap": args.completion_pos_weight_cap,
+        "step_class_weight_power": args.step_class_weight_power,
+        "state_class_weight_power": args.state_class_weight_power,
+        "state_class_weight_cap": args.state_class_weight_cap,
+        "action_factorization": factorization,
+        "event_state_mapping": event_state_mapping,
+        "model_config": model_config.to_dict(),
+        "loss_config": asdict(loss_config),
+        "best_epoch": int(best_checkpoint["epoch"]),
+        "best_validation": best_metrics,
+        "final_validation": final_metrics,
+        "test": test_metrics,
+        "inference_checkpoint": str(export_path),
+    }
+    summary_payload = json.dumps(summary, indent=2) + "\n"
+    (output_dir / "metrics.json").write_text(summary_payload, encoding="utf-8")
+    (output_dir / "summary.json").write_text(summary_payload, encoding="utf-8")
+    return summary
+
+
+def evaluate(
+    model,
+    loader,
+    device,
+    use_amp: bool,
+    amp_dtype,
+    num_components: int,
+    seconds_per_step: float = 0.5,
+    event_thresholds: list[float] | None = None,
+    calibrate_events: bool = True,
+    calibrate_latency: bool = False,
+    state_incorrect_threshold: float | None = None,
+    calibrate_state: bool = True,
+    max_incorrect_false_alerts_per_minute: float | None = None,
+    stateverify_export_dir: Path | None = None,
+    stateverify_component_names: Sequence[str] | None = None,
+) -> dict[str, float]:
+    import torch
+
+    model.eval()
+    # A recording may be split into several model windows. Metrics must be
+    # computed after placing those windows back on the recording timeline;
+    # otherwise every window boundary becomes an artificial action/event
+    # boundary and overlapping rows are counted more than once.
+    recording_chunks: dict[str, list[dict[str, np.ndarray | int]]] = {}
+    edits: list[float] = []
+    f1_scores = {0.1: [], 0.25: [], 0.5: []}
+    raw_f1_scores = {0.1: [], 0.25: [], 0.5: []}
+    event_samples: list[tuple[list[tuple[int, int, int]], np.ndarray]] = []
+    normality_scores: list[float] = []
+    normality_targets: list[int] = []
+    state_score_chunks: list[np.ndarray] = []
+    state_truth_chunks: list[np.ndarray] = []
+    state_other_prediction_chunks: list[np.ndarray] = []
+    evaluated_steps = 0
+    with torch.inference_mode():
+        for batch in loader:
+            batch = _move_batch(batch, device)
+            with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
+                outputs = model(
+                    batch["motion"],
+                    batch["appearance"],
+                    batch["sensor"],
+                    valid_mask=batch["valid_mask"],
+                    modality_mask=batch["modality_mask"],
+                    motion_aux=batch.get("motion_aux"),
+                )
+            step_prediction = outputs["step_logits"].argmax(dim=-1)
+            raw_step_prediction = outputs["raw_step_logits"].argmax(dim=-1)
+            completion_score = torch.sigmoid(outputs["completion_logits"])
+            component_outcome_probability = torch.softmax(
+                outputs["component_outcome_logits"], dim=-1
+            )
+            state_probabilities = torch.softmax(outputs["state_logits"], dim=-1)
+            event_state_probabilities = state_probabilities[
+                ..., outputs["event_state_indices"], :
+            ]
+            # Historical state order is [incorrect, pending, correct].
+            # StateVerify's portable contract is
+            # [not_completed, installed_correct, installed_incorrect].
+            stateverify_emissions = event_state_probabilities[..., [1, 2, 0]]
+            normality_anomaly_score = torch.sigmoid(-outputs["normality_logits"])
+            if "mistake_action_probability" in outputs:
+                normality_anomaly_score = torch.maximum(
+                    normality_anomaly_score, outputs["mistake_action_probability"]
+                )
+            state_incorrect_probability = outputs["state_outcome_probabilities"][..., 1]
+            factorized_event_logits = outputs.get("factorized_incorrect_logits")
+            learned_event_logits = outputs.get("fused_incorrect_logits")
+            incorrect_onset_probability = torch.sigmoid(
+                factorized_event_logits
+                if factorized_event_logits is not None
+                else (
+                    learned_event_logits
+                    if learned_event_logits is not None
+                    else outputs["incorrect_onset_logits"]
+                )
+            )
+            seen_lookup = outputs["seen_action_mask"].bool()
+            for sample_index in range(step_prediction.shape[0]):
+                length = int(batch["valid_mask"][sample_index].sum().item())
+                event_score = (
+                    completion_score[sample_index, :length].unsqueeze(-1)
+                    * component_outcome_probability[sample_index, :length]
+                )
+                state_score = state_probabilities[sample_index, :length, :, 0]
+                mistake_probability = outputs.get("mistake_action_probability")
+                if mistake_probability is not None:
+                    # Event components and persistent state components are not
+                    # necessarily the same axis (IndustReal has 10 versus 11).
+                    # Project event evidence through the schema mapping before
+                    # combining it with the state-head probabilities.
+                    event_state_indices = outputs["event_state_indices"]
+                    sample_mistake_probability = mistake_probability[
+                        sample_index, :length
+                    ]
+                    mapped_mistake_probability = _project_event_scores_to_states(
+                        sample_mistake_probability,
+                        event_state_indices,
+                        state_score.shape[-1],
+                    )
+                    state_score = torch.maximum(
+                        state_score, mapped_mistake_probability
+                    )
+                recording_id = str(batch["recording_id"][sample_index])
+                chunk: dict[str, np.ndarray | int] = {
+                        "start": int(batch["start_index"][sample_index]),
+                        "step_prediction": step_prediction[sample_index, :length].detach().cpu().numpy(),
+                        "raw_step_prediction": raw_step_prediction[sample_index, :length].detach().cpu().numpy(),
+                        "step_target": batch["step"][sample_index, :length].detach().cpu().numpy(),
+                        "event_score": event_score.detach().float().cpu().numpy(),
+                        "normality_score": normality_anomaly_score[sample_index, :length].detach().float().cpu().numpy(),
+                        "state_incorrect_probability": state_incorrect_probability[sample_index, :length].detach().float().cpu().numpy(),
+                        "stateverify_emissions": stateverify_emissions[
+                            sample_index, :length
+                        ]
+                        .detach()
+                        .float()
+                        .cpu()
+                        .numpy(),
+                        "stateverify_procedure_residual": outputs[
+                            "procedure_violation_score"
+                        ][sample_index, :length]
+                        .detach()
+                        .float()
+                        .cpu()
+                        .numpy(),
+                        "stateverify_execution_residual": normality_anomaly_score[
+                            sample_index, :length
+                        ]
+                        .detach()
+                        .float()
+                        .cpu()
+                        .numpy(),
+                        "state_score": state_score.detach().float().cpu().numpy(),
+                        "state_other_prediction": (state_probabilities[sample_index, :length, :, 1:].argmax(dim=-1) + 1).detach().cpu().numpy(),
+                        "incorrect_onset_probability": incorrect_onset_probability[sample_index, :length].detach().float().cpu().numpy(),
+                        "mistake_action_onset_score": (
+                            outputs["mistake_action_onset_score"][sample_index, :length].detach().float().cpu().numpy()
+                            if "mistake_action_onset_score" in outputs
+                            else np.zeros_like(
+                                event_score[..., 1].detach().float().cpu().numpy()
+                            )
+                        ),
+                        "component_outcome": batch["component_outcome"][sample_index, :length].detach().cpu().numpy(),
+                        "state_target": batch["state"][sample_index, :length].detach().cpu().numpy(),
+                        "state_mask": batch["state_mask"][sample_index, :length].detach().cpu().numpy(),
+                        "seen_action_mask": seen_lookup.detach().cpu().numpy(),
+                    }
+                any_mistake_logits = outputs.get("any_mistake_onset_logits")
+                component_probabilities = outputs.get(
+                    "incorrect_component_probabilities"
+                )
+                if (
+                    any_mistake_logits is not None
+                    and component_probabilities is not None
+                ):
+                    chunk["any_mistake_onset_probability"] = torch.sigmoid(
+                        any_mistake_logits[sample_index, :length]
+                    ).detach().float().cpu().numpy()
+                    chunk["incorrect_component_probabilities"] = (
+                        component_probabilities[sample_index, :length]
+                        .detach()
+                        .float()
+                        .cpu()
+                        .numpy()
+                    )
+                recording_chunks.setdefault(recording_id, []).append(chunk)
+
+    frame_correct = frame_total = raw_frame_correct = 0
+    seen_action_correct = seen_action_total = 0
+    unseen_action_correct = unseen_action_total = 0
+    reconstructed_recordings: list[dict[str, np.ndarray]] = []
+    stateverify_archives: list[dict[str, Any]] = []
+    for recording_id, chunks in recording_chunks.items():
+        recording = _stitch_recording_chunks(chunks)
+        reconstructed_recordings.append(recording)
+        pred = recording["step_prediction"]
+        raw_pred = recording["raw_step_prediction"]
+        truth = recording["step_target"]
+        valid = truth >= 0
+        frame_correct += int((pred[valid] == truth[valid]).sum())
+        raw_frame_correct += int((raw_pred[valid] == truth[valid]).sum())
+        frame_total += int(valid.sum())
+        seen_lookup = recording["seen_action_mask"]
+        target_seen = seen_lookup[np.maximum(truth, 0)].astype(bool)
+        seen_mask = valid & target_seen
+        unseen_mask = valid & ~target_seen
+        seen_action_correct += int((pred[seen_mask] == truth[seen_mask]).sum())
+        seen_action_total += int(seen_mask.sum())
+        unseen_action_correct += int((pred[unseen_mask] == truth[unseen_mask]).sum())
+        unseen_action_total += int(unseen_mask.sum())
+        evaluated_steps += len(truth)
+        pred_list, raw_list, truth_list = pred.tolist(), raw_pred.tolist(), truth.tolist()
+        edits.append(edit_score(pred_list, truth_list))
+        for overlap in f1_scores:
+            f1_scores[overlap].append(segmental_f1(pred_list, truth_list, overlap))
+            raw_f1_scores[overlap].append(segmental_f1(raw_list, truth_list, overlap))
+
+        state_valid = recording["state_mask"].astype(bool)
+        state_score_chunks.append(recording["state_score"][state_valid])
+        state_truth_chunks.append(recording["state_target"][state_valid])
+        state_other_prediction_chunks.append(recording["state_other_prediction"][state_valid])
+
+        normality = recording["normality_score"]
+        outcomes = recording["component_outcome"]
+        normality_mask = (outcomes == 0) | (outcomes == 1)
+        normality_scores.extend(normality[normality_mask].tolist())
+        normality_targets.extend((outcomes[normality_mask] == 1).astype(np.int64).tolist())
+
+        # Compute transitions only after reconstruction, so a model window
+        # boundary cannot create a synthetic incorrect-state onset.
+        state_incorrect = recording["state_incorrect_probability"]
+        previous = np.concatenate((np.zeros_like(state_incorrect[:1]), state_incorrect[:-1]), axis=0)
+        state_onset = np.maximum(state_incorrect - previous, 0.0)
+        if stateverify_export_dir is not None:
+            stateverify_archives.append(
+                _export_stateverify_emissions(
+                    stateverify_export_dir,
+                    recording_id,
+                    recording["stateverify_emissions"],
+                    recording["stateverify_procedure_residual"],
+                    recording["stateverify_execution_residual"],
+                    state_onset,
+                    component_outcome=recording["component_outcome"],
+                    seconds_per_step=seconds_per_step,
+                    component_names=stateverify_component_names,
+                )
+            )
+        prototype_fault = np.sqrt(np.maximum(state_onset * normality, 0.0))
+        event_scores = recording["event_score"].copy()
+        event_scores[..., 1] = np.maximum(event_scores[..., 1], prototype_fault)
+        event_scores[..., 1] = np.maximum(
+            event_scores[..., 1], recording["incorrect_onset_probability"] * normality
+        )
+        event_scores[..., 1] = np.maximum(
+            event_scores[..., 1], recording["mistake_action_onset_score"]
+        )
+        event_samples.append((_target_events(outcomes), event_scores))
+    if stateverify_export_dir is not None:
+        stateverify_export_dir.mkdir(parents=True, exist_ok=True)
+        (stateverify_export_dir / "index.json").write_text(
+            json.dumps(
+                {
+                    "contract": "stateverify_emissions_v1",
+                    "state_order": [
+                        "not_completed",
+                        "installed_correct",
+                        "installed_incorrect",
+                    ],
+                    "procedure_residual": "global causal action/procedure incompatibility",
+                    "execution_residual": "component normality anomaly probability",
+                    "effect_residual": "positive onset of incorrect component state probability",
+                    "recordings": stateverify_archives,
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    primary_tolerance = max(1, round(1.0 / seconds_per_step))
+    if calibrate_events or event_thresholds is None:
+        event_thresholds, calibrated_metrics, event_pr_auc = _calibrate_event_thresholds(
+            event_samples,
+            outcomes=3,
+            tolerance=primary_tolerance,
+            seconds_per_step=seconds_per_step,
+            max_incorrect_false_alerts_per_minute=max_incorrect_false_alerts_per_minute,
+            total_duration_seconds=evaluated_steps * seconds_per_step,
+        )
+    else:
+        calibrated_metrics = _event_metrics_from_samples(
+            event_samples,
+            event_thresholds,
+            tolerance=primary_tolerance,
+            seconds_per_step=seconds_per_step,
+        )
+        event_pr_auc = [float("nan")] * 3
+    fixed_metrics = _event_metrics_from_samples(
+        event_samples,
+        [0.1, 0.1, 0.1],
+        tolerance=primary_tolerance,
+        seconds_per_step=seconds_per_step,
+    )
+    # Keep the primary event metric at +/-1 second regardless of cache sampling
+    # rate. Wider 2 s/4 s windows diagnose latency; calibrating them independently
+    # prevents a strict-window threshold from hiding delayed but useful evidence.
+    latency_metrics: dict[int, tuple[list[float], dict[Any, dict[str, float]]]] = {}
+    for tolerance_seconds in (2, 4):
+        tolerance = max(1, round(tolerance_seconds / seconds_per_step))
+        if calibrate_events and calibrate_latency:
+            latency_thresholds, metrics_at_tolerance, _ = _calibrate_event_thresholds(
+                event_samples,
+                outcomes=3,
+                tolerance=tolerance,
+                seconds_per_step=seconds_per_step,
+                max_incorrect_false_alerts_per_minute=max_incorrect_false_alerts_per_minute,
+                total_duration_seconds=evaluated_steps * seconds_per_step,
+            )
+        else:
+            latency_thresholds = list(event_thresholds)
+            metrics_at_tolerance = _event_metrics_from_samples(
+                event_samples,
+                latency_thresholds,
+                tolerance=tolerance,
+                seconds_per_step=seconds_per_step,
+            )
+        latency_metrics[tolerance_seconds] = (latency_thresholds, metrics_at_tolerance)
+    all_event_metrics = calibrated_metrics["all"]
+    correct_metrics = calibrated_metrics[0]
+    incorrect_metrics = calibrated_metrics[1]
+    remove_metrics = calibrated_metrics[2]
+    normality_ap = _binary_average_precision(normality_scores, normality_targets)
+    factorized_diagnostics = _factorized_mistake_diagnostics(
+        reconstructed_recordings
+    )
+    incorrect_diagnostics = _event_timing_diagnostics(
+        event_samples,
+        event_thresholds,
+        outcome=1,
+        total_duration_seconds=evaluated_steps * seconds_per_step,
+        seconds_per_step=seconds_per_step,
+        match_tolerance=primary_tolerance,
+    )
+    correct_normality = [
+        score for score, target in zip(normality_scores, normality_targets) if target == 0
+    ]
+    incorrect_normality = [
+        score for score, target in zip(normality_scores, normality_targets) if target == 1
+    ]
+    state_scores = np.concatenate(state_score_chunks) if state_score_chunks else np.empty(0)
+    state_truth = np.concatenate(state_truth_chunks) if state_truth_chunks else np.empty(0, dtype=np.int64)
+    state_other_prediction = (
+        np.concatenate(state_other_prediction_chunks)
+        if state_other_prediction_chunks
+        else np.empty(0, dtype=np.int64)
+    )
+    if calibrate_state or state_incorrect_threshold is None:
+        state_incorrect_threshold, state_confusion = _calibrate_incorrect_state_threshold(
+            state_scores, state_truth, state_other_prediction
+        )
+    else:
+        state_confusion = _state_confusion_at_threshold(
+            state_scores,
+            state_truth,
+            state_other_prediction,
+            state_incorrect_threshold,
+        )
+    state_total = int(state_confusion.sum())
+    state_correct = int(np.trace(state_confusion))
+    return {
+        "frame_accuracy": 100.0 * frame_correct / max(frame_total, 1),
+        "raw_frame_accuracy": 100.0 * raw_frame_correct / max(frame_total, 1),
+        "seen_action_accuracy": 100.0 * seen_action_correct / max(seen_action_total, 1),
+        "unseen_composition_accuracy": 100.0 * unseen_action_correct / max(unseen_action_total, 1),
+        "unseen_composition_frames": unseen_action_total,
+        "edit": float(np.mean(edits)) if edits else 0.0,
+        "f1@10": float(np.mean(f1_scores[0.1])) if f1_scores[0.1] else 0.0,
+        "f1@25": float(np.mean(f1_scores[0.25])) if f1_scores[0.25] else 0.0,
+        "f1@50": float(np.mean(f1_scores[0.5])) if f1_scores[0.5] else 0.0,
+        "raw_f1@50": float(np.mean(raw_f1_scores[0.5])) if raw_f1_scores[0.5] else 0.0,
+        "completion_event_precision": all_event_metrics["precision"],
+        "completion_event_recall": all_event_metrics["recall"],
+        "completion_event_f1": all_event_metrics["f1"],
+        "correct_event_precision": correct_metrics["precision"],
+        "correct_event_recall": correct_metrics["recall"],
+        "correct_event_f1": correct_metrics["f1"],
+        "incorrect_event_precision": incorrect_metrics["precision"],
+        "incorrect_event_recall": incorrect_metrics["recall"],
+        "incorrect_event_f1": incorrect_metrics["f1"],
+        "event_match_tolerance_seconds": primary_tolerance * seconds_per_step,
+        "incorrect_event_f1_tol2s": latency_metrics[2][1][1]["f1"],
+        "incorrect_event_recall_tol2s": latency_metrics[2][1][1]["recall"],
+        "incorrect_event_threshold_tol2s": latency_metrics[2][0][1],
+        "incorrect_event_f1_tol4s": latency_metrics[4][1][1]["f1"],
+        "incorrect_event_recall_tol4s": latency_metrics[4][1][1]["recall"],
+        "incorrect_event_threshold_tol4s": latency_metrics[4][0][1],
+        "remove_event_precision": remove_metrics["precision"],
+        "remove_event_recall": remove_metrics["recall"],
+        "remove_event_f1": remove_metrics["f1"],
+        "correct_event_threshold": event_thresholds[0],
+        "incorrect_event_threshold": event_thresholds[1],
+        "remove_event_threshold": event_thresholds[2],
+        "correct_event_pr_auc": event_pr_auc[0],
+        "incorrect_event_pr_auc": event_pr_auc[1],
+        "remove_event_pr_auc": event_pr_auc[2],
+        "fixed_0.1_completion_event_f1": fixed_metrics["all"]["f1"],
+        "fixed_0.1_incorrect_event_f1": fixed_metrics[1]["f1"],
+        "normality_incorrect_average_precision": normality_ap,
+        **factorized_diagnostics,
+        "normality_incorrect_prevalence": (
+            100.0 * sum(normality_targets) / len(normality_targets)
+            if normality_targets
+            else 0.0
+        ),
+        "normality_correct_mean_anomaly": float(np.mean(correct_normality))
+        if correct_normality
+        else 0.0,
+        "normality_incorrect_mean_anomaly": float(np.mean(incorrect_normality))
+        if incorrect_normality
+        else 0.0,
+        "state_accuracy": 100.0 * state_correct / max(state_total, 1),
+        "state_macro_f1": _macro_f1_from_confusion(state_confusion),
+        "state_incorrect_f1": _class_f1_from_confusion(state_confusion, 0),
+        "state_incorrect_threshold": float(state_incorrect_threshold),
+        "incorrect_detection_delay_steps": incorrect_diagnostics["mean_delay_steps"],
+        "incorrect_detection_delay_seconds": incorrect_diagnostics["mean_delay_steps"]
+        * seconds_per_step,
+        "incorrect_delayed_detections": incorrect_diagnostics["matched_detections"],
+        "incorrect_false_alerts_per_minute": incorrect_diagnostics[
+            "false_alerts_per_minute"
+        ],
+    }
+
+
+def _target_events(component_outcome: np.ndarray) -> list[tuple[int, int, int]]:
+    rows, components = np.where(component_outcome >= 0)
+    return [(int(row), int(component), int(component_outcome[row, component])) for row, component in zip(rows, components)]
+
+
+def _factorized_mistake_diagnostics(
+    recordings: list[dict[str, np.ndarray]],
+) -> dict[str, float]:
+    """Measure temporal detection and conditional localization independently."""
+
+    available = bool(recordings) and all(
+        "any_mistake_onset_probability" in recording
+        and "incorrect_component_probabilities" in recording
+        for recording in recordings
+    )
+    if not available:
+        return {
+            "any_mistake_onset_average_precision": float("nan"),
+            "mistake_component_top1_accuracy": float("nan"),
+            "mistake_component_onset_rows": 0.0,
+        }
+
+    any_scores: list[float] = []
+    any_targets: list[int] = []
+    selector_correct = 0
+    selector_total = 0
+    for recording in recordings:
+        outcomes = recording["component_outcome"]
+        incorrect = outcomes == 1
+        row_targets = incorrect.any(axis=-1)
+        any_scores.extend(
+            recording["any_mistake_onset_probability"].astype(float).tolist()
+        )
+        any_targets.extend(row_targets.astype(np.int64).tolist())
+        probabilities = recording["incorrect_component_probabilities"]
+        for row in np.flatnonzero(row_targets):
+            predicted_component = int(probabilities[row].argmax())
+            selector_correct += int(bool(incorrect[row, predicted_component]))
+            selector_total += 1
+    return {
+        "any_mistake_onset_average_precision": _binary_average_precision(
+            any_scores, any_targets
+        ),
+        "mistake_component_top1_accuracy": (
+            100.0 * selector_correct / selector_total
+            if selector_total
+            else float("nan")
+        ),
+        "mistake_component_onset_rows": float(selector_total),
+    }
+
+
+def _stitch_recording_chunks(
+    chunks: list[dict[str, np.ndarray | int]],
+) -> dict[str, np.ndarray]:
+    """Reconstruct one recording, preferring the prediction with most past context.
+
+    Ground-truth and prediction arrays share the same placement rule so metrics
+    count every recording row exactly once. For overlapping causal windows, a
+    later local row has observed more history and is therefore the least
+    boundary-affected prediction available for that global row.
+    """
+
+    if not chunks:
+        raise ValueError("Cannot stitch an empty recording")
+    ordered = sorted(chunks, key=lambda chunk: int(chunk["start"]))
+    temporal_keys = [
+        key
+        for key, value in ordered[0].items()
+        if key not in {"start", "seen_action_mask"} and isinstance(value, np.ndarray)
+    ]
+    if "step_target" not in temporal_keys:
+        raise ValueError("Recording chunks must contain step_target")
+    total_length = max(
+        int(chunk["start"]) + len(np.asarray(chunk["step_target"])) for chunk in ordered
+    )
+    result: dict[str, np.ndarray] = {
+        key: np.empty(
+            (total_length, *np.asarray(ordered[0][key]).shape[1:]),
+            dtype=np.asarray(ordered[0][key]).dtype,
+        )
+        for key in temporal_keys
+    }
+    context = np.full(total_length, -1, dtype=np.int64)
+    covered = np.zeros(total_length, dtype=np.bool_)
+    for chunk in ordered:
+        start = int(chunk["start"])
+        length = len(np.asarray(chunk["step_target"]))
+        rows = start + np.arange(length)
+        local_context = np.arange(length)
+        take = local_context > context[rows]
+        selected_rows = rows[take]
+        for key in temporal_keys:
+            result[key][selected_rows] = np.asarray(chunk[key])[take]
+        context[selected_rows] = local_context[take]
+        covered[selected_rows] = True
+    if not covered.all():
+        missing = np.flatnonzero(~covered)
+        raise ValueError(
+            f"Recording windows leave {len(missing)} uncovered rows; first gap is {int(missing[0])}"
+        )
+    result["seen_action_mask"] = np.asarray(ordered[0]["seen_action_mask"])
+    return result
+
+
+def _export_stateverify_emissions(
+    output_dir: Path,
+    recording_id: str,
+    state_emissions: np.ndarray,
+    procedure_residual: np.ndarray,
+    execution_residual: np.ndarray,
+    effect_residual: np.ndarray,
+    *,
+    component_outcome: np.ndarray | None = None,
+    seconds_per_step: float | None = None,
+    component_names: Sequence[str] | None = None,
+) -> dict[str, Any]:
+    """Write a replayable, model-agnostic StateVerify evidence archive."""
+
+    emissions = np.asarray(state_emissions, dtype=np.float32)
+    if emissions.ndim != 3 or emissions.shape[-1] != 3:
+        raise ValueError("StateVerify emissions must have shape [time, component, 3].")
+    components = emissions.shape[1]
+    names = (
+        [str(name) for name in component_names]
+        if component_names is not None
+        else [f"component_{index}" for index in range(components)]
+    )
+    if len(names) != components:
+        raise ValueError(
+            f"Received {len(names)} StateVerify component names for {components} emissions."
+        )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", recording_id).strip("._")
+    if not safe_name:
+        safe_name = hashlib.sha256(recording_id.encode("utf-8")).hexdigest()[:16]
+    archive_path = output_dir / f"{safe_name}.npz"
+    archive_payload: dict[str, Any] = {
+        "state_emissions": emissions,
+        "procedure_residual": np.asarray(procedure_residual, dtype=np.float32),
+        "execution_residual": np.asarray(execution_residual, dtype=np.float32),
+        "effect_residual": np.asarray(effect_residual, dtype=np.float32),
+        "component_names": np.asarray(names),
+        "recording_id": np.asarray(recording_id),
+    }
+    if component_outcome is not None:
+        outcomes = np.asarray(component_outcome, dtype=np.int64)
+        if outcomes.shape != emissions.shape[:2]:
+            raise ValueError(
+                f"component_outcome has shape {outcomes.shape}; expected "
+                f"{emissions.shape[:2]}."
+            )
+        archive_payload["component_outcome"] = outcomes
+    if seconds_per_step is not None:
+        if seconds_per_step <= 0:
+            raise ValueError("seconds_per_step must be positive.")
+        archive_payload["seconds_per_step"] = np.asarray(
+            seconds_per_step, dtype=np.float32
+        )
+    np.savez_compressed(
+        archive_path,
+        **archive_payload,
+    )
+    return {
+        "recording_id": recording_id,
+        "path": archive_path.name,
+        "rows": int(emissions.shape[0]),
+        "components": components,
+    }
+
+
+def _class_f1_from_confusion(confusion: np.ndarray, class_index: int) -> float:
+    true_positive = int(confusion[class_index, class_index])
+    false_positive = int(confusion[:, class_index].sum()) - true_positive
+    false_negative = int(confusion[class_index, :].sum()) - true_positive
+    denominator = 2 * true_positive + false_positive + false_negative
+    return 100.0 * (2 * true_positive / denominator) if denominator else 0.0
+
+
+def _macro_f1_from_confusion(confusion: np.ndarray) -> float:
+    supported = [index for index in range(confusion.shape[0]) if confusion[index].sum() > 0]
+    if not supported:
+        return 0.0
+    return float(np.mean([_class_f1_from_confusion(confusion, index) for index in supported]))
+
+
+def _state_confusion_at_threshold(
+    incorrect_scores: np.ndarray,
+    truth: np.ndarray,
+    other_prediction: np.ndarray,
+    threshold: float,
+) -> np.ndarray:
+    prediction = np.where(incorrect_scores >= threshold, 0, other_prediction)
+    return np.bincount(3 * truth + prediction, minlength=9).reshape(3, 3)
+
+
+def _calibrate_incorrect_state_threshold(
+    incorrect_scores: np.ndarray,
+    truth: np.ndarray,
+    other_prediction: np.ndarray,
+) -> tuple[float, np.ndarray]:
+    """Tune the rare incorrect-state decision on validation only.
+
+    Argmax is poorly calibrated when incorrect states occupy under one percent
+    of component rows. A compact fixed grid is deterministic, inexpensive, and
+    yields a threshold that can be frozen for actor-held-out testing.
+    """
+
+    if not len(truth):
+        return 0.5, np.zeros((3, 3), dtype=np.int64)
+    best_threshold = 0.5
+    best_confusion = _state_confusion_at_threshold(
+        incorrect_scores, truth, other_prediction, best_threshold
+    )
+    best_f1 = _class_f1_from_confusion(best_confusion, 0)
+    for threshold in np.linspace(0.01, 0.99, 99):
+        confusion = _state_confusion_at_threshold(
+            incorrect_scores, truth, other_prediction, float(threshold)
+        )
+        f1 = _class_f1_from_confusion(confusion, 0)
+        # Prefer the higher threshold on ties to reduce false incorrect states.
+        if f1 > best_f1 + 1e-12 or (
+            abs(f1 - best_f1) <= 1e-12 and threshold > best_threshold
+        ):
+            best_f1 = f1
+            best_threshold = float(threshold)
+            best_confusion = confusion
+    return best_threshold, best_confusion
+
+
+def _event_timing_diagnostics(
+    samples: list[tuple[list[tuple[int, int, int]], np.ndarray]],
+    thresholds: list[float] | tuple[float, ...],
+    outcome: int,
+    total_duration_seconds: float,
+    seconds_per_step: float = 0.5,
+    match_tolerance: int = 1,
+) -> dict[str, float]:
+    """Report causal alert delay and strict false-alert rate for one outcome."""
+
+    delays: list[int] = []
+    predicted_total = 0
+    strict_true_positives = 0
+    for truth_events, event_scores in samples:
+        truth = [event for event in truth_events if event[2] == outcome]
+        predicted = [
+            event
+            for event in _predicted_events_from_scores(
+                event_scores, thresholds, seconds_per_step=seconds_per_step
+            )
+            if event[2] == outcome
+        ]
+        predicted_total += len(predicted)
+        strict_true_positives += _match_event_counts(
+            truth, predicted, tolerance=match_tolerance
+        )["tp"]
+        unmatched = set(range(len(predicted)))
+        for true_row, true_component, _ in sorted(truth):
+            candidates = [
+                index
+                for index in unmatched
+                if predicted[index][1] == true_component and predicted[index][0] >= true_row
+            ]
+            if candidates:
+                best = min(candidates, key=lambda index: predicted[index][0])
+                unmatched.remove(best)
+                delays.append(predicted[best][0] - true_row)
+    false_alerts = max(0, predicted_total - strict_true_positives)
+    return {
+        "mean_delay_steps": float(np.mean(delays)) if delays else -1.0,
+        "matched_detections": float(len(delays)),
+        "false_alerts_per_minute": 60.0 * false_alerts / max(total_duration_seconds, 1e-6),
+    }
+
+
+def _predicted_events(
+    completion_score: np.ndarray,
+    component_outcome: np.ndarray,
+    threshold: float = 0.5,
+) -> list[tuple[int, int, int]]:
+    events: list[tuple[int, int, int]] = []
+    for component in range(completion_score.shape[1]):
+        scores = completion_score[:, component]
+        for row, score in enumerate(scores):
+            previous = scores[row - 1] if row > 0 else -np.inf
+            following = scores[row + 1] if row + 1 < len(scores) else -np.inf
+            if score >= threshold and score >= previous and score > following:
+                events.append((row, component, int(component_outcome[row, component])))
+    return events
+
+
+def _predicted_events_from_scores(
+    event_scores: np.ndarray,
+    thresholds: list[float] | tuple[float, ...],
+    minimum_distance: int | None = None,
+    install_minimum_distance: int | None = None,
+    seconds_per_step: float = 0.5,
+) -> list[tuple[int, int, int]]:
+    """Propose and suppress peaks independently for each event outcome.
+
+    A peak in the sum over outcomes can be controlled by the majority ``correct``
+    curve and hide a smaller, temporally sharper fault peak.  We therefore form
+    candidates per outcome. NMS is deliberately outcome-specific: Assembly101
+    commonly records an incorrect installation attempt followed shortly by a
+    correct retry, so suppressing nearby peaks *across* outcomes erases exactly
+    the mistake events we need to detect. ``install_minimum_distance`` remains
+    accepted for checkpoint/tool compatibility but is no longer used for
+    cross-outcome suppression. Durations are converted into cache steps so
+    changing visual sampling rate cannot change decoder timing.
+    """
+
+    if seconds_per_step <= 0:
+        raise ValueError("seconds_per_step must be positive")
+    minimum_distance = minimum_distance or max(1, round(4.0 / seconds_per_step))
+    events: list[tuple[int, int, int]] = []
+    for component in range(event_scores.shape[1]):
+        candidates: list[tuple[float, float, int, int]] = []
+        for outcome, threshold in enumerate(thresholds):
+            scores = event_scores[:, component, outcome]
+            previous = np.concatenate((np.asarray([-np.inf]), scores[:-1]))
+            following = np.concatenate((scores[1:], np.asarray([-np.inf])))
+            peak_rows = np.flatnonzero(
+                (scores >= previous)
+                & (scores > following)
+                & (scores >= float(threshold))
+            )
+            for row in peak_rows:
+                score = float(scores[row])
+                calibrated_confidence = float(score) / max(float(threshold), 1e-6)
+                candidates.append((calibrated_confidence, score, int(row), outcome))
+        selected_mask = np.zeros((event_scores.shape[2], event_scores.shape[0]), dtype=np.bool_)
+        for _, _, row, outcome in sorted(candidates, reverse=True):
+            near_start = max(0, row - minimum_distance + 1)
+            near_end = min(event_scores.shape[0], row + minimum_distance)
+            conflicts = bool(selected_mask[outcome, near_start:near_end].any())
+            # At a single timestamp/component only one mutually exclusive
+            # outcome can occur. Nearby timestamps, however, may be a failed
+            # attempt and its successful retry and must both survive.
+            conflicts = conflicts or bool(selected_mask[:, row].any())
+            if not conflicts:
+                selected_mask[outcome, row] = True
+                events.append((row, component, outcome))
+    return sorted(events)
+
+
+def _event_metrics_from_samples(
+    samples: list[tuple[list[tuple[int, int, int]], np.ndarray]],
+    thresholds: list[float] | tuple[float, ...],
+    tolerance: int = 1,
+    seconds_per_step: float = 0.5,
+) -> dict[Any, dict[str, float]]:
+    outcomes = len(thresholds)
+    counters: dict[Any, dict[str, int]] = {
+        "all": {"true": 0, "predicted": 0, "tp": 0},
+        **{
+            outcome: {"true": 0, "predicted": 0, "tp": 0}
+            for outcome in range(outcomes)
+        },
+    }
+    for truth_events, event_scores in samples:
+        predicted_events = _predicted_events_from_scores(
+            event_scores, thresholds, seconds_per_step=seconds_per_step
+        )
+        matched = _match_event_counts(truth_events, predicted_events, tolerance=tolerance)
+        for key in counters["all"]:
+            counters["all"][key] += matched[key]
+        for outcome in range(outcomes):
+            matched = _match_event_counts(
+                [event for event in truth_events if event[2] == outcome],
+                [event for event in predicted_events if event[2] == outcome],
+                tolerance=tolerance,
+            )
+            for key in counters[outcome]:
+                counters[outcome][key] += matched[key]
+    return {key: _precision_recall_f1(value) for key, value in counters.items()}
+
+
+def _calibrate_event_thresholds(
+    samples: list[tuple[list[tuple[int, int, int]], np.ndarray]],
+    outcomes: int,
+    tolerance: int = 1,
+    seconds_per_step: float = 0.5,
+    max_incorrect_false_alerts_per_minute: float | None = None,
+    total_duration_seconds: float | None = None,
+) -> tuple[list[float], dict[Any, dict[str, float]], list[float]]:
+    """Select validation thresholds and event-level PR-AUC independently by outcome."""
+
+    grid = np.unique(
+        np.concatenate(
+            [
+                np.linspace(0.01, 0.2, 20),
+                np.linspace(0.225, 0.9, 28),
+                np.asarray([0.925, 0.95, 0.975, 0.99, 0.995, 0.999]),
+            ]
+        )
+    )
+    thresholds: list[float] = []
+    pr_auc: list[float] = []
+    for outcome in range(outcomes):
+        curve: list[tuple[float, float, float]] = []
+        best_threshold = 0.1
+        best_f1 = -1.0
+        for threshold in grid:
+            candidate = [0.999] * outcomes
+            candidate[outcome] = float(threshold)
+            metrics = _event_metrics_from_samples(
+                samples,
+                candidate,
+                tolerance=tolerance,
+                seconds_per_step=seconds_per_step,
+            )[outcome]
+            curve.append((metrics["recall"], metrics["precision"], float(threshold)))
+            eligible = True
+            if outcome == 1 and max_incorrect_false_alerts_per_minute is not None:
+                if total_duration_seconds is None:
+                    raise ValueError(
+                        "total_duration_seconds is required for false-alert constrained calibration"
+                    )
+                diagnostics = _event_timing_diagnostics(
+                    samples,
+                    candidate,
+                    outcome=1,
+                    total_duration_seconds=total_duration_seconds,
+                    seconds_per_step=seconds_per_step,
+                    match_tolerance=tolerance,
+                )
+                eligible = (
+                    diagnostics["false_alerts_per_minute"]
+                    <= max_incorrect_false_alerts_per_minute + 1e-12
+                )
+            if eligible and (
+                metrics["f1"] > best_f1 + 1e-12
+                or (
+                    abs(metrics["f1"] - best_f1) <= 1e-12
+                    and float(threshold) > best_threshold
+                )
+            ):
+                best_f1 = metrics["f1"]
+                best_threshold = float(threshold)
+        thresholds.append(best_threshold)
+        points = sorted({(recall, precision) for recall, precision, _ in curve})
+        area = 0.0
+        for (left_recall, left_precision), (right_recall, right_precision) in zip(
+            points[:-1], points[1:]
+        ):
+            area += (right_recall - left_recall) * (left_precision + right_precision) / 2.0
+        pr_auc.append(area / 100.0)
+    return (
+        thresholds,
+        _event_metrics_from_samples(
+            samples,
+            thresholds,
+            tolerance=tolerance,
+            seconds_per_step=seconds_per_step,
+        ),
+        pr_auc,
+    )
+
+
+def _match_event_counts(
+    truth: list[tuple[int, int, int]],
+    predicted: list[tuple[int, int, int]],
+    tolerance: int,
+) -> dict[str, int]:
+    unmatched = set(range(len(predicted)))
+    true_positives = 0
+    for true_event in truth:
+        candidates = [
+            index
+            for index in unmatched
+            if predicted[index][1] == true_event[1]
+            and predicted[index][2] == true_event[2]
+            and abs(predicted[index][0] - true_event[0]) <= tolerance
+        ]
+        if candidates:
+            best = min(candidates, key=lambda index: abs(predicted[index][0] - true_event[0]))
+            unmatched.remove(best)
+            true_positives += 1
+    return {"true": len(truth), "predicted": len(predicted), "tp": true_positives}
+
+
+def _precision_recall_f1(counters: dict[str, int]) -> dict[str, float]:
+    precision = counters["tp"] / max(counters["predicted"], 1)
+    recall = counters["tp"] / max(counters["true"], 1)
+    f1 = 2.0 * precision * recall / max(precision + recall, 1e-12)
+    return {
+        "precision": 100.0 * precision,
+        "recall": 100.0 * recall,
+        "f1": 100.0 * f1,
+    }
+
+
+def _binary_average_precision(scores: list[float], targets: list[int]) -> float:
+    if not scores or not any(targets):
+        return 0.0
+    ranked = sorted(zip(scores, targets), key=lambda pair: pair[0], reverse=True)
+    positives = sum(targets)
+    true_positives = 0
+    precision_sum = 0.0
+    for rank, (_, target) in enumerate(ranked, start=1):
+        if target:
+            true_positives += 1
+            precision_sum += true_positives / rank
+    return 100.0 * precision_sum / positives
+
+
+def _validation_selection_score(
+    metrics: dict[str, float], mistake_weight: float = 1.0
+) -> float:
+    """Balanced validation-only checkpoint criterion for the full task contract."""
+    general = (
+        0.25 * metrics["f1@50"]
+        + 0.10 * metrics["edit"]
+        + 0.10 * metrics["frame_accuracy"]
+        + 0.15 * metrics["state_macro_f1"]
+    )
+    mistake = (
+        0.15 * metrics["state_incorrect_f1"]
+        + 0.15 * metrics["incorrect_event_f1"]
+        + 0.10 * metrics["normality_incorrect_average_precision"]
+        - 0.25 * min(metrics["incorrect_false_alerts_per_minute"], 20.0)
+    )
+    return general + mistake_weight * mistake
+
+
+def _model_configs_compatible(stored: Any, current: dict[str, Any]) -> bool:
+    """Accept legacy checkpoints that predate default-off architecture fields."""
+
+    if not isinstance(stored, dict):
+        return False
+    normalized = dict(stored)
+    normalized_current = dict(current)
+    normalized.setdefault("factorized_mistake_detection", False)
+    normalized.setdefault("component_evidence", False)
+    normalized.setdefault("event_only_motion_aux", False)
+    normalized.setdefault("component_evidence_temporal_blocks", 0)
+    normalized.setdefault("structured_roi_tokens", False)
+    normalized.setdefault("roi_token_count", 4)
+    normalized.setdefault("roi_embedding_dim", 0)
+    normalized.setdefault("roi_global_dim", 3)
+    normalized.setdefault("roi_change_lag", 4)
+    normalized.setdefault("hybrid_roi_residual", False)
+    normalized_current.setdefault("factorized_mistake_detection", False)
+    normalized_current.setdefault("component_evidence", False)
+    normalized_current.setdefault("event_only_motion_aux", False)
+    normalized_current.setdefault("component_evidence_temporal_blocks", 0)
+    normalized_current.setdefault("structured_roi_tokens", False)
+    normalized_current.setdefault("roi_token_count", 4)
+    normalized_current.setdefault("roi_embedding_dim", 0)
+    normalized_current.setdefault("roi_global_dim", 3)
+    normalized_current.setdefault("roi_change_lag", 4)
+    normalized_current.setdefault("hybrid_roi_residual", False)
+    return normalized == normalized_current
+
+
+def _event_branch_parameter_prefixes() -> tuple[str, ...]:
+    """Parameters adapted after action pretraining and eligible for transplant."""
+
+    return (
+        "event_temporal_blocks.",
+        "state_head.",
+        "action_event_context.",
+        "state_event_context.",
+        "procedure_event_context.",
+        "event_norm.",
+        "component_evidence_",
+        "roi_",
+        "component_roi_attention.",
+        "component_roi_attention_norm.",
+        "structured_roi_gate_raw",
+        "completion_head.",
+        "component_outcome_head.",
+        "incorrect_onset_head.",
+        "component_normal_prototypes",
+        "normality_scale_raw",
+        "normality_bias",
+        "anomaly_strength_raw",
+        "state_evidence_strength_raw",
+    )
+
+
+def _validation_selection_result(
+    metrics: dict[str, float],
+    *,
+    strategy: str,
+    epoch: int,
+    mistake_weight: float = 1.0,
+    max_false_alerts_per_minute: float = 2.0,
+    minimum_normality_ap: float | None = None,
+) -> dict[str, Any]:
+    """Return a reproducible score, eligibility audit, and deterministic tie key."""
+
+    action_score = (
+        0.40 * metrics["frame_accuracy"]
+        + 0.30 * metrics["edit"]
+        + 0.30 * metrics["f1@50"]
+    )
+    if strategy in {"legacy", "action_only"}:
+        score = (
+            _validation_selection_score(metrics, mistake_weight=mistake_weight)
+            if strategy == "legacy"
+            else action_score
+        )
+        return {
+            "strategy": strategy,
+            "score": score,
+            "action_score": action_score,
+            "mistake_score": None,
+            "operationally_eligible": True,
+            "eligibility": {f"{strategy}_unconstrained": True},
+            "minimum_normality_ap": None,
+            "tie_key": [
+                score,
+                metrics.get("incorrect_event_recall", 0.0),
+                action_score,
+                -int(epoch),
+            ],
+        }
+    if strategy != "operational_harmonic":
+        raise ValueError(f"Unknown selection strategy: {strategy}")
+
+    mistake_score = (
+        0.45 * metrics["normality_incorrect_average_precision"]
+        + 0.25 * metrics["state_incorrect_f1"]
+        + 0.20 * metrics["incorrect_event_f1"]
+        + 0.10 * metrics["incorrect_event_f1_tol4s"]
+    )
+    harmonic = (
+        2.0 * action_score * mistake_score / (action_score + mistake_score)
+        if action_score + mistake_score > 0
+        else 0.0
+    )
+    false_alerts = metrics["incorrect_false_alerts_per_minute"]
+    score = harmonic - 0.50 * false_alerts
+    ap_floor = (
+        metrics.get("normality_incorrect_prevalence", 0.0)
+        if minimum_normality_ap is None
+        else minimum_normality_ap
+    )
+    eligibility = {
+        "positive_incorrect_event_recall": metrics["incorrect_event_recall"] > 0.0,
+        "false_alerts_within_limit": false_alerts <= max_false_alerts_per_minute + 1e-12,
+        "normality_ap_at_or_above_floor": (
+            metrics["normality_incorrect_average_precision"] >= ap_floor - 1e-12
+        ),
+    }
+    eligible = all(eligibility.values())
+    return {
+        "strategy": strategy,
+        "score": score,
+        "action_score": action_score,
+        "mistake_score": mistake_score,
+        "harmonic_score_before_false_alert_penalty": harmonic,
+        "false_alert_penalty": 0.50 * false_alerts,
+        "operationally_eligible": eligible,
+        "eligibility": eligibility,
+        "maximum_false_alerts_per_minute": max_false_alerts_per_minute,
+        "minimum_normality_ap": ap_floor,
+        # Python tuple/list ordering implements the documented deterministic
+        # tie break: score, recall, action quality, then earliest epoch.
+        "tie_key": [
+            score,
+            metrics["incorrect_event_recall"],
+            action_score,
+            -int(epoch),
+        ],
+    }
+
+
+def _class_weights(
+    records: list[StateGraphCacheRecord],
+    field: str,
+    classes: int,
+    power: float = 1.0,
+) -> np.ndarray:
+    counts = np.ones(classes, dtype=np.float64)
+    for record in records:
+        with np.load(record.path, allow_pickle=False) as arrays:
+            labels = arrays[field].reshape(-1)
+        labels = labels[(labels >= 0) & (labels < classes)]
+        counts += np.bincount(labels, minlength=classes)
+    weights = (counts.sum() / (classes * counts)) ** power
+    return np.clip(weights, 0.25, 12.0).astype(np.float32)
+
+
+def _action_factorization(
+    metadata: dict[str, Any], records: list[StateGraphCacheRecord], num_steps: int
+) -> dict[str, Any]:
+    action_ids = list(metadata.get("action_ids", []))
+    descriptions = list(metadata.get("action_descriptions", action_ids))
+    if len(descriptions) != num_steps:
+        descriptions = action_ids
+    taxonomy = metadata.get("action_taxonomy", [])
+    official_factors = {
+        str(row["action_cls"]).strip().lower(): (
+            str(row["verb_cls"]).strip().lower().replace(" ", "_"),
+            str(row["noun_cls"]).strip().lower().replace(" ", "_"),
+        )
+        for row in taxonomy
+        if all(key in row for key in ("action_cls", "verb_cls", "noun_cls"))
+    }
+    factors: list[tuple[str, str]] = []
+    taxonomy_hits = 0
+    for action_id, description in zip(action_ids, descriptions):
+        if action_id.lower() in official_factors:
+            factors.append(official_factors[action_id.lower()])
+            taxonomy_hits += 1
+            continue
+        tokens = [token for token in re.split(r"[^a-z0-9]+", description.lower()) if token]
+        verb = tokens[0] if tokens else "unknown"
+        object_name = "_".join(tokens[1:]) if len(tokens) > 1 else "none"
+        factors.append((verb, object_name))
+    verb_names = sorted({verb for verb, _ in factors})
+    object_names = sorted({object_name for _, object_name in factors})
+    verb_to_index = {name: index for index, name in enumerate(verb_names)}
+    object_to_index = {name: index for index, name in enumerate(object_names)}
+    completion_names = [
+        str(name).strip().lower().replace(" ", "_")
+        for name in metadata.get("completion_components", [])
+    ]
+    completion_lookup = {name: index for index, name in enumerate(completion_names)}
+    counts = np.zeros(num_steps, dtype=np.int64)
+    for record in records:
+        with np.load(record.path, allow_pickle=False) as arrays:
+            labels = arrays["step"].astype(np.int64)
+        labels = labels[(labels >= 0) & (labels < num_steps)]
+        counts += np.bincount(labels, minlength=num_steps)
+    return {
+        "verb_names": verb_names,
+        "object_names": object_names,
+        "verb_indices": [verb_to_index[verb] for verb, _ in factors],
+        "object_indices": [object_to_index[object_name] for _, object_name in factors],
+        "mistake_action_mask": [verb.startswith("attempt_to_") for verb, _ in factors],
+        "action_event_component_indices": [
+            completion_lookup.get(object_name, -1) for _, object_name in factors
+        ],
+        "seen_mask": [bool(count) for count in counts],
+        "factor_source": (
+            "official_action_taxonomy" if taxonomy_hits == max(0, num_steps - 1) else "mixed"
+        ),
+        "unseen_train_actions": [
+            action_ids[index] for index, count in enumerate(counts) if count == 0
+        ],
+    }
+
+
+def _completion_pos_weights(
+    records: list[StateGraphCacheRecord], components: int, cap: float = 100.0
+) -> np.ndarray:
+    positive = np.ones(components, dtype=np.float64)
+    total_rows = 0
+    for record in records:
+        with np.load(record.path, allow_pickle=False) as arrays:
+            completion = arrays["completion"].astype(np.float64)
+        positive += completion.sum(axis=0)
+        total_rows += len(completion)
+    negative = np.maximum(float(total_rows) - positive, 1.0)
+    return np.clip(negative / positive, 1.0, cap).astype(np.float32)
+
+
+def _state_class_weights(
+    records: list[StateGraphCacheRecord],
+    components: int,
+    cap: float = 12.0,
+    power: float = 0.5,
+) -> np.ndarray:
+    """Per-component state balancing without letting rare faults explode gradients."""
+    counts = np.ones((components, 3), dtype=np.float64)
+    for record in records:
+        with np.load(record.path, allow_pickle=False) as arrays:
+            state = arrays["state"].astype(np.int64)
+            mask = arrays["state_mask"].astype(np.bool_)
+        for component in range(components):
+            labels = state[:, component][mask[:, component]]
+            counts[component] += np.bincount(labels, minlength=3)
+    # Inverse square root is more stable than full inverse frequency for the
+    # very scarce incorrect state, while still countering pending-state scale.
+    weights = (counts.sum(axis=1, keepdims=True) / (3.0 * counts)) ** power
+    weights = np.clip(weights, 0.25, cap)
+    weights /= weights.mean(axis=1, keepdims=True)
+    return weights.astype(np.float32)
+
+
+def _outcome_pos_weights(
+    records: list[StateGraphCacheRecord],
+    components: int,
+    outcome_index: int,
+    cap: float = 100.0,
+) -> np.ndarray:
+    positive = np.ones(components, dtype=np.float64)
+    total_rows = 0
+    for record in records:
+        with np.load(record.path, allow_pickle=False) as arrays:
+            outcomes = arrays["component_outcome"].astype(np.int64)
+        positive += (outcomes == outcome_index).sum(axis=0)
+        total_rows += len(outcomes)
+    negative = np.maximum(float(total_rows) - positive, 1.0)
+    return np.clip(negative / positive, 1.0, cap).astype(np.float32)
+
+
+def _infer_event_state_mapping(
+    records: list[StateGraphCacheRecord],
+    event_components: int,
+    state_components: int,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Map each event component to the state column most consistent with its outcomes."""
+
+    # Dataset adapters should declare semantic component names whenever
+    # possible. Exact name alignment is stronger and more stable than inferring
+    # a mapping from correlated assembly states (several parts are often
+    # installed together, making argmax agreement ambiguous).
+    if metadata is not None:
+        event_names = list(metadata.get("completion_components", []))
+        state_names = list(metadata.get("state_components", []))
+        if len(event_names) == event_components and len(state_names) == state_components:
+            state_lookup = {name: index for index, name in enumerate(state_names)}
+            if len(state_lookup) == len(state_names) and all(name in state_lookup for name in event_names):
+                return {
+                    "indices": [state_lookup[name] for name in event_names],
+                    "agreement": [1.0] * event_components,
+                    "observations": [0] * event_components,
+                    "per_outcome_agreement": [[1.0, 1.0, 1.0] for _ in event_names],
+                    "source": "metadata_component_names",
+                }
+
+    agreement = np.zeros((event_components, state_components, 3), dtype=np.float64)
+    observations = np.zeros((event_components, state_components, 3), dtype=np.float64)
+    # Event outcomes [correct, incorrect, remove] correspond most closely to
+    # persistent state classes [correct=2, incorrect=0, pending=1].
+    expected_state = np.asarray([2, 0, 1], dtype=np.int64)
+    for record in records:
+        with np.load(record.path, allow_pickle=False) as arrays:
+            outcomes = arrays["component_outcome"].astype(np.int64)
+            state = arrays["state"].astype(np.int64)
+            state_mask = arrays["state_mask"].astype(bool)
+        rows, components = np.where(outcomes >= 0)
+        for row, component in zip(rows, components):
+            outcome = int(outcomes[row, component])
+            end = min(len(state), row + 3)
+            valid = state_mask[row:end].any(axis=0)
+            observations[component, valid, outcome] += 1.0
+            matches = (
+                (state[row:end] == expected_state[outcome]) & state_mask[row:end]
+            ).any(axis=0)
+            agreement[component, valid, outcome] += matches[valid].astype(np.float64)
+    per_outcome_scores = agreement / np.maximum(observations, 1.0)
+    outcome_weights = np.asarray([0.3, 0.6, 0.1], dtype=np.float64)
+    available = observations > 0
+    weighted = per_outcome_scores * outcome_weights
+    normalizer = (available * outcome_weights).sum(axis=-1)
+    scores = weighted.sum(axis=-1) / np.maximum(normalizer, 1e-12)
+    indices = scores.argmax(axis=1).astype(np.int64)
+    return {
+        "indices": indices.tolist(),
+        "agreement": [float(scores[index, state_index]) for index, state_index in enumerate(indices)],
+        "observations": [
+            int(observations[index, state_index].sum())
+            for index, state_index in enumerate(indices)
+        ],
+        "per_outcome_agreement": [
+            per_outcome_scores[index, state_index].tolist()
+            for index, state_index in enumerate(indices)
+        ],
+    }
+
+
+def _action_presence(
+    records: list[StateGraphCacheRecord], num_steps: int
+) -> list[bool]:
+    counts = np.zeros(num_steps, dtype=np.int64)
+    for record in records:
+        with np.load(record.path, allow_pickle=False) as arrays:
+            labels = arrays["step"].astype(np.int64)
+        labels = labels[(labels >= 0) & (labels < num_steps)]
+        counts += np.bincount(labels, minlength=num_steps)
+    return [bool(count) for count in counts]
+
+
+def _move_batch(batch: dict[str, Any], device) -> dict[str, Any]:
+    return {key: value.to(device, non_blocking=True) if hasattr(value, "to") else value for key, value in batch.items()}
+
+
+def _validate_records(records: list[StateGraphCacheRecord]) -> None:
+    if not records:
+        raise ValueError("The cache index is empty.")
+    signature = (
+        records[0].num_steps,
+        records[0].motion_dim,
+        records[0].motion_aux_dim,
+        records[0].appearance_dim,
+        records[0].sensor_dim,
+        records[0].num_components,
+        records[0].num_completion_components,
+    )
+    for record in records[1:]:
+        current = (
+            record.num_steps,
+            record.motion_dim,
+            record.motion_aux_dim,
+            record.appearance_dim,
+            record.sensor_dim,
+            record.num_components,
+            record.num_completion_components,
+        )
+        if current != signature:
+            raise ValueError(f"Inconsistent cache dimensions: {record.recording_id} has {current}, expected {signature}")
+
+
+def _validate_cache_schema(metadata: dict[str, Any], records: list[StateGraphCacheRecord]) -> None:
+    version = int(metadata.get("schema_version", 1))
+    if version != CACHE_SCHEMA_VERSION:
+        raise ValueError(
+            f"Cache schema v{version} cannot train the corrected Stage-1 objective. "
+            f"Regenerate the cache with schema v{CACHE_SCHEMA_VERSION}; the old cache treats PSR completion IDs "
+            "as mutually-exclusive steps and loses simultaneous events."
+        )
+    accepted_contracts = {
+        "action_segmentation_plus_multicomponent_completion",
+        "complete_coarse_action_plus_part_to_part_mistake_and_state",
+    }
+    if metadata.get("label_contract") not in accepted_contracts:
+        raise ValueError("Cache is missing the corrected action/completion label contract.")
+    if not records or records[0].num_completion_components <= 0:
+        raise ValueError("Cache does not declare completion components.")
+    if len(metadata.get("completion_components", [])) != records[0].num_completion_components:
+        raise ValueError("Cache completion-component names do not match its tensor dimension.")
+    if len(metadata.get("action_ids", [])) != records[0].num_steps:
+        raise ValueError("Cache action IDs do not match its action-logit dimension.")
+    required = {"motion", "appearance", "sensor", "step", "completion", "component_outcome"}
+    for record in records:
+        with np.load(record.path, allow_pickle=False) as arrays:
+            missing = required - set(arrays.files)
+        if missing:
+            raise ValueError(f"{record.recording_id} is missing corrected cache arrays: {sorted(missing)}")
+
+
+def _recording_level_split(
+    records: list[StateGraphCacheRecord], validation_fraction: float, seed: int
+) -> tuple[list[StateGraphCacheRecord], list[StateGraphCacheRecord]]:
+    if len(records) < 2:
+        raise ValueError(
+            "At least two training recordings are required when the cache has no validation split. "
+            "Add an official val recording to avoid window-level leakage."
+        )
+    shuffled = records.copy()
+    random.Random(seed).shuffle(shuffled)
+    count = min(len(shuffled) - 1, max(1, int(round(len(shuffled) * validation_fraction))))
+    return shuffled[count:], shuffled[:count]
+
+
+def _warmup_cosine(update: int, total: int, warmup: int) -> float:
+    if update < warmup:
+        return max((update + 1) / warmup, 1e-3)
+    progress = min(1.0, (update - warmup) / max(total - warmup, 1))
+    return 0.05 + 0.95 * 0.5 * (1.0 + math.cos(math.pi * progress))
+
+
+def _save_checkpoint(
+    path: Path,
+    model,
+    optimizer,
+    scheduler,
+    model_config: StateGraphPSRConfig,
+    loss_config: StateGraphLossConfig,
+    metadata: dict[str, Any],
+    transition_matrix: np.ndarray,
+    epoch: int,
+    metrics: dict[str, Any],
+    training_state: dict[str, Any] | None = None,
+    rng_state: dict[str, Any] | None = None,
+) -> None:
+    import torch
+
+    torch.save(
+        {
+            "architecture": "stategraph_psr_stage1",
+            "model_state": model.state_dict(),
+            "optimizer_state": optimizer.state_dict(),
+            "scheduler_state": scheduler.state_dict(),
+            "model_config": model_config.to_dict(),
+            "loss_config": asdict(loss_config),
+            "dataset_metadata": metadata,
+            "transition_matrix": transition_matrix,
+            "epoch": epoch,
+            "metrics": metrics,
+            "training_state": training_state,
+            "rng_state": rng_state,
+        },
+        path,
+    )
+
+
+def _save_inference_checkpoint(
+    path: Path,
+    model,
+    model_config: StateGraphPSRConfig,
+    metadata: dict[str, Any],
+    transition_matrix: np.ndarray,
+    event_thresholds: list[float],
+    validation_metrics: dict[str, float],
+    test_metrics: dict[str, float] | None,
+) -> None:
+    """Export compact optimizer-free BF16 weights for reproducible inference."""
+
+    import torch
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    state = {
+        name: (
+            value.detach().cpu().to(torch.bfloat16)
+            if value.is_floating_point()
+            else value.detach().cpu()
+        )
+        for name, value in model.state_dict().items()
+    }
+    torch.save(
+        {
+            "format_version": 1,
+            "architecture": "stategraph_psr_stage1",
+            "model_state": state,
+            "model_config": model_config.to_dict(),
+            "dataset_metadata": metadata,
+            "transition_matrix": transition_matrix,
+            "event_thresholds": event_thresholds,
+            "validation_metrics": validation_metrics,
+            "test_metrics": test_metrics,
+        },
+        path,
+    )
+
+
+def _capture_rng_state() -> dict[str, Any]:
+    import torch
+
+    state = {
+        "python": random.getstate(),
+        "numpy": np.random.get_state(),
+        "torch": torch.random.get_rng_state(),
+    }
+    if torch.cuda.is_available():
+        state["cuda"] = torch.cuda.get_rng_state_all()
+    return state
+
+
+def _enforce_vram_limit(torch, device, limit_gib: float, phase: str) -> float:
+    if device.type != "cuda":
+        return 0.0
+    peak = max(
+        torch.cuda.max_memory_allocated(device),
+        torch.cuda.max_memory_reserved(device),
+    ) / 2**30
+    if peak >= limit_gib:
+        raise RuntimeError(
+            f"{phase} exceeded the process VRAM limit: {peak:.2f} GiB >= {limit_gib:.2f} GiB"
+        )
+    return float(peak)
+
+
+def _restore_rng_state(state: dict[str, Any] | None) -> None:
+    if not state:
+        return
+    import torch
+
+    random.setstate(state["python"])
+    np.random.set_state(state["numpy"])
+    # ``torch.load(..., map_location=device)`` also maps RNG byte tensors to
+    # CUDA.  The default CPU generator only accepts a CPU ByteTensor, so move
+    # checkpointed generator states back before restoring an exact resume.
+    torch.random.set_rng_state(state["torch"].cpu())
+    if torch.cuda.is_available() and "cuda" in state:
+        torch.cuda.set_rng_state_all([rng_state.cpu() for rng_state in state["cuda"]])
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Train StateGraph-PSR Lite on cached IndustReal features.")
+    parser.add_argument("--cache-index", required=True)
+    parser.add_argument("--output-dir", default="runs/stategraph_psr_stage1")
+    parser.add_argument(
+        "--export-checkpoint",
+        default=None,
+        help="Optional path for a compact BF16 inference checkpoint without optimizer state.",
+    )
+    parser.add_argument(
+        "--resume",
+        default=None,
+        help="Resume exactly from a last_checkpoint.pt produced by this run.",
+    )
+    parser.add_argument(
+        "--init-checkpoint",
+        default=None,
+        help="Initialize model weights from a compatible training or inference checkpoint.",
+    )
+    parser.add_argument(
+        "--event-init-checkpoint",
+        default=None,
+        help="Transplant only event/state branch tensors from a second compatible checkpoint.",
+    )
+    parser.add_argument(
+        "--freeze-action-backbone",
+        action="store_true",
+        help="Train only event/state modules after checkpoint initialization.",
+    )
+    parser.add_argument("--device", default=None)
+    parser.add_argument("--max-vram-gib", type=float, default=23.0)
+    parser.add_argument("--precision", choices=["fp32", "bf16", "fp16"], default="bf16")
+    parser.add_argument("--epochs", type=int, default=80)
+    parser.add_argument("--patience", type=int, default=15)
+    parser.add_argument("--batch-size", type=int, default=2)
+    parser.add_argument("--accumulation-steps", type=int, default=8)
+    parser.add_argument("--sequence-length", type=int, default=256)
+    parser.add_argument("--sequence-stride", type=int, default=192)
+    parser.add_argument("--hidden-dim", type=int, default=192)
+    parser.add_argument("--num-temporal-blocks", type=int, default=8)
+    parser.add_argument("--attention-every", type=int, default=2)
+    parser.add_argument("--num-heads", type=int, default=4)
+    parser.add_argument("--num-action-refinement-stages", type=int, default=0)
+    parser.add_argument("--num-refinement-blocks", type=int, default=4)
+    parser.add_argument("--num-event-blocks", type=int, default=0)
+    parser.add_argument("--dropout", type=float, default=0.2)
+    parser.add_argument(
+        "--max-sequence-length",
+        type=int,
+        default=4096,
+        help="Maximum cached temporal length supported by positional encoding.",
+    )
+    parser.add_argument(
+        "--positional-dropout",
+        type=float,
+        default=0.0,
+        help="Dropout applied to fixed temporal position features.",
+    )
+    parser.add_argument(
+        "--procedural-event-context",
+        action="store_true",
+        help="Fuse causal graph and learned next-action disagreement into the event branch.",
+    )
+    parser.add_argument(
+        "--learned-event-fusion",
+        action="store_true",
+        help="Learn a shared fusion of onset, normality, outcome, state, and action-mistake cues.",
+    )
+    parser.add_argument(
+        "--component-evidence",
+        action="store_true",
+        help="Use component queries and the cached hand/pose stream in an event-only evidence branch.",
+    )
+    parser.add_argument(
+        "--event-only-motion-aux",
+        action="store_true",
+        help="Exclude motion_aux/ROI features from action fusion and route them only to component evidence.",
+    )
+    parser.add_argument(
+        "--component-evidence-temporal-blocks",
+        type=int,
+        default=0,
+        help="Causal depthwise temporal blocks applied only to ROI/component evidence.",
+    )
+    parser.add_argument(
+        "--structured-roi-tokens",
+        action="store_true",
+        help="Decode the flat ROI v1 auxiliary cache into typed visual/geometry tokens.",
+    )
+    parser.add_argument("--roi-token-count", type=int, default=4)
+    parser.add_argument("--roi-embedding-dim", type=int, default=0)
+    parser.add_argument("--roi-global-dim", type=int, default=3)
+    parser.add_argument(
+        "--roi-change-lag",
+        type=int,
+        default=4,
+        help="Past-only reference lag used by the structured ROI change encoder.",
+    )
+    parser.add_argument(
+        "--hybrid-roi-residual",
+        action="store_true",
+        help="Add structured ROI evidence as a zero-initialized residual over the flat ROI path.",
+    )
+    parser.add_argument("--graph-strength", type=float, default=0.12)
+    parser.add_argument("--learning-rate", type=float, default=3e-4)
+    parser.add_argument("--weight-decay", type=float, default=1e-3)
+    parser.add_argument("--warmup-fraction", type=float, default=0.08)
+    parser.add_argument("--max-grad-norm", type=float, default=2.0)
+    parser.add_argument("--transition-smoothing", type=float, default=0.02)
+    parser.add_argument(
+        "--rare-window-boost",
+        type=float,
+        default=4.0,
+        help="Sampling multiplier for train windows containing incorrect outcome/state labels.",
+    )
+    parser.add_argument(
+        "--rare-windows-per-batch",
+        type=int,
+        default=1,
+        help="Guarantee this many incorrect-event windows in each training batch.",
+    )
+    parser.add_argument(
+        "--matched-component-batches",
+        action="store_true",
+        help=(
+            "Pair each sampled incorrect-event window with a correct-install "
+            "window for the same component, preferring the same action."
+        ),
+    )
+    parser.add_argument(
+        "--event-centered-crops-per-event",
+        type=int,
+        default=0,
+        help="Add this many training-only crops centered near every incorrect event; zero preserves the baseline window set.",
+    )
+    parser.add_argument(
+        "--event-centered-crop-radius",
+        type=int,
+        default=0,
+        help="Maximum deterministic offset, in cached feature rows, around an incorrect event center.",
+    )
+    parser.add_argument("--val-fraction", type=float, default=0.2)
+    parser.add_argument("--num-workers", type=int, default=2)
+    parser.add_argument(
+        "--preload-cache",
+        action="store_true",
+        help="Load compressed feature records once before worker fork to avoid repeated NFS decompression.",
+    )
+    parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--evaluate-test", action="store_true")
+    parser.add_argument(
+        "--overfit-recording-id",
+        action="append",
+        default=None,
+        help="Train and validate on this train-split recording for an intentional wiring test; repeat for 2-4 IDs.",
+    )
+    parser.add_argument("--step-weight", type=float, default=1.0)
+    parser.add_argument(
+        "--step-class-weight-power",
+        type=float,
+        default=1.0,
+        help="Exponent on inverse-frequency action weights; 0.5 is a softer square-root balance.",
+    )
+    parser.add_argument("--completion-weight", type=float, default=0.45)
+    parser.add_argument("--component-outcome-weight", type=float, default=0.7)
+    parser.add_argument("--incorrect-onset-weight", type=float, default=0.7)
+    parser.add_argument(
+        "--completion-pos-weight-cap",
+        type=float,
+        default=100.0,
+        help="Maximum per-component positive BCE weight for sparse completion events.",
+    )
+    parser.add_argument("--state-weight", type=float, default=0.8)
+    parser.add_argument(
+        "--state-class-weight-power",
+        type=float,
+        default=0.5,
+        help="Exponent on per-component inverse state frequency; 1.0 emphasizes rare faults.",
+    )
+    parser.add_argument(
+        "--state-class-weight-cap",
+        type=float,
+        default=12.0,
+        help="Cap before normalizing per-component inverse state weights.",
+    )
+    parser.add_argument("--boundary-weight", type=float, default=0.25)
+    parser.add_argument("--next-step-weight", type=float, default=0.3)
+    parser.add_argument("--smoothing-weight", type=float, default=0.12)
+    parser.add_argument("--graph-weight", type=float, default=0.15)
+    parser.add_argument("--consistency-weight", type=float, default=0.15)
+    parser.add_argument("--progress-weight", type=float, default=0.25)
+    parser.add_argument("--normality-weight", type=float, default=0.3)
+    parser.add_argument(
+        "--component-rank-weight",
+        type=float,
+        default=0.0,
+        help="Weight for same-component correct-versus-incorrect bag ranking.",
+    )
+    parser.add_argument("--component-rank-margin", type=float, default=0.5)
+    parser.add_argument("--refinement-weight", type=float, default=0.5)
+    parser.add_argument("--focal-gamma", type=float, default=1.5)
+    parser.add_argument("--asl-negative-gamma", type=float, default=4.0)
+    parser.add_argument("--asl-clip", type=float, default=0.05)
+    parser.add_argument("--normality-error-weight", type=float, default=8.0)
+    parser.add_argument("--incorrect-pos-weight-cap", type=float, default=100.0)
+    parser.add_argument(
+        "--incorrect-hard-negative-ratio",
+        type=float,
+        default=0.0,
+        help="Keep all mistake positives and this many hardest negatives per positive; zero keeps every negative.",
+    )
+    parser.add_argument(
+        "--factorized-mistake-detection",
+        action="store_true",
+        help="Factor mistake onset into a shared temporal detector and conditional component selector.",
+    )
+    parser.add_argument(
+        "--any-mistake-weight",
+        type=float,
+        default=1.0,
+        help="Relative temporal any-mistake loss inside the factorized onset objective.",
+    )
+    parser.add_argument(
+        "--mistake-component-weight",
+        type=float,
+        default=1.0,
+        help="Relative conditional component-localization loss inside the factorized onset objective.",
+    )
+    parser.add_argument(
+        "--any-mistake-pos-weight",
+        type=float,
+        default=1.0,
+        help="Positive-class multiplier for factorized any-mistake timing; tune as an explicit ablation.",
+    )
+    parser.add_argument(
+        "--event-label-horizon",
+        type=int,
+        default=2,
+        help="Causally repeat sparse event labels over this many following feature rows for training only.",
+    )
+    parser.add_argument("--incorrect-selection-weight", type=float, default=0.75)
+    parser.add_argument(
+        "--selection-strategy",
+        choices=("legacy", "action_only", "operational_harmonic"),
+        default="legacy",
+        help="Checkpoint selector; action_only is intended for staged representation pretraining, while operational_harmonic requires useful mistake alerts.",
+    )
+    parser.add_argument(
+        "--selection-max-false-alerts-per-minute",
+        type=float,
+        default=2.0,
+        help="Operational checkpoint eligibility limit; also constrains threshold calibration for that strategy.",
+    )
+    parser.add_argument(
+        "--selection-min-normality-ap",
+        type=float,
+        default=None,
+        help="Optional AP floor in percentage points; by default use validation mistake prevalence.",
+    )
+    parser.add_argument(
+        "--max-incorrect-false-alerts-per-minute",
+        type=float,
+        default=None,
+        help="Optional validation-only hard constraint when calibrating the incorrect-event threshold.",
+    )
+    parser.add_argument("--gpu-log-interval", type=int, default=10)
+    parser.add_argument(
+        "--calibration-interval",
+        type=int,
+        default=5,
+        help="Run the expensive validation event-threshold sweep every N epochs.",
+    )
+    parser.add_argument("--disable-dashboard", action="store_true")
+    args = parser.parse_args()
+    # An initialized run must repeat --init-checkpoint when resuming because it
+    # is part of the immutable configuration hash.  train() skips the actual
+    # initialization load when --resume is present.
+    checkpoint_argument_error = _checkpoint_argument_error(args)
+    if checkpoint_argument_error:
+        parser.error(checkpoint_argument_error)
+    if args.batch_size <= 0 or args.accumulation_steps <= 0:
+        parser.error("batch size and accumulation steps must be positive")
+    if args.rare_window_boost < 1.0:
+        parser.error("rare-window-boost must be at least 1")
+    if args.event_centered_crops_per_event < 0:
+        parser.error("event-centered-crops-per-event cannot be negative")
+    if args.event_centered_crop_radius < 0:
+        parser.error("event-centered-crop-radius cannot be negative")
+    if args.event_centered_crop_radius > args.sequence_length // 2:
+        parser.error("event-centered-crop-radius cannot exceed half of sequence-length")
+    if args.completion_pos_weight_cap < 1.0:
+        parser.error("completion-pos-weight-cap must be at least 1")
+    if args.incorrect_pos_weight_cap < 1.0:
+        parser.error("incorrect-pos-weight-cap must be at least 1")
+    if args.incorrect_hard_negative_ratio < 0:
+        parser.error("incorrect-hard-negative-ratio cannot be negative")
+    if args.any_mistake_weight < 0 or args.mistake_component_weight < 0:
+        parser.error("factorized mistake loss weights cannot be negative")
+    if args.any_mistake_pos_weight <= 0:
+        parser.error("any-mistake-pos-weight must be positive")
+    if (
+        args.max_incorrect_false_alerts_per_minute is not None
+        and args.max_incorrect_false_alerts_per_minute < 0
+    ):
+        parser.error("max-incorrect-false-alerts-per-minute cannot be negative")
+    if args.selection_max_false_alerts_per_minute < 0:
+        parser.error("selection-max-false-alerts-per-minute cannot be negative")
+    if args.selection_min_normality_ap is not None and not (
+        0.0 <= args.selection_min_normality_ap <= 100.0
+    ):
+        parser.error("selection-min-normality-ap must be in [0, 100]")
+    if args.state_class_weight_cap < 1.0:
+        parser.error("state-class-weight-cap must be at least 1")
+    if args.max_vram_gib <= 0:
+        parser.error("max-vram-gib must be positive")
+    if not 0.0 <= args.step_class_weight_power <= 1.0:
+        parser.error("step-class-weight-power must be in [0, 1]")
+    if not 0.0 <= args.state_class_weight_power <= 1.0:
+        parser.error("state-class-weight-power must be in [0, 1]")
+    if not 0.0 <= args.graph_strength <= 1.0:
+        parser.error("graph-strength must be a probability in [0, 1]")
+    if not 0 <= args.rare_windows_per_batch <= args.batch_size:
+        parser.error("rare-windows-per-batch must be between zero and batch-size")
+    if args.gpu_log_interval <= 0:
+        parser.error("gpu-log-interval must be positive")
+    if args.calibration_interval <= 0:
+        parser.error("calibration-interval must be positive")
+    if args.event_label_horizon < 0:
+        parser.error("event-label-horizon cannot be negative")
+    if min(
+        args.num_action_refinement_stages,
+        args.num_refinement_blocks,
+        args.num_event_blocks,
+    ) < 0:
+        parser.error("refinement stage/block counts cannot be negative")
+    print(json.dumps(train(args), indent=2))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,25 @@
+{
+  "protocol": {
+    "source_commit": "the commit containing this protocol",
+    "cache": "data/processed/assembly101_ego30_expanded/index.json",
+    "epochs": 32,
+    "seed": 7,
+    "selection_strategy": "operational_harmonic",
+    "selection_constraint": "strict incorrect-event recall > 0, normality AP >= validation prevalence, false alerts <= 2/min",
+    "purpose": "isolate positive weighting of the factorized temporal any-mistake head",
+    "held_out_test_evaluation": false
+  },
+  "comparison": "H2 versus H1 changes only any_mistake_pos_weight from 1 to 50",
+  "experiments": [
+    {
+      "id": "H2",
+      "run": "abl_h2_expanded_factorized_crops_pos50_s7_32e_20260722",
+      "seed": 7,
+      "factorized_mistake_detection": true,
+      "any_mistake_pos_weight": 50.0,
+      "event_centered_crops_per_event": 2,
+      "event_centered_crop_radius": 128,
+      "procedural_event_context": false
+    }
+  ]
+}

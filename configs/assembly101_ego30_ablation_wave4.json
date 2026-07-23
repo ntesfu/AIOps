@@ -1,0 +1,40 @@
+{
+  "protocol": {
+    "source_commit": "16a034b",
+    "selection_split": "actor-disjoint validation only",
+    "test_split_policy": "sealed until final selection",
+    "epochs": 32,
+    "calibration_constraint": "incorrect false alerts <= 2/min",
+    "purpose": "test longer-schedule convergence and three-seed stability"
+  },
+  "experiments": [
+    {
+      "id": "D0",
+      "run": "abl_d0_procedure_twocrop_constrained_s7_32e_20260722",
+      "factor": "procedural two-crop candidate, seed 7",
+      "seed": 7,
+      "incorrect_hard_negative_ratio": 0
+    },
+    {
+      "id": "D1",
+      "run": "abl_d1_procedure_twocrop_constrained_s17_32e_20260722",
+      "factor": "procedural two-crop candidate, seed 17",
+      "seed": 17,
+      "incorrect_hard_negative_ratio": 0
+    },
+    {
+      "id": "D2",
+      "run": "abl_d2_procedure_twocrop_constrained_s27_32e_20260722",
+      "factor": "procedural two-crop candidate, seed 27",
+      "seed": 27,
+      "incorrect_hard_negative_ratio": 0
+    },
+    {
+      "id": "D3",
+      "run": "abl_d3_hardneg20_constrained_s7_32e_20260722",
+      "factor": "hard-negative candidate under constrained selection",
+      "seed": 7,
+      "incorrect_hard_negative_ratio": 20
+    }
+  ]
+}

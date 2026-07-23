@@ -1,0 +1,2431 @@
+{
+  "format_version": 1,
+  "selection_name": "assembly101_ego_e1_30fps_actor_disjoint_v1",
+  "dataset": {
+    "repo_id": "cvml-nus/assembly101",
+    "revision": "bfc15ea5e3f0bc8f8c232af6c1b45aa137a9d967",
+    "license": "CC BY-NC 4.0"
+  },
+  "sampling": {
+    "source_fps": 60,
+    "annotation_and_decode_fps": 30,
+    "clip_frames": 32,
+    "stride_frames": 8,
+    "camera": "e1 only"
+  },
+  "selection": {
+    "actor_disjoint": true,
+    "max_recordings_per_actor": 10,
+    "additional_train_actors": [
+      "9015",
+      "9033",
+      "9034",
+      "9055",
+      "9056",
+      "9061",
+      "9064",
+      "9073"
+    ],
+    "actors": {
+      "train": [
+        "9015",
+        "9021",
+        "9022",
+        "9023",
+        "9025",
+        "9033",
+        "9034",
+        "9035",
+        "9044",
+        "9045",
+        "9054",
+        "9055",
+        "9056",
+        "9061",
+        "9064",
+        "9073"
+      ],
+      "val": [
+        "9031",
+        "9074"
+      ],
+      "test": [
+        "9013",
+        "9083"
+      ]
+    },
+    "recordings": {
+      "train": 133,
+      "val": 15,
+      "test": 10
+    }
+  },
+  "records": [
+    {
+      "recording_id": "nusar-2021_action_both_9015-a08_9015_user_id_2021-02-02_155549",
+      "split": "train",
+      "actor_id": "9015",
+      "toy_id": "202",
+      "mistake_annotation_rows": 4,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9015-a08_9015_user_id_2021-02-02_155549.txt",
+        "disassembly_nusar-2021_action_both_9015-a08_9015_user_id_2021-02-02_155549.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9015-a08_9015_user_id_2021-02-02_155549/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9015-a08_9015_user_id_2021-02-02_155549/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9015-a09_9015_user_id_2021-02-02_160807",
+      "split": "train",
+      "actor_id": "9015",
+      "toy_id": "202",
+      "mistake_annotation_rows": 6,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9015-a09_9015_user_id_2021-02-02_160807.txt",
+        "disassembly_nusar-2021_action_both_9015-a09_9015_user_id_2021-02-02_160807.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9015-a09_9015_user_id_2021-02-02_160807/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9015-a09_9015_user_id_2021-02-02_160807/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9015-b05b_9015_user_id_2021-02-02_161800",
+      "split": "train",
+      "actor_id": "9015",
+      "toy_id": "202",
+      "mistake_annotation_rows": 9,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9015-b05b_9015_user_id_2021-02-02_161800.txt",
+        "disassembly_nusar-2021_action_both_9015-b05b_9015_user_id_2021-02-02_161800.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9015-b05b_9015_user_id_2021-02-02_161800/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9015-b05b_9015_user_id_2021-02-02_161800/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9015-c03a_9015_user_id_2021-02-02_163503",
+      "split": "train",
+      "actor_id": "9015",
+      "toy_id": "202",
+      "mistake_annotation_rows": 13,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9015-c03a_9015_user_id_2021-02-02_163503.txt",
+        "disassembly_nusar-2021_action_both_9015-c03a_9015_user_id_2021-02-02_163503.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9015-c03a_9015_user_id_2021-02-02_163503/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9015-c03a_9015_user_id_2021-02-02_163503/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9015-c04a_9015_user_id_2021-02-02_164257",
+      "split": "train",
+      "actor_id": "9015",
+      "toy_id": "202",
+      "mistake_annotation_rows": 22,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9015-c04a_9015_user_id_2021-02-02_164257.txt",
+        "disassembly_nusar-2021_action_both_9015-c04a_9015_user_id_2021-02-02_164257.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9015-c04a_9015_user_id_2021-02-02_164257/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9015-c04a_9015_user_id_2021-02-02_164257/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9015-c10c_9015_user_id_2021-02-02_165955",
+      "split": "train",
+      "actor_id": "9015",
+      "toy_id": "202",
+      "mistake_annotation_rows": 39,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9015-c10c_9015_user_id_2021-02-02_165955.txt",
+        "disassembly_nusar-2021_action_both_9015-c10c_9015_user_id_2021-02-02_165955.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9015-c10c_9015_user_id_2021-02-02_165955/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9015-c10c_9015_user_id_2021-02-02_165955/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9021-a14_9021_user_id_2021-02-03_100733",
+      "split": "train",
+      "actor_id": "9021",
+      "toy_id": "202",
+      "mistake_annotation_rows": 22,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9021-a14_9021_user_id_2021-02-03_100733.txt",
+        "disassembly_nusar-2021_action_both_9021-a14_9021_user_id_2021-02-03_100733.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9021-a14_9021_user_id_2021-02-03_100733/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9021-a14_9021_user_id_2021-02-03_100733/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9021-a14_9021_user_id_2021-02-23_092806",
+      "split": "train",
+      "actor_id": "9021",
+      "toy_id": "202",
+      "mistake_annotation_rows": 8,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9021-a14_9021_user_id_2021-02-23_092806.txt",
+        "disassembly_nusar-2021_action_both_9021-a14_9021_user_id_2021-02-23_092806.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9021-a14_9021_user_id_2021-02-23_092806/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9021-a14_9021_user_id_2021-02-23_092806/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9021-a27_9021_user_id_2021-02-03_103039",
+      "split": "train",
+      "actor_id": "9021",
+      "toy_id": "202",
+      "mistake_annotation_rows": 21,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9021-a27_9021_user_id_2021-02-03_103039.txt",
+        "disassembly_nusar-2021_action_both_9021-a27_9021_user_id_2021-02-03_103039.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9021-a27_9021_user_id_2021-02-03_103039/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9021-a27_9021_user_id_2021-02-03_103039/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9021-a27_9021_user_id_2021-02-23_093522",
+      "split": "train",
+      "actor_id": "9021",
+      "toy_id": "202",
+      "mistake_annotation_rows": 13,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9021-a27_9021_user_id_2021-02-23_093522.txt",
+        "disassembly_nusar-2021_action_both_9021-a27_9021_user_id_2021-02-23_093522.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9021-a27_9021_user_id_2021-02-23_093522/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9021-a27_9021_user_id_2021-02-23_093522/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9021-a29_9021_user_id_2021-02-03_105247",
+      "split": "train",
+      "actor_id": "9021",
+      "toy_id": "202",
+      "mistake_annotation_rows": 6,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9021-a29_9021_user_id_2021-02-03_105247.txt",
+        "disassembly_nusar-2021_action_both_9021-a29_9021_user_id_2021-02-03_105247.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9021-a29_9021_user_id_2021-02-03_105247/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9021-a29_9021_user_id_2021-02-03_105247/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9021-a29_9021_user_id_2021-02-23_094113",
+      "split": "train",
+      "actor_id": "9021",
+      "toy_id": "202",
+      "mistake_annotation_rows": 6,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9021-a29_9021_user_id_2021-02-23_094113.txt",
+        "disassembly_nusar-2021_action_both_9021-a29_9021_user_id_2021-02-23_094113.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9021-a29_9021_user_id_2021-02-23_094113/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9021-a29_9021_user_id_2021-02-23_094113/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9021-b05c_9021_user_id_2021-02-23_094649",
+      "split": "train",
+      "actor_id": "9021",
+      "toy_id": "202",
+      "mistake_annotation_rows": 16,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9021-b05c_9021_user_id_2021-02-23_094649.txt",
+        "disassembly_nusar-2021_action_both_9021-b05c_9021_user_id_2021-02-23_094649.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9021-b05c_9021_user_id_2021-02-23_094649/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9021-b05c_9021_user_id_2021-02-23_094649/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9021-c03d_9021_user_id_2021-02-23_100036",
+      "split": "train",
+      "actor_id": "9021",
+      "toy_id": "202",
+      "mistake_annotation_rows": 5,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9021-c03d_9021_user_id_2021-02-23_100036.txt",
+        "disassembly_nusar-2021_action_both_9021-c03d_9021_user_id_2021-02-23_100036.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9021-c03d_9021_user_id_2021-02-23_100036/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9021-c03d_9021_user_id_2021-02-23_100036/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9021-c10a_9021_user_id_2021-02-23_100458",
+      "split": "train",
+      "actor_id": "9021",
+      "toy_id": "202",
+      "mistake_annotation_rows": 10,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9021-c10a_9021_user_id_2021-02-23_100458.txt",
+        "disassembly_nusar-2021_action_both_9021-c10a_9021_user_id_2021-02-23_100458.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9021-c10a_9021_user_id_2021-02-23_100458/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9021-c10a_9021_user_id_2021-02-23_100458/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9022-a15_9022_user_id_2021-02-03_111237",
+      "split": "train",
+      "actor_id": "9022",
+      "toy_id": "202",
+      "mistake_annotation_rows": 4,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9022-a15_9022_user_id_2021-02-03_111237.txt",
+        "disassembly_nusar-2021_action_both_9022-a15_9022_user_id_2021-02-03_111237.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9022-a15_9022_user_id_2021-02-03_111237/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9022-a15_9022_user_id_2021-02-03_111237/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9022-a15_9022_user_id_2021-02-23_104138",
+      "split": "train",
+      "actor_id": "9022",
+      "toy_id": "202",
+      "mistake_annotation_rows": 4,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9022-a15_9022_user_id_2021-02-23_104138.txt",
+        "disassembly_nusar-2021_action_both_9022-a15_9022_user_id_2021-02-23_104138.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9022-a15_9022_user_id_2021-02-23_104138/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9022-a15_9022_user_id_2021-02-23_104138/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9022-a18_9022_user_id_2021-02-03_112259",
+      "split": "train",
+      "actor_id": "9022",
+      "toy_id": "202",
+      "mistake_annotation_rows": 5,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9022-a18_9022_user_id_2021-02-03_112259.txt",
+        "disassembly_nusar-2021_action_both_9022-a18_9022_user_id_2021-02-03_112259.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9022-a18_9022_user_id_2021-02-03_112259/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9022-a18_9022_user_id_2021-02-03_112259/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9022-a18_9022_user_id_2021-02-23_104757",
+      "split": "train",
+      "actor_id": "9022",
+      "toy_id": "202",
+      "mistake_annotation_rows": 5,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9022-a18_9022_user_id_2021-02-23_104757.txt",
+        "disassembly_nusar-2021_action_both_9022-a18_9022_user_id_2021-02-23_104757.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9022-a18_9022_user_id_2021-02-23_104757/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9022-a18_9022_user_id_2021-02-23_104757/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9022-b03b_9022_user_id_2021-02-03_113201",
+      "split": "train",
+      "actor_id": "9022",
+      "toy_id": "202",
+      "mistake_annotation_rows": 3,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9022-b03b_9022_user_id_2021-02-03_113201.txt",
+        "disassembly_nusar-2021_action_both_9022-b03b_9022_user_id_2021-02-03_113201.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9022-b03b_9022_user_id_2021-02-03_113201/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9022-b03b_9022_user_id_2021-02-03_113201/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9022-b03b_9022_user_id_2021-02-23_105258",
+      "split": "train",
+      "actor_id": "9022",
+      "toy_id": "202",
+      "mistake_annotation_rows": 5,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9022-b03b_9022_user_id_2021-02-23_105258.txt",
+        "disassembly_nusar-2021_action_both_9022-b03b_9022_user_id_2021-02-23_105258.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9022-b03b_9022_user_id_2021-02-23_105258/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9022-b03b_9022_user_id_2021-02-23_105258/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9022-b06c_9022_user_id_2021-02-03_114112",
+      "split": "train",
+      "actor_id": "9022",
+      "toy_id": "202",
+      "mistake_annotation_rows": 5,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9022-b06c_9022_user_id_2021-02-03_114112.txt",
+        "disassembly_nusar-2021_action_both_9022-b06c_9022_user_id_2021-02-03_114112.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9022-b06c_9022_user_id_2021-02-03_114112/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9022-b06c_9022_user_id_2021-02-03_114112/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9022-b06c_9022_user_id_2021-02-23_112257",
+      "split": "train",
+      "actor_id": "9022",
+      "toy_id": "202",
+      "mistake_annotation_rows": 5,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9022-b06c_9022_user_id_2021-02-23_112257.txt",
+        "disassembly_nusar-2021_action_both_9022-b06c_9022_user_id_2021-02-23_112257.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9022-b06c_9022_user_id_2021-02-23_112257/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9022-b06c_9022_user_id_2021-02-23_112257/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9022-c01a_9022_user_id_2021-02-23_111001",
+      "split": "train",
+      "actor_id": "9022",
+      "toy_id": "202",
+      "mistake_annotation_rows": 9,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9022-c01a_9022_user_id_2021-02-23_111001.txt",
+        "disassembly_nusar-2021_action_both_9022-c01a_9022_user_id_2021-02-23_111001.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9022-c01a_9022_user_id_2021-02-23_111001/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9022-c01a_9022_user_id_2021-02-23_111001/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9022-c03e_9022_user_id_2021-02-23_111647",
+      "split": "train",
+      "actor_id": "9022",
+      "toy_id": "202",
+      "mistake_annotation_rows": 8,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9022-c03e_9022_user_id_2021-02-23_111647.txt",
+        "disassembly_nusar-2021_action_both_9022-c03e_9022_user_id_2021-02-23_111647.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9022-c03e_9022_user_id_2021-02-23_111647/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9022-c03e_9022_user_id_2021-02-23_111647/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9023-a03_9023_user_id_2021-02-03_131031",
+      "split": "train",
+      "actor_id": "9023",
+      "toy_id": "202",
+      "mistake_annotation_rows": 8,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9023-a03_9023_user_id_2021-02-03_131031.txt",
+        "disassembly_nusar-2021_action_both_9023-a03_9023_user_id_2021-02-03_131031.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9023-a03_9023_user_id_2021-02-03_131031/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9023-a03_9023_user_id_2021-02-03_131031/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9023-a03_9023_user_id_2021-02-23_133018",
+      "split": "train",
+      "actor_id": "9023",
+      "toy_id": "202",
+      "mistake_annotation_rows": 11,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9023-a03_9023_user_id_2021-02-23_133018.txt",
+        "disassembly_nusar-2021_action_both_9023-a03_9023_user_id_2021-02-23_133018.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9023-a03_9023_user_id_2021-02-23_133018/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9023-a03_9023_user_id_2021-02-23_133018/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9023-a19_9023_user_id_2021-02-03_132936",
+      "split": "train",
+      "actor_id": "9023",
+      "toy_id": "202",
+      "mistake_annotation_rows": 3,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9023-a19_9023_user_id_2021-02-03_132936.txt",
+        "disassembly_nusar-2021_action_both_9023-a19_9023_user_id_2021-02-03_132936.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9023-a19_9023_user_id_2021-02-03_132936/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9023-a19_9023_user_id_2021-02-03_132936/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9023-a19_9023_user_id_2021-02-23_133654",
+      "split": "train",
+      "actor_id": "9023",
+      "toy_id": "202",
+      "mistake_annotation_rows": 5,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9023-a19_9023_user_id_2021-02-23_133654.txt",
+        "disassembly_nusar-2021_action_both_9023-a19_9023_user_id_2021-02-23_133654.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9023-a19_9023_user_id_2021-02-23_133654/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9023-a19_9023_user_id_2021-02-23_133654/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9023-b05d_9023_user_id_2021-02-03_134815",
+      "split": "train",
+      "actor_id": "9023",
+      "toy_id": "202",
+      "mistake_annotation_rows": 10,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9023-b05d_9023_user_id_2021-02-03_134815.txt",
+        "disassembly_nusar-2021_action_both_9023-b05d_9023_user_id_2021-02-03_134815.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9023-b05d_9023_user_id_2021-02-03_134815/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9023-b05d_9023_user_id_2021-02-03_134815/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9023-c04b_9023_user_id_2021-02-03_135504",
+      "split": "train",
+      "actor_id": "9023",
+      "toy_id": "202",
+      "mistake_annotation_rows": 49,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9023-c04b_9023_user_id_2021-02-03_135504.txt",
+        "disassembly_nusar-2021_action_both_9023-c04b_9023_user_id_2021-02-03_135504.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9023-c04b_9023_user_id_2021-02-03_135504/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9023-c04b_9023_user_id_2021-02-03_135504/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9023-c04b_9023_user_id_2021-02-23_144136",
+      "split": "train",
+      "actor_id": "9023",
+      "toy_id": "202",
+      "mistake_annotation_rows": 7,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9023-c04b_9023_user_id_2021-02-23_144136.txt",
+        "disassembly_nusar-2021_action_both_9023-c04b_9023_user_id_2021-02-23_144136.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9023-c04b_9023_user_id_2021-02-23_144136/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9023-c04b_9023_user_id_2021-02-23_144136/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9023-c05b_9023_user_id_2021-02-23_144552",
+      "split": "train",
+      "actor_id": "9023",
+      "toy_id": "202",
+      "mistake_annotation_rows": 17,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9023-c05b_9023_user_id_2021-02-23_144552.txt",
+        "disassembly_nusar-2021_action_both_9023-c05b_9023_user_id_2021-02-23_144552.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9023-c05b_9023_user_id_2021-02-23_144552/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9023-c05b_9023_user_id_2021-02-23_144552/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9023-c09c_9023_user_id_2021-02-03_133550",
+      "split": "train",
+      "actor_id": "9023",
+      "toy_id": "202",
+      "mistake_annotation_rows": 18,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9023-c09c_9023_user_id_2021-02-03_133550.txt",
+        "disassembly_nusar-2021_action_both_9023-c09c_9023_user_id_2021-02-03_133550.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9023-c09c_9023_user_id_2021-02-03_133550/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9023-c09c_9023_user_id_2021-02-03_133550/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9023-c09c_9023_user_id_2021-02-23_134459",
+      "split": "train",
+      "actor_id": "9023",
+      "toy_id": "202",
+      "mistake_annotation_rows": 9,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9023-c09c_9023_user_id_2021-02-23_134459.txt",
+        "disassembly_nusar-2021_action_both_9023-c09c_9023_user_id_2021-02-23_134459.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9023-c09c_9023_user_id_2021-02-23_134459/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9023-c09c_9023_user_id_2021-02-23_134459/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9025-a20_9025_user_id_2021-02-03_150504",
+      "split": "train",
+      "actor_id": "9025",
+      "toy_id": "202",
+      "mistake_annotation_rows": 8,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9025-a20_9025_user_id_2021-02-03_150504.txt",
+        "disassembly_nusar-2021_action_both_9025-a20_9025_user_id_2021-02-03_150504.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9025-a20_9025_user_id_2021-02-03_150504/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9025-a20_9025_user_id_2021-02-03_150504/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9025-a20_9025_user_id_2021-02-18_095735",
+      "split": "train",
+      "actor_id": "9025",
+      "toy_id": "202",
+      "mistake_annotation_rows": 6,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9025-a20_9025_user_id_2021-02-18_095735.txt",
+        "disassembly_nusar-2021_action_both_9025-a20_9025_user_id_2021-02-18_095735.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9025-a20_9025_user_id_2021-02-18_095735/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9025-a20_9025_user_id_2021-02-18_095735/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9025-a26_9025_user_id_2021-02-03_152505",
+      "split": "train",
+      "actor_id": "9025",
+      "toy_id": "202",
+      "mistake_annotation_rows": 5,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9025-a26_9025_user_id_2021-02-03_152505.txt",
+        "disassembly_nusar-2021_action_both_9025-a26_9025_user_id_2021-02-03_152505.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9025-a26_9025_user_id_2021-02-03_152505/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9025-a26_9025_user_id_2021-02-03_152505/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9025-a26_9025_user_id_2021-02-18_101010",
+      "split": "train",
+      "actor_id": "9025",
+      "toy_id": "202",
+      "mistake_annotation_rows": 5,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9025-a26_9025_user_id_2021-02-18_101010.txt",
+        "disassembly_nusar-2021_action_both_9025-a26_9025_user_id_2021-02-18_101010.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9025-a26_9025_user_id_2021-02-18_101010/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9025-a26_9025_user_id_2021-02-18_101010/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9025-b08d_9025_user_id_2021-02-03_153246",
+      "split": "train",
+      "actor_id": "9025",
+      "toy_id": "202",
+      "mistake_annotation_rows": 6,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9025-b08d_9025_user_id_2021-02-03_153246.txt",
+        "disassembly_nusar-2021_action_both_9025-b08d_9025_user_id_2021-02-03_153246.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9025-b08d_9025_user_id_2021-02-03_153246/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9025-b08d_9025_user_id_2021-02-03_153246/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9025-c05a_9025_user_id_2021-02-03_155604",
+      "split": "train",
+      "actor_id": "9025",
+      "toy_id": "202",
+      "mistake_annotation_rows": 8,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9025-c05a_9025_user_id_2021-02-03_155604.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9025-c05a_9025_user_id_2021-02-03_155604/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9025-c05a_9025_user_id_2021-02-03_155604/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9025-c05a_9025_user_id_2021-02-18_102043",
+      "split": "train",
+      "actor_id": "9025",
+      "toy_id": "202",
+      "mistake_annotation_rows": 12,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9025-c05a_9025_user_id_2021-02-18_102043.txt",
+        "disassembly_nusar-2021_action_both_9025-c05a_9025_user_id_2021-02-18_102043.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9025-c05a_9025_user_id_2021-02-18_102043/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9025-c05a_9025_user_id_2021-02-18_102043/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9025-c06b_9025_user_id_2021-02-03_160657",
+      "split": "train",
+      "actor_id": "9025",
+      "toy_id": "202",
+      "mistake_annotation_rows": 7,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9025-c06b_9025_user_id_2021-02-03_160657.txt",
+        "disassembly_nusar-2021_action_both_9025-c06b_9025_user_id_2021-02-03_160657.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9025-c06b_9025_user_id_2021-02-03_160657/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9025-c06b_9025_user_id_2021-02-03_160657/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9025-c06b_9025_user_id_2021-02-18_105233",
+      "split": "train",
+      "actor_id": "9025",
+      "toy_id": "202",
+      "mistake_annotation_rows": 6,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9025-c06b_9025_user_id_2021-02-18_105233.txt",
+        "disassembly_nusar-2021_action_both_9025-c06b_9025_user_id_2021-02-18_105233.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9025-c06b_9025_user_id_2021-02-18_105233/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9025-c06b_9025_user_id_2021-02-18_105233/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9025-c12a_9025_user_id_2021-02-18_111731",
+      "split": "train",
+      "actor_id": "9025",
+      "toy_id": "202",
+      "mistake_annotation_rows": 13,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9025-c12a_9025_user_id_2021-02-18_111731.txt",
+        "disassembly_nusar-2021_action_both_9025-c12a_9025_user_id_2021-02-18_111731.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9025-c12a_9025_user_id_2021-02-18_111731/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9025-c12a_9025_user_id_2021-02-18_111731/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9033-a30_9033_user_id_2021-02-04_132852",
+      "split": "train",
+      "actor_id": "9033",
+      "toy_id": "202",
+      "mistake_annotation_rows": 9,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9033-a30_9033_user_id_2021-02-04_132852.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9033-a30_9033_user_id_2021-02-04_132852/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9033-a30_9033_user_id_2021-02-04_132852/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9033-a30_9033_user_id_2021-02-18_141254",
+      "split": "train",
+      "actor_id": "9033",
+      "toy_id": "202",
+      "mistake_annotation_rows": 7,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9033-a30_9033_user_id_2021-02-18_141254.txt",
+        "disassembly_nusar-2021_action_both_9033-a30_9033_user_id_2021-02-18_141254.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9033-a30_9033_user_id_2021-02-18_141254/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9033-a30_9033_user_id_2021-02-18_141254/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9033-b04d_9033_user_id_2021-02-04_135802",
+      "split": "train",
+      "actor_id": "9033",
+      "toy_id": "202",
+      "mistake_annotation_rows": 3,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9033-b04d_9033_user_id_2021-02-04_135802.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9033-b04d_9033_user_id_2021-02-04_135802/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9033-b04d_9033_user_id_2021-02-04_135802/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9033-b04d_9033_user_id_2021-02-18_141950",
+      "split": "train",
+      "actor_id": "9033",
+      "toy_id": "202",
+      "mistake_annotation_rows": 9,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9033-b04d_9033_user_id_2021-02-18_141950.txt",
+        "disassembly_nusar-2021_action_both_9033-b04d_9033_user_id_2021-02-18_141950.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9033-b04d_9033_user_id_2021-02-18_141950/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9033-b04d_9033_user_id_2021-02-18_141950/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9033-c02a_9033_user_id_2021-02-04_140532",
+      "split": "train",
+      "actor_id": "9033",
+      "toy_id": "202",
+      "mistake_annotation_rows": 28,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9033-c02a_9033_user_id_2021-02-04_140532.txt",
+        "disassembly_nusar-2021_action_both_9033-c02a_9033_user_id_2021-02-04_140532.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9033-c02a_9033_user_id_2021-02-04_140532/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9033-c02a_9033_user_id_2021-02-04_140532/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9033-c02a_9033_user_id_2021-02-18_143949",
+      "split": "train",
+      "actor_id": "9033",
+      "toy_id": "202",
+      "mistake_annotation_rows": 11,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9033-c02a_9033_user_id_2021-02-18_143949.txt",
+        "disassembly_nusar-2021_action_both_9033-c02a_9033_user_id_2021-02-18_143949.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9033-c02a_9033_user_id_2021-02-18_143949/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9033-c02a_9033_user_id_2021-02-18_143949/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9033-c06a_9033_user_id_2021-02-18_144743",
+      "split": "train",
+      "actor_id": "9033",
+      "toy_id": "202",
+      "mistake_annotation_rows": 7,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9033-c06a_9033_user_id_2021-02-18_144743.txt",
+        "disassembly_nusar-2021_action_both_9033-c06a_9033_user_id_2021-02-18_144743.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9033-c06a_9033_user_id_2021-02-18_144743/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9033-c06a_9033_user_id_2021-02-18_144743/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9033-c12e_9033_user_id_2021-02-18_150129",
+      "split": "train",
+      "actor_id": "9033",
+      "toy_id": "202",
+      "mistake_annotation_rows": 14,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9033-c12e_9033_user_id_2021-02-18_150129.txt",
+        "disassembly_nusar-2021_action_both_9033-c12e_9033_user_id_2021-02-18_150129.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9033-c12e_9033_user_id_2021-02-18_150129/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9033-c12e_9033_user_id_2021-02-18_150129/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9033-c13a_9033_user_id_2021-02-18_151004",
+      "split": "train",
+      "actor_id": "9033",
+      "toy_id": "202",
+      "mistake_annotation_rows": 17,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9033-c13a_9033_user_id_2021-02-18_151004.txt",
+        "disassembly_nusar-2021_action_both_9033-c13a_9033_user_id_2021-02-18_151004.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9033-c13a_9033_user_id_2021-02-18_151004/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9033-c13a_9033_user_id_2021-02-18_151004/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9034-a31_9034_user_id_2021-02-04_152413",
+      "split": "train",
+      "actor_id": "9034",
+      "toy_id": "202",
+      "mistake_annotation_rows": 28,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9034-a31_9034_user_id_2021-02-04_152413.txt",
+        "disassembly_nusar-2021_action_both_9034-a31_9034_user_id_2021-02-04_152413.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9034-a31_9034_user_id_2021-02-04_152413/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9034-a31_9034_user_id_2021-02-04_152413/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9034-a31_9034_user_id_2021-02-23_171931",
+      "split": "train",
+      "actor_id": "9034",
+      "toy_id": "202",
+      "mistake_annotation_rows": 22,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9034-a31_9034_user_id_2021-02-23_171931.txt",
+        "disassembly_nusar-2021_action_both_9034-a31_9034_user_id_2021-02-23_171931.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9034-a31_9034_user_id_2021-02-23_171931/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9034-a31_9034_user_id_2021-02-23_171931/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9034-b02b_9034_user_id_2021-02-04_153734",
+      "split": "train",
+      "actor_id": "9034",
+      "toy_id": "202",
+      "mistake_annotation_rows": 8,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9034-b02b_9034_user_id_2021-02-04_153734.txt",
+        "disassembly_nusar-2021_action_both_9034-b02b_9034_user_id_2021-02-04_153734.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9034-b02b_9034_user_id_2021-02-04_153734/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9034-b02b_9034_user_id_2021-02-04_153734/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9034-b02b_9034_user_id_2021-02-23_172457",
+      "split": "train",
+      "actor_id": "9034",
+      "toy_id": "202",
+      "mistake_annotation_rows": 8,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9034-b02b_9034_user_id_2021-02-23_172457.txt",
+        "disassembly_nusar-2021_action_both_9034-b02b_9034_user_id_2021-02-23_172457.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9034-b02b_9034_user_id_2021-02-23_172457/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9034-b02b_9034_user_id_2021-02-23_172457/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9034-b04c_9034_user_id_2021-02-04_155013",
+      "split": "train",
+      "actor_id": "9034",
+      "toy_id": "202",
+      "mistake_annotation_rows": 8,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9034-b04c_9034_user_id_2021-02-04_155013.txt",
+        "disassembly_nusar-2021_action_both_9034-b04c_9034_user_id_2021-02-04_155013.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9034-b04c_9034_user_id_2021-02-04_155013/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9034-b04c_9034_user_id_2021-02-04_155013/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9034-b04c_9034_user_id_2021-02-23_173159",
+      "split": "train",
+      "actor_id": "9034",
+      "toy_id": "202",
+      "mistake_annotation_rows": 14,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9034-b04c_9034_user_id_2021-02-23_173159.txt",
+        "disassembly_nusar-2021_action_both_9034-b04c_9034_user_id_2021-02-23_173159.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9034-b04c_9034_user_id_2021-02-23_173159/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9034-b04c_9034_user_id_2021-02-23_173159/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9034-c02b_9034_user_id_2021-02-23_173828",
+      "split": "train",
+      "actor_id": "9034",
+      "toy_id": "202",
+      "mistake_annotation_rows": 7,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9034-c02b_9034_user_id_2021-02-23_173828.txt",
+        "disassembly_nusar-2021_action_both_9034-c02b_9034_user_id_2021-02-23_173828.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9034-c02b_9034_user_id_2021-02-23_173828/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9034-c02b_9034_user_id_2021-02-23_173828/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9034-c08b_9034_user_id_2021-02-04_161726",
+      "split": "train",
+      "actor_id": "9034",
+      "toy_id": "202",
+      "mistake_annotation_rows": 7,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9034-c08b_9034_user_id_2021-02-04_161726.txt",
+        "disassembly_nusar-2021_action_both_9034-c08b_9034_user_id_2021-02-04_161726.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9034-c08b_9034_user_id_2021-02-04_161726/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9034-c08b_9034_user_id_2021-02-04_161726/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9034-c08b_9034_user_id_2021-02-23_175357",
+      "split": "train",
+      "actor_id": "9034",
+      "toy_id": "202",
+      "mistake_annotation_rows": 10,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9034-c08b_9034_user_id_2021-02-23_175357.txt",
+        "disassembly_nusar-2021_action_both_9034-c08b_9034_user_id_2021-02-23_175357.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9034-c08b_9034_user_id_2021-02-23_175357/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9034-c08b_9034_user_id_2021-02-23_175357/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9034-c13f_9034_user_id_2021-02-23_180813",
+      "split": "train",
+      "actor_id": "9034",
+      "toy_id": "202",
+      "mistake_annotation_rows": 6,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9034-c13f_9034_user_id_2021-02-23_180813.txt",
+        "disassembly_nusar-2021_action_both_9034-c13f_9034_user_id_2021-02-23_180813.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9034-c13f_9034_user_id_2021-02-23_180813/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9034-c13f_9034_user_id_2021-02-23_180813/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9035-a06_9035_user_id_2021-02-04_163525",
+      "split": "train",
+      "actor_id": "9035",
+      "toy_id": "202",
+      "mistake_annotation_rows": 11,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9035-a06_9035_user_id_2021-02-04_163525.txt",
+        "disassembly_nusar-2021_action_both_9035-a06_9035_user_id_2021-02-04_163525.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9035-a06_9035_user_id_2021-02-04_163525/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9035-a06_9035_user_id_2021-02-04_163525/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9035-a06_9035_user_id_2021-02-18_152536",
+      "split": "train",
+      "actor_id": "9035",
+      "toy_id": "202",
+      "mistake_annotation_rows": 10,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9035-a06_9035_user_id_2021-02-18_152536.txt",
+        "disassembly_nusar-2021_action_both_9035-a06_9035_user_id_2021-02-18_152536.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9035-a06_9035_user_id_2021-02-18_152536/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9035-a06_9035_user_id_2021-02-18_152536/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9035-c02c_9035_user_id_2021-02-04_170431",
+      "split": "train",
+      "actor_id": "9035",
+      "toy_id": "202",
+      "mistake_annotation_rows": 5,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9035-c02c_9035_user_id_2021-02-04_170431.txt",
+        "disassembly_nusar-2021_action_both_9035-c02c_9035_user_id_2021-02-04_170431.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9035-c02c_9035_user_id_2021-02-04_170431/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9035-c02c_9035_user_id_2021-02-04_170431/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9035-c02c_9035_user_id_2021-02-18_153533",
+      "split": "train",
+      "actor_id": "9035",
+      "toy_id": "202",
+      "mistake_annotation_rows": 14,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9035-c02c_9035_user_id_2021-02-18_153533.txt",
+        "disassembly_nusar-2021_action_both_9035-c02c_9035_user_id_2021-02-18_153533.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9035-c02c_9035_user_id_2021-02-18_153533/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9035-c02c_9035_user_id_2021-02-18_153533/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9035-c07b_9035_user_id_2021-02-04_171214",
+      "split": "train",
+      "actor_id": "9035",
+      "toy_id": "202",
+      "mistake_annotation_rows": 9,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9035-c07b_9035_user_id_2021-02-04_171214.txt",
+        "disassembly_nusar-2021_action_both_9035-c07b_9035_user_id_2021-02-04_171214.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9035-c07b_9035_user_id_2021-02-04_171214/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9035-c07b_9035_user_id_2021-02-04_171214/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9035-c07b_9035_user_id_2021-02-18_154148",
+      "split": "train",
+      "actor_id": "9035",
+      "toy_id": "202",
+      "mistake_annotation_rows": 12,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9035-c07b_9035_user_id_2021-02-18_154148.txt",
+        "disassembly_nusar-2021_action_both_9035-c07b_9035_user_id_2021-02-18_154148.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9035-c07b_9035_user_id_2021-02-18_154148/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9035-c07b_9035_user_id_2021-02-18_154148/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9035-c08c_9035_user_id_2021-02-04_172543",
+      "split": "train",
+      "actor_id": "9035",
+      "toy_id": "202",
+      "mistake_annotation_rows": 11,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9035-c08c_9035_user_id_2021-02-04_172543.txt",
+        "disassembly_nusar-2021_action_both_9035-c08c_9035_user_id_2021-02-04_172543.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9035-c08c_9035_user_id_2021-02-04_172543/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9035-c08c_9035_user_id_2021-02-04_172543/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9035-c08c_9035_user_id_2021-02-18_163203",
+      "split": "train",
+      "actor_id": "9035",
+      "toy_id": "202",
+      "mistake_annotation_rows": 8,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9035-c08c_9035_user_id_2021-02-18_163203.txt",
+        "disassembly_nusar-2021_action_both_9035-c08c_9035_user_id_2021-02-18_163203.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9035-c08c_9035_user_id_2021-02-18_163203/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9035-c08c_9035_user_id_2021-02-18_163203/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9035-c09a_9035_user_id_2021-02-18_163930",
+      "split": "train",
+      "actor_id": "9035",
+      "toy_id": "202",
+      "mistake_annotation_rows": 8,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9035-c09a_9035_user_id_2021-02-18_163930.txt",
+        "disassembly_nusar-2021_action_both_9035-c09a_9035_user_id_2021-02-18_163930.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9035-c09a_9035_user_id_2021-02-18_163930/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9035-c09a_9035_user_id_2021-02-18_163930/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9035-c14a_9035_user_id_2021-02-18_164650",
+      "split": "train",
+      "actor_id": "9035",
+      "toy_id": "202",
+      "mistake_annotation_rows": 19,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9035-c14a_9035_user_id_2021-02-18_164650.txt",
+        "disassembly_nusar-2021_action_both_9035-c14a_9035_user_id_2021-02-18_164650.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9035-c14a_9035_user_id_2021-02-18_164650/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9035-c14a_9035_user_id_2021-02-18_164650/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9044-a08_9044_user_id_2021-02-05_154403",
+      "split": "train",
+      "actor_id": "9044",
+      "toy_id": "202",
+      "mistake_annotation_rows": 10,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9044-a08_9044_user_id_2021-02-05_154403.txt",
+        "disassembly_nusar-2021_action_both_9044-a08_9044_user_id_2021-02-05_154403.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9044-a08_9044_user_id_2021-02-05_154403/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9044-a08_9044_user_id_2021-02-05_154403/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9044-a08_9044_user_id_2021-02-19_083738",
+      "split": "train",
+      "actor_id": "9044",
+      "toy_id": "202",
+      "mistake_annotation_rows": 10,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9044-a08_9044_user_id_2021-02-19_083738.txt",
+        "disassembly_nusar-2021_action_both_9044-a08_9044_user_id_2021-02-19_083738.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9044-a08_9044_user_id_2021-02-19_083738/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9044-a08_9044_user_id_2021-02-19_083738/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9044-a09_9044_user_id_2021-02-05_155544",
+      "split": "train",
+      "actor_id": "9044",
+      "toy_id": "202",
+      "mistake_annotation_rows": 17,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9044-a09_9044_user_id_2021-02-05_155544.txt",
+        "disassembly_nusar-2021_action_both_9044-a09_9044_user_id_2021-02-05_155544.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9044-a09_9044_user_id_2021-02-05_155544/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9044-a09_9044_user_id_2021-02-05_155544/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9044-a09_9044_user_id_2021-02-19_084540",
+      "split": "train",
+      "actor_id": "9044",
+      "toy_id": "202",
+      "mistake_annotation_rows": 6,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9044-a09_9044_user_id_2021-02-19_084540.txt",
+        "disassembly_nusar-2021_action_both_9044-a09_9044_user_id_2021-02-19_084540.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9044-a09_9044_user_id_2021-02-19_084540/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9044-a09_9044_user_id_2021-02-19_084540/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9044-b01a_9044_user_id_2021-02-05_160818",
+      "split": "train",
+      "actor_id": "9044",
+      "toy_id": "202",
+      "mistake_annotation_rows": 19,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9044-b01a_9044_user_id_2021-02-05_160818.txt",
+        "disassembly_nusar-2021_action_both_9044-b01a_9044_user_id_2021-02-05_160818.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9044-b01a_9044_user_id_2021-02-05_160818/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9044-b01a_9044_user_id_2021-02-05_160818/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9044-b01a_9044_user_id_2021-02-19_085343",
+      "split": "train",
+      "actor_id": "9044",
+      "toy_id": "202",
+      "mistake_annotation_rows": 25,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9044-b01a_9044_user_id_2021-02-19_085343.txt",
+        "disassembly_nusar-2021_action_both_9044-b01a_9044_user_id_2021-02-19_085343.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9044-b01a_9044_user_id_2021-02-19_085343/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9044-b01a_9044_user_id_2021-02-19_085343/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9044-b05b_9044_user_id_2021-02-05_163057",
+      "split": "train",
+      "actor_id": "9044",
+      "toy_id": "202",
+      "mistake_annotation_rows": 8,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9044-b05b_9044_user_id_2021-02-05_163057.txt",
+        "disassembly_nusar-2021_action_both_9044-b05b_9044_user_id_2021-02-05_163057.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9044-b05b_9044_user_id_2021-02-05_163057/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9044-b05b_9044_user_id_2021-02-05_163057/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9044-b05b_9044_user_id_2021-02-19_091348",
+      "split": "train",
+      "actor_id": "9044",
+      "toy_id": "202",
+      "mistake_annotation_rows": 10,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9044-b05b_9044_user_id_2021-02-19_091348.txt",
+        "disassembly_nusar-2021_action_both_9044-b05b_9044_user_id_2021-02-19_091348.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9044-b05b_9044_user_id_2021-02-19_091348/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9044-b05b_9044_user_id_2021-02-19_091348/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9044-b06a_9044_user_id_2021-02-19_092710",
+      "split": "train",
+      "actor_id": "9044",
+      "toy_id": "202",
+      "mistake_annotation_rows": 7,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9044-b06a_9044_user_id_2021-02-19_092710.txt",
+        "disassembly_nusar-2021_action_both_9044-b06a_9044_user_id_2021-02-19_092710.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9044-b06a_9044_user_id_2021-02-19_092710/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9044-b06a_9044_user_id_2021-02-19_092710/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9044-c03a_9044_user_id_2021-02-19_093447",
+      "split": "train",
+      "actor_id": "9044",
+      "toy_id": "202",
+      "mistake_annotation_rows": 4,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9044-c03a_9044_user_id_2021-02-19_093447.txt",
+        "disassembly_nusar-2021_action_both_9044-c03a_9044_user_id_2021-02-19_093447.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9044-c03a_9044_user_id_2021-02-19_093447/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9044-c03a_9044_user_id_2021-02-19_093447/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9045-a23_9045_user_id_2021-02-05_165228",
+      "split": "train",
+      "actor_id": "9045",
+      "toy_id": "202",
+      "mistake_annotation_rows": 40,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9045-a23_9045_user_id_2021-02-05_165228.txt",
+        "disassembly_nusar-2021_action_both_9045-a23_9045_user_id_2021-02-05_165228.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9045-a23_9045_user_id_2021-02-05_165228/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9045-a23_9045_user_id_2021-02-05_165228/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9045-a23_9045_user_id_2021-02-19_102455",
+      "split": "train",
+      "actor_id": "9045",
+      "toy_id": "202",
+      "mistake_annotation_rows": 9,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9045-a23_9045_user_id_2021-02-19_102455.txt",
+        "disassembly_nusar-2021_action_both_9045-a23_9045_user_id_2021-02-19_102455.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9045-a23_9045_user_id_2021-02-19_102455/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9045-a23_9045_user_id_2021-02-19_102455/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9045-b05d_9045_user_id_2021-02-05_171423",
+      "split": "train",
+      "actor_id": "9045",
+      "toy_id": "202",
+      "mistake_annotation_rows": 5,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9045-b05d_9045_user_id_2021-02-05_171423.txt",
+        "disassembly_nusar-2021_action_both_9045-b05d_9045_user_id_2021-02-05_171423.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9045-b05d_9045_user_id_2021-02-05_171423/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9045-b05d_9045_user_id_2021-02-05_171423/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9045-b05d_9045_user_id_2021-02-19_103439",
+      "split": "train",
+      "actor_id": "9045",
+      "toy_id": "202",
+      "mistake_annotation_rows": 5,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9045-b05d_9045_user_id_2021-02-19_103439.txt",
+        "disassembly_nusar-2021_action_both_9045-b05d_9045_user_id_2021-02-19_103439.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9045-b05d_9045_user_id_2021-02-19_103439/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9045-b05d_9045_user_id_2021-02-19_103439/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9045-b06c_9045_user_id_2021-02-05_173118",
+      "split": "train",
+      "actor_id": "9045",
+      "toy_id": "202",
+      "mistake_annotation_rows": 5,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9045-b06c_9045_user_id_2021-02-05_173118.txt",
+        "disassembly_nusar-2021_action_both_9045-b06c_9045_user_id_2021-02-05_173118.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9045-b06c_9045_user_id_2021-02-05_173118/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9045-b06c_9045_user_id_2021-02-05_173118/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9045-b06c_9045_user_id_2021-02-19_121606",
+      "split": "train",
+      "actor_id": "9045",
+      "toy_id": "202",
+      "mistake_annotation_rows": 7,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9045-b06c_9045_user_id_2021-02-19_121606.txt",
+        "disassembly_nusar-2021_action_both_9045-b06c_9045_user_id_2021-02-19_121606.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9045-b06c_9045_user_id_2021-02-19_121606/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9045-b06c_9045_user_id_2021-02-19_121606/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9045-c03e_9045_user_id_2021-02-19_122426",
+      "split": "train",
+      "actor_id": "9045",
+      "toy_id": "202",
+      "mistake_annotation_rows": 8,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9045-c03e_9045_user_id_2021-02-19_122426.txt",
+        "disassembly_nusar-2021_action_both_9045-c03e_9045_user_id_2021-02-19_122426.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9045-c03e_9045_user_id_2021-02-19_122426/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9045-c03e_9045_user_id_2021-02-19_122426/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9045-c13e_9045_user_id_2021-02-19_134158",
+      "split": "train",
+      "actor_id": "9045",
+      "toy_id": "202",
+      "mistake_annotation_rows": 8,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9045-c13e_9045_user_id_2021-02-19_134158.txt",
+        "disassembly_nusar-2021_action_both_9045-c13e_9045_user_id_2021-02-19_134158.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9045-c13e_9045_user_id_2021-02-19_134158/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9045-c13e_9045_user_id_2021-02-19_134158/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9054-a14_9054_user_id_2021-02-08_152449",
+      "split": "train",
+      "actor_id": "9054",
+      "toy_id": "202",
+      "mistake_annotation_rows": 10,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9054-a14_9054_user_id_2021-02-08_152449.txt",
+        "disassembly_nusar-2021_action_both_9054-a14_9054_user_id_2021-02-08_152449.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9054-a14_9054_user_id_2021-02-08_152449/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9054-a14_9054_user_id_2021-02-08_152449/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9054-a18_9054_user_id_2021-02-08_153620",
+      "split": "train",
+      "actor_id": "9054",
+      "toy_id": "202",
+      "mistake_annotation_rows": 5,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9054-a18_9054_user_id_2021-02-08_153620.txt",
+        "disassembly_nusar-2021_action_both_9054-a18_9054_user_id_2021-02-08_153620.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9054-a18_9054_user_id_2021-02-08_153620/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9054-a18_9054_user_id_2021-02-08_153620/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9054-c01a_9054_user_id_2021-02-08_160424",
+      "split": "train",
+      "actor_id": "9054",
+      "toy_id": "202",
+      "mistake_annotation_rows": 8,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9054-c01a_9054_user_id_2021-02-08_160424.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9054-c01a_9054_user_id_2021-02-08_160424/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9054-c01a_9054_user_id_2021-02-08_160424/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9054-c05a_9054_user_id_2021-02-08_160931",
+      "split": "train",
+      "actor_id": "9054",
+      "toy_id": "202",
+      "mistake_annotation_rows": 17,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9054-c05a_9054_user_id_2021-02-08_160931.txt",
+        "disassembly_nusar-2021_action_both_9054-c05a_9054_user_id_2021-02-08_160931.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9054-c05a_9054_user_id_2021-02-08_160931/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9054-c05a_9054_user_id_2021-02-08_160931/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9054-c06a_9054_user_id_2021-02-08_150948",
+      "split": "train",
+      "actor_id": "9054",
+      "toy_id": "202",
+      "mistake_annotation_rows": 12,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9054-c06a_9054_user_id_2021-02-08_150948.txt",
+        "disassembly_nusar-2021_action_both_9054-c06a_9054_user_id_2021-02-08_150948.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9054-c06a_9054_user_id_2021-02-08_150948/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9054-c06a_9054_user_id_2021-02-08_150948/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9054-c11a_9054_user_id_2021-02-08_162610",
+      "split": "train",
+      "actor_id": "9054",
+      "toy_id": "202",
+      "mistake_annotation_rows": 24,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9054-c11a_9054_user_id_2021-02-08_162610.txt",
+        "disassembly_nusar-2021_action_both_9054-c11a_9054_user_id_2021-02-08_162610.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9054-c11a_9054_user_id_2021-02-08_162610/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9054-c11a_9054_user_id_2021-02-08_162610/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9055-a07_9055_user_id_2021-02-24_102820",
+      "split": "train",
+      "actor_id": "9055",
+      "toy_id": "202",
+      "mistake_annotation_rows": 22,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9055-a07_9055_user_id_2021-02-24_102820.txt",
+        "disassembly_nusar-2021_action_both_9055-a07_9055_user_id_2021-02-24_102820.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9055-a07_9055_user_id_2021-02-24_102820/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9055-a07_9055_user_id_2021-02-24_102820/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9055-b04c_9055_user_id_2021-02-24_103545",
+      "split": "train",
+      "actor_id": "9055",
+      "toy_id": "202",
+      "mistake_annotation_rows": 9,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9055-b04c_9055_user_id_2021-02-24_103545.txt",
+        "disassembly_nusar-2021_action_both_9055-b04c_9055_user_id_2021-02-24_103545.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9055-b04c_9055_user_id_2021-02-24_103545/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9055-b04c_9055_user_id_2021-02-24_103545/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9055-b08b_9055_user_id_2021-02-09_100238",
+      "split": "train",
+      "actor_id": "9055",
+      "toy_id": "202",
+      "mistake_annotation_rows": 7,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9055-b08b_9055_user_id_2021-02-09_100238.txt",
+        "disassembly_nusar-2021_action_both_9055-b08b_9055_user_id_2021-02-09_100238.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9055-b08b_9055_user_id_2021-02-09_100238/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9055-b08b_9055_user_id_2021-02-09_100238/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9055-b08b_9055_user_id_2021-02-24_104106",
+      "split": "train",
+      "actor_id": "9055",
+      "toy_id": "202",
+      "mistake_annotation_rows": 6,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9055-b08b_9055_user_id_2021-02-24_104106.txt",
+        "disassembly_nusar-2021_action_both_9055-b08b_9055_user_id_2021-02-24_104106.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9055-b08b_9055_user_id_2021-02-24_104106/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9055-b08b_9055_user_id_2021-02-24_104106/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9055-c04b_9055_user_id_2021-02-09_102558",
+      "split": "train",
+      "actor_id": "9055",
+      "toy_id": "202",
+      "mistake_annotation_rows": 44,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9055-c04b_9055_user_id_2021-02-09_102558.txt",
+        "disassembly_nusar-2021_action_both_9055-c04b_9055_user_id_2021-02-09_102558.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9055-c04b_9055_user_id_2021-02-09_102558/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9055-c04b_9055_user_id_2021-02-09_102558/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9055-c04b_9055_user_id_2021-02-24_110239",
+      "split": "train",
+      "actor_id": "9055",
+      "toy_id": "202",
+      "mistake_annotation_rows": 14,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9055-c04b_9055_user_id_2021-02-24_110239.txt",
+        "disassembly_nusar-2021_action_both_9055-c04b_9055_user_id_2021-02-24_110239.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9055-c04b_9055_user_id_2021-02-24_110239/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9055-c04b_9055_user_id_2021-02-24_110239/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9055-c06e_9055_user_id_2021-02-09_100939",
+      "split": "train",
+      "actor_id": "9055",
+      "toy_id": "202",
+      "mistake_annotation_rows": 18,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9055-c06e_9055_user_id_2021-02-09_100939.txt",
+        "disassembly_nusar-2021_action_both_9055-c06e_9055_user_id_2021-02-09_100939.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9055-c06e_9055_user_id_2021-02-09_100939/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9055-c06e_9055_user_id_2021-02-09_100939/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9055-c06e_9055_user_id_2021-02-24_105542",
+      "split": "train",
+      "actor_id": "9055",
+      "toy_id": "202",
+      "mistake_annotation_rows": 12,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9055-c06e_9055_user_id_2021-02-24_105542.txt",
+        "disassembly_nusar-2021_action_both_9055-c06e_9055_user_id_2021-02-24_105542.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9055-c06e_9055_user_id_2021-02-24_105542/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9055-c06e_9055_user_id_2021-02-24_105542/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9055-c12b_9055_user_id_2021-02-24_111107",
+      "split": "train",
+      "actor_id": "9055",
+      "toy_id": "202",
+      "mistake_annotation_rows": 9,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9055-c12b_9055_user_id_2021-02-24_111107.txt",
+        "disassembly_nusar-2021_action_both_9055-c12b_9055_user_id_2021-02-24_111107.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9055-c12b_9055_user_id_2021-02-24_111107/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9055-c12b_9055_user_id_2021-02-24_111107/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9056-a19_9056_user_id_2021-02-09_112504",
+      "split": "train",
+      "actor_id": "9056",
+      "toy_id": "202",
+      "mistake_annotation_rows": 10,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9056-a19_9056_user_id_2021-02-09_112504.txt",
+        "disassembly_nusar-2021_action_both_9056-a19_9056_user_id_2021-02-09_112504.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9056-a19_9056_user_id_2021-02-09_112504/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9056-a19_9056_user_id_2021-02-09_112504/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9056-a19_9056_user_id_2021-02-22_141312",
+      "split": "train",
+      "actor_id": "9056",
+      "toy_id": "202",
+      "mistake_annotation_rows": 4,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9056-a19_9056_user_id_2021-02-22_141312.txt",
+        "disassembly_nusar-2021_action_both_9056-a19_9056_user_id_2021-02-22_141312.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9056-a19_9056_user_id_2021-02-22_141312/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9056-a19_9056_user_id_2021-02-22_141312/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9056-b08a_9056_user_id_2021-02-09_114053",
+      "split": "train",
+      "actor_id": "9056",
+      "toy_id": "202",
+      "mistake_annotation_rows": 6,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9056-b08a_9056_user_id_2021-02-09_114053.txt",
+        "disassembly_nusar-2021_action_both_9056-b08a_9056_user_id_2021-02-09_114053.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9056-b08a_9056_user_id_2021-02-09_114053/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9056-b08a_9056_user_id_2021-02-09_114053/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9056-b08a_9056_user_id_2021-02-22_141934",
+      "split": "train",
+      "actor_id": "9056",
+      "toy_id": "202",
+      "mistake_annotation_rows": 14,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9056-b08a_9056_user_id_2021-02-22_141934.txt",
+        "disassembly_nusar-2021_action_both_9056-b08a_9056_user_id_2021-02-22_141934.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9056-b08a_9056_user_id_2021-02-22_141934/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9056-b08a_9056_user_id_2021-02-22_141934/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9056-c01c_9056_user_id_2021-02-22_143138",
+      "split": "train",
+      "actor_id": "9056",
+      "toy_id": "202",
+      "mistake_annotation_rows": 19,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9056-c01c_9056_user_id_2021-02-22_143138.txt",
+        "disassembly_nusar-2021_action_both_9056-c01c_9056_user_id_2021-02-22_143138.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9056-c01c_9056_user_id_2021-02-22_143138/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9056-c01c_9056_user_id_2021-02-22_143138/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9056-c09a_9056_user_id_2021-02-22_140419",
+      "split": "train",
+      "actor_id": "9056",
+      "toy_id": "202",
+      "mistake_annotation_rows": 11,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9056-c09a_9056_user_id_2021-02-22_140419.txt",
+        "disassembly_nusar-2021_action_both_9056-c09a_9056_user_id_2021-02-22_140419.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9056-c09a_9056_user_id_2021-02-22_140419/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9056-c09a_9056_user_id_2021-02-22_140419/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9056-c10b_9056_user_id_2021-02-09_105117",
+      "split": "train",
+      "actor_id": "9056",
+      "toy_id": "202",
+      "mistake_annotation_rows": 51,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9056-c10b_9056_user_id_2021-02-09_105117.txt",
+        "disassembly_nusar-2021_action_both_9056-c10b_9056_user_id_2021-02-09_105117.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9056-c10b_9056_user_id_2021-02-09_105117/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9056-c10b_9056_user_id_2021-02-09_105117/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9056-c12d_9056_user_id_2021-02-22_144251",
+      "split": "train",
+      "actor_id": "9056",
+      "toy_id": "202",
+      "mistake_annotation_rows": 9,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9056-c12d_9056_user_id_2021-02-22_144251.txt",
+        "disassembly_nusar-2021_action_both_9056-c12d_9056_user_id_2021-02-22_144251.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9056-c12d_9056_user_id_2021-02-22_144251/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9056-c12d_9056_user_id_2021-02-22_144251/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9056-c13a_9056_user_id_2021-02-22_145733",
+      "split": "train",
+      "actor_id": "9056",
+      "toy_id": "202",
+      "mistake_annotation_rows": 11,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9056-c13a_9056_user_id_2021-02-22_145733.txt",
+        "disassembly_nusar-2021_action_both_9056-c13a_9056_user_id_2021-02-22_145733.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9056-c13a_9056_user_id_2021-02-22_145733/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9056-c13a_9056_user_id_2021-02-22_145733/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9061-a01_9061_user_id_2021-02-09_134524",
+      "split": "train",
+      "actor_id": "9061",
+      "toy_id": "202",
+      "mistake_annotation_rows": 29,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9061-a01_9061_user_id_2021-02-09_134524.txt",
+        "disassembly_nusar-2021_action_both_9061-a01_9061_user_id_2021-02-09_134524.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9061-a01_9061_user_id_2021-02-09_134524/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9061-a01_9061_user_id_2021-02-09_134524/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9061-b04a_9061_user_id_2021-02-09_135722",
+      "split": "train",
+      "actor_id": "9061",
+      "toy_id": "202",
+      "mistake_annotation_rows": 31,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9061-b04a_9061_user_id_2021-02-09_135722.txt",
+        "disassembly_nusar-2021_action_both_9061-b04a_9061_user_id_2021-02-09_135722.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9061-b04a_9061_user_id_2021-02-09_135722/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9061-b04a_9061_user_id_2021-02-09_135722/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9061-b08d_9061_user_id_2021-02-09_141038",
+      "split": "train",
+      "actor_id": "9061",
+      "toy_id": "202",
+      "mistake_annotation_rows": 5,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9061-b08d_9061_user_id_2021-02-09_141038.txt",
+        "disassembly_nusar-2021_action_both_9061-b08d_9061_user_id_2021-02-09_141038.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9061-b08d_9061_user_id_2021-02-09_141038/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9061-b08d_9061_user_id_2021-02-09_141038/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9061-c02a_9061_user_id_2021-02-09_141537",
+      "split": "train",
+      "actor_id": "9061",
+      "toy_id": "202",
+      "mistake_annotation_rows": 25,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9061-c02a_9061_user_id_2021-02-09_141537.txt",
+        "disassembly_nusar-2021_action_both_9061-c02a_9061_user_id_2021-02-09_141537.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9061-c02a_9061_user_id_2021-02-09_141537/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9061-c02a_9061_user_id_2021-02-09_141537/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9061-c09b_9061_user_id_2021-02-09_143132",
+      "split": "train",
+      "actor_id": "9061",
+      "toy_id": "202",
+      "mistake_annotation_rows": 9,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9061-c09b_9061_user_id_2021-02-09_143132.txt",
+        "disassembly_nusar-2021_action_both_9061-c09b_9061_user_id_2021-02-09_143132.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9061-c09b_9061_user_id_2021-02-09_143132/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9061-c09b_9061_user_id_2021-02-09_143132/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9064-a20_9064_user_id_2021-02-22_161628",
+      "split": "train",
+      "actor_id": "9064",
+      "toy_id": "202",
+      "mistake_annotation_rows": 5,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9064-a20_9064_user_id_2021-02-22_161628.txt",
+        "disassembly_nusar-2021_action_both_9064-a20_9064_user_id_2021-02-22_161628.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9064-a20_9064_user_id_2021-02-22_161628/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9064-a20_9064_user_id_2021-02-22_161628/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9064-a30_9064_user_id_2021-02-22_162122",
+      "split": "train",
+      "actor_id": "9064",
+      "toy_id": "202",
+      "mistake_annotation_rows": 21,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9064-a30_9064_user_id_2021-02-22_162122.txt",
+        "disassembly_nusar-2021_action_both_9064-a30_9064_user_id_2021-02-22_162122.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9064-a30_9064_user_id_2021-02-22_162122/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9064-a30_9064_user_id_2021-02-22_162122/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9064-c02c_9064_user_id_2021-02-22_163357",
+      "split": "train",
+      "actor_id": "9064",
+      "toy_id": "202",
+      "mistake_annotation_rows": 15,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9064-c02c_9064_user_id_2021-02-22_163357.txt",
+        "disassembly_nusar-2021_action_both_9064-c02c_9064_user_id_2021-02-22_163357.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9064-c02c_9064_user_id_2021-02-22_163357/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9064-c02c_9064_user_id_2021-02-22_163357/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9064-c08a_9064_user_id_2021-02-22_164245",
+      "split": "train",
+      "actor_id": "9064",
+      "toy_id": "202",
+      "mistake_annotation_rows": 15,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9064-c08a_9064_user_id_2021-02-22_164245.txt",
+        "disassembly_nusar-2021_action_both_9064-c08a_9064_user_id_2021-02-22_164245.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9064-c08a_9064_user_id_2021-02-22_164245/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9064-c08a_9064_user_id_2021-02-22_164245/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9064-c09a_9064_user_id_2021-02-22_165525",
+      "split": "train",
+      "actor_id": "9064",
+      "toy_id": "202",
+      "mistake_annotation_rows": 7,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9064-c09a_9064_user_id_2021-02-22_165525.txt",
+        "disassembly_nusar-2021_action_both_9064-c09a_9064_user_id_2021-02-22_165525.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9064-c09a_9064_user_id_2021-02-22_165525/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9064-c09a_9064_user_id_2021-02-22_165525/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9064-c13a_9064_user_id_2021-02-22_170304",
+      "split": "train",
+      "actor_id": "9064",
+      "toy_id": "202",
+      "mistake_annotation_rows": 35,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9064-c13a_9064_user_id_2021-02-22_170304.txt",
+        "disassembly_nusar-2021_action_both_9064-c13a_9064_user_id_2021-02-22_170304.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9064-c13a_9064_user_id_2021-02-22_170304/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9064-c13a_9064_user_id_2021-02-22_170304/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9073-a10_9073_user_id_2021-02-25_150711",
+      "split": "train",
+      "actor_id": "9073",
+      "toy_id": "202",
+      "mistake_annotation_rows": 13,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9073-a10_9073_user_id_2021-02-25_150711.txt",
+        "disassembly_nusar-2021_action_both_9073-a10_9073_user_id_2021-02-25_150711.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9073-a10_9073_user_id_2021-02-25_150711/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9073-a10_9073_user_id_2021-02-25_150711/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9073-a18_9073_user_id_2021-02-11_140513",
+      "split": "train",
+      "actor_id": "9073",
+      "toy_id": "202",
+      "mistake_annotation_rows": 5,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9073-a18_9073_user_id_2021-02-11_140513.txt",
+        "disassembly_nusar-2021_action_both_9073-a18_9073_user_id_2021-02-11_140513.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9073-a18_9073_user_id_2021-02-11_140513/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9073-a18_9073_user_id_2021-02-11_140513/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9073-b06c_9073_user_id_2021-02-11_135342",
+      "split": "train",
+      "actor_id": "9073",
+      "toy_id": "202",
+      "mistake_annotation_rows": 9,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9073-b06c_9073_user_id_2021-02-11_135342.txt",
+        "disassembly_nusar-2021_action_both_9073-b06c_9073_user_id_2021-02-11_135342.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9073-b06c_9073_user_id_2021-02-11_135342/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9073-b06c_9073_user_id_2021-02-11_135342/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9073-b08a_9073_user_id_2021-02-11_145217",
+      "split": "train",
+      "actor_id": "9073",
+      "toy_id": "202",
+      "mistake_annotation_rows": 5,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9073-b08a_9073_user_id_2021-02-11_145217.txt",
+        "disassembly_nusar-2021_action_both_9073-b08a_9073_user_id_2021-02-11_145217.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9073-b08a_9073_user_id_2021-02-11_145217/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9073-b08a_9073_user_id_2021-02-11_145217/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9073-c04a_9073_user_id_2021-02-11_142611",
+      "split": "train",
+      "actor_id": "9073",
+      "toy_id": "202",
+      "mistake_annotation_rows": 54,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9073-c04a_9073_user_id_2021-02-11_142611.txt",
+        "disassembly_nusar-2021_action_both_9073-c04a_9073_user_id_2021-02-11_142611.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9073-c04a_9073_user_id_2021-02-11_142611/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9073-c04a_9073_user_id_2021-02-11_142611/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9073-c12a_9073_user_id_2021-02-11_141222",
+      "split": "train",
+      "actor_id": "9073",
+      "toy_id": "202",
+      "mistake_annotation_rows": 10,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9073-c12a_9073_user_id_2021-02-11_141222.txt",
+        "disassembly_nusar-2021_action_both_9073-c12a_9073_user_id_2021-02-11_141222.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9073-c12a_9073_user_id_2021-02-11_141222/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9073-c12a_9073_user_id_2021-02-11_141222/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9031-a13_9031_user_id_2021-02-23_160001",
+      "split": "val",
+      "actor_id": "9031",
+      "toy_id": "202",
+      "mistake_annotation_rows": 10,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9031-a13_9031_user_id_2021-02-23_160001.txt",
+        "disassembly_nusar-2021_action_both_9031-a13_9031_user_id_2021-02-23_160001.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9031-a13_9031_user_id_2021-02-23_160001/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9031-a13_9031_user_id_2021-02-23_160001/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9031-b01b_9031_user_id_2021-02-04_102950",
+      "split": "val",
+      "actor_id": "9031",
+      "toy_id": "202",
+      "mistake_annotation_rows": 13,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9031-b01b_9031_user_id_2021-02-04_102950.txt",
+        "disassembly_nusar-2021_action_both_9031-b01b_9031_user_id_2021-02-04_102950.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9031-b01b_9031_user_id_2021-02-04_102950/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9031-b01b_9031_user_id_2021-02-04_102950/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9031-b01b_9031_user_id_2021-02-23_164014",
+      "split": "val",
+      "actor_id": "9031",
+      "toy_id": "202",
+      "mistake_annotation_rows": 8,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9031-b01b_9031_user_id_2021-02-23_164014.txt",
+        "disassembly_nusar-2021_action_both_9031-b01b_9031_user_id_2021-02-23_164014.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9031-b01b_9031_user_id_2021-02-23_164014/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9031-b01b_9031_user_id_2021-02-23_164014/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9031-c04d_9031_user_id_2021-02-04_104130",
+      "split": "val",
+      "actor_id": "9031",
+      "toy_id": "202",
+      "mistake_annotation_rows": 9,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9031-c04d_9031_user_id_2021-02-04_104130.txt",
+        "disassembly_nusar-2021_action_both_9031-c04d_9031_user_id_2021-02-04_104130.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9031-c04d_9031_user_id_2021-02-04_104130/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9031-c04d_9031_user_id_2021-02-04_104130/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9031-c04d_9031_user_id_2021-02-23_163320",
+      "split": "val",
+      "actor_id": "9031",
+      "toy_id": "202",
+      "mistake_annotation_rows": 7,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9031-c04d_9031_user_id_2021-02-23_163320.txt",
+        "disassembly_nusar-2021_action_both_9031-c04d_9031_user_id_2021-02-23_163320.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9031-c04d_9031_user_id_2021-02-23_163320/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9031-c04d_9031_user_id_2021-02-23_163320/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9031-c06c_9031_user_id_2021-02-23_164844",
+      "split": "val",
+      "actor_id": "9031",
+      "toy_id": "202",
+      "mistake_annotation_rows": 12,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9031-c06c_9031_user_id_2021-02-23_164844.txt",
+        "disassembly_nusar-2021_action_both_9031-c06c_9031_user_id_2021-02-23_164844.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9031-c06c_9031_user_id_2021-02-23_164844/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9031-c06c_9031_user_id_2021-02-23_164844/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9031-c10b_9031_user_id_2021-02-04_101552",
+      "split": "val",
+      "actor_id": "9031",
+      "toy_id": "202",
+      "mistake_annotation_rows": 7,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9031-c10b_9031_user_id_2021-02-04_101552.txt",
+        "disassembly_nusar-2021_action_both_9031-c10b_9031_user_id_2021-02-04_101552.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9031-c10b_9031_user_id_2021-02-04_101552/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9031-c10b_9031_user_id_2021-02-04_101552/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9031-c11b_9031_user_id_2021-02-04_104944",
+      "split": "val",
+      "actor_id": "9031",
+      "toy_id": "202",
+      "mistake_annotation_rows": 7,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9031-c11b_9031_user_id_2021-02-04_104944.txt",
+        "disassembly_nusar-2021_action_both_9031-c11b_9031_user_id_2021-02-04_104944.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9031-c11b_9031_user_id_2021-02-04_104944/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9031-c11b_9031_user_id_2021-02-04_104944/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9031-c12d_9031_user_id_2021-02-04_105807",
+      "split": "val",
+      "actor_id": "9031",
+      "toy_id": "202",
+      "mistake_annotation_rows": 31,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9031-c12d_9031_user_id_2021-02-04_105807.txt",
+        "disassembly_nusar-2021_action_both_9031-c12d_9031_user_id_2021-02-04_105807.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9031-c12d_9031_user_id_2021-02-04_105807/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9031-c12d_9031_user_id_2021-02-04_105807/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9031-c12d_9031_user_id_2021-02-23_170320",
+      "split": "val",
+      "actor_id": "9031",
+      "toy_id": "202",
+      "mistake_annotation_rows": 14,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9031-c12d_9031_user_id_2021-02-23_170320.txt",
+        "disassembly_nusar-2021_action_both_9031-c12d_9031_user_id_2021-02-23_170320.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9031-c12d_9031_user_id_2021-02-23_170320/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9031-c12d_9031_user_id_2021-02-23_170320/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9074-a03_9074_user_id_2021-02-11_151600",
+      "split": "val",
+      "actor_id": "9074",
+      "toy_id": "202",
+      "mistake_annotation_rows": 3,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9074-a03_9074_user_id_2021-02-11_151600.txt",
+        "disassembly_nusar-2021_action_both_9074-a03_9074_user_id_2021-02-11_151600.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9074-a03_9074_user_id_2021-02-11_151600/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9074-a03_9074_user_id_2021-02-11_151600/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9074-a14_9074_user_id_2021-02-11_152306",
+      "split": "val",
+      "actor_id": "9074",
+      "toy_id": "202",
+      "mistake_annotation_rows": 9,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9074-a14_9074_user_id_2021-02-11_152306.txt",
+        "disassembly_nusar-2021_action_both_9074-a14_9074_user_id_2021-02-11_152306.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9074-a14_9074_user_id_2021-02-11_152306/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9074-a14_9074_user_id_2021-02-11_152306/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9074-a29_9074_user_id_2021-02-11_154856",
+      "split": "val",
+      "actor_id": "9074",
+      "toy_id": "202",
+      "mistake_annotation_rows": 4,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9074-a29_9074_user_id_2021-02-11_154856.txt",
+        "disassembly_nusar-2021_action_both_9074-a29_9074_user_id_2021-02-11_154856.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9074-a29_9074_user_id_2021-02-11_154856/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9074-a29_9074_user_id_2021-02-11_154856/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9074-c06b_9074_user_id_2021-02-11_160509",
+      "split": "val",
+      "actor_id": "9074",
+      "toy_id": "202",
+      "mistake_annotation_rows": 11,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9074-c06b_9074_user_id_2021-02-11_160509.txt",
+        "disassembly_nusar-2021_action_both_9074-c06b_9074_user_id_2021-02-11_160509.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9074-c06b_9074_user_id_2021-02-11_160509/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9074-c06b_9074_user_id_2021-02-11_160509/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9074-c12e_9074_user_id_2021-02-11_155839",
+      "split": "val",
+      "actor_id": "9074",
+      "toy_id": "202",
+      "mistake_annotation_rows": 24,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9074-c12e_9074_user_id_2021-02-11_155839.txt",
+        "disassembly_nusar-2021_action_both_9074-c12e_9074_user_id_2021-02-11_155839.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9074-c12e_9074_user_id_2021-02-11_155839/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9074-c12e_9074_user_id_2021-02-11_155839/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9013-a02_9013_user_id_2021-02-02_130807",
+      "split": "test",
+      "actor_id": "9013",
+      "toy_id": "202",
+      "mistake_annotation_rows": 14,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9013-a02_9013_user_id_2021-02-02_130807.txt",
+        "disassembly_nusar-2021_action_both_9013-a02_9013_user_id_2021-02-02_130807.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9013-a02_9013_user_id_2021-02-02_130807/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9013-a02_9013_user_id_2021-02-02_130807/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9013-a28_9013_user_id_2021-02-02_134923",
+      "split": "test",
+      "actor_id": "9013",
+      "toy_id": "202",
+      "mistake_annotation_rows": 9,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9013-a28_9013_user_id_2021-02-02_134923.txt",
+        "disassembly_nusar-2021_action_both_9013-a28_9013_user_id_2021-02-02_134923.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9013-a28_9013_user_id_2021-02-02_134923/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9013-a28_9013_user_id_2021-02-02_134923/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9013-b01a_9013_user_id_2021-02-02_135446",
+      "split": "test",
+      "actor_id": "9013",
+      "toy_id": "202",
+      "mistake_annotation_rows": 9,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9013-b01a_9013_user_id_2021-02-02_135446.txt",
+        "disassembly_nusar-2021_action_both_9013-b01a_9013_user_id_2021-02-02_135446.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_21176875_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9013-b01a_9013_user_id_2021-02-02_135446/HMC_21176875_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9013-b01a_9013_user_id_2021-02-02_135446/HMC_21176875_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9013-c03b_9013_user_id_2021-02-24_113410",
+      "split": "test",
+      "actor_id": "9013",
+      "toy_id": "202",
+      "mistake_annotation_rows": 5,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9013-c03b_9013_user_id_2021-02-24_113410.txt",
+        "disassembly_nusar-2021_action_both_9013-c03b_9013_user_id_2021-02-24_113410.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9013-c03b_9013_user_id_2021-02-24_113410/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9013-c03b_9013_user_id_2021-02-24_113410/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9013-c09c_9013_user_id_2021-02-24_113951",
+      "split": "test",
+      "actor_id": "9013",
+      "toy_id": "202",
+      "mistake_annotation_rows": 30,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9013-c09c_9013_user_id_2021-02-24_113951.txt",
+        "disassembly_nusar-2021_action_both_9013-c09c_9013_user_id_2021-02-24_113951.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9013-c09c_9013_user_id_2021-02-24_113951/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9013-c09c_9013_user_id_2021-02-24_113951/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9083-a19_9083_user_id_2021-02-16_111909",
+      "split": "test",
+      "actor_id": "9083",
+      "toy_id": "202",
+      "mistake_annotation_rows": 5,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9083-a19_9083_user_id_2021-02-16_111909.txt",
+        "disassembly_nusar-2021_action_both_9083-a19_9083_user_id_2021-02-16_111909.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9083-a19_9083_user_id_2021-02-16_111909/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9083-a19_9083_user_id_2021-02-16_111909/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9083-a26_9083_user_id_2021-02-16_112714",
+      "split": "test",
+      "actor_id": "9083",
+      "toy_id": "202",
+      "mistake_annotation_rows": 5,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9083-a26_9083_user_id_2021-02-16_112714.txt",
+        "disassembly_nusar-2021_action_both_9083-a26_9083_user_id_2021-02-16_112714.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9083-a26_9083_user_id_2021-02-16_112714/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9083-a26_9083_user_id_2021-02-16_112714/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9083-b06a_9083_user_id_2021-02-16_113603",
+      "split": "test",
+      "actor_id": "9083",
+      "toy_id": "202",
+      "mistake_annotation_rows": 7,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9083-b06a_9083_user_id_2021-02-16_113603.txt",
+        "disassembly_nusar-2021_action_both_9083-b06a_9083_user_id_2021-02-16_113603.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9083-b06a_9083_user_id_2021-02-16_113603/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9083-b06a_9083_user_id_2021-02-16_113603/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9083-c03a_9083_user_id_2021-02-16_114344",
+      "split": "test",
+      "actor_id": "9083",
+      "toy_id": "202",
+      "mistake_annotation_rows": 9,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9083-c03a_9083_user_id_2021-02-16_114344.txt",
+        "disassembly_nusar-2021_action_both_9083-c03a_9083_user_id_2021-02-16_114344.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9083-c03a_9083_user_id_2021-02-16_114344/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9083-c03a_9083_user_id_2021-02-16_114344/HMC_84346135_mono10bit.mp4"
+    },
+    {
+      "recording_id": "nusar-2021_action_both_9083-c08c_9083_user_id_2021-02-16_110837",
+      "split": "test",
+      "actor_id": "9083",
+      "toy_id": "202",
+      "mistake_annotation_rows": 10,
+      "coarse_label_files": [
+        "assembly_nusar-2021_action_both_9083-c08c_9083_user_id_2021-02-16_110837.txt",
+        "disassembly_nusar-2021_action_both_9083-c08c_9083_user_id_2021-02-16_110837.txt"
+      ],
+      "camera": "e1",
+      "camera_file": "HMC_84346135_mono10bit.mp4",
+      "hf_path": "recordings/nusar-2021_action_both_9083-c08c_9083_user_id_2021-02-16_110837/HMC_84346135_mono10bit.mp4",
+      "video_relative_path": "official_hf/recordings/nusar-2021_action_both_9083-c08c_9083_user_id_2021-02-16_110837/HMC_84346135_mono10bit.mp4"
+    }
+  ]
+}

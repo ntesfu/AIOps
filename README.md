@@ -44,13 +44,84 @@ python -m aiops.inference.cli \
   --output runs/sample_predictions.json
 ```
 
-Run the web UI:
+Run the Hand Atlas web UI (a browser-local MediaPipe and temporal-step dataset labeler):
 
 ```bash
 streamlit run web/app.py
 ```
 
+The labeler can import individual videos, an extracted folder, or a ZIP archive;
+save and manually correct MediaPipe 21-joint hand keyframes; create verified
+procedure-step intervals; validate overlaps and taxonomy; render an annotated
+WebM; and export a training bundle containing the canonical project JSON,
+temporal JSONL manifest, COCO hand keypoints, CSV tables, dataset YAML, and
+procedure configuration. Large archives are indexed lazily, but extracting a
+selected video from a multi-gigabyte ZIP can take time. Selecting the extracted
+folder is the fastest workflow for repeated annotation sessions.
+
 ## Architecture Plan
+
+### StateGraph-PSR Lite (IndustReal Stage 1)
+
+The research training path uses cached motion and appearance features, IndustReal hand and headset-pose streams, component/object regions, a compact causal TCN-attention head, action prototypes, a differentiable procedure graph, and a corrected two-level label contract. AR annotations supervise the mutually-exclusive action timeline; PSR completion rows supervise multi-label part events and a per-part `correct / incorrect / remove` outcome. It is designed to train on one 24 GB GPU while keeping the path open to stronger precomputed VideoMAEv2 or InternVideo features.
+
+The default trainable head is approximately four million parameters. Its outputs are a causal action timeline, simultaneous component completions, a separate outcome for every completed part, eleven component-state predictions, action boundaries, next-action anticipation, and calibrated uncertainty signals. Frozen encoders are run once to create compressed per-recording caches, so ordinary experiments train only the temporal/state head.
+
+- Architecture and training guide: [`docs/stategraph_psr_stage1_implementation.md`](docs/stategraph_psr_stage1_implementation.md)
+- Architecture image: [`docs/assets/stategraph_psr_stage1_architecture.svg`](docs/assets/stategraph_psr_stage1_architecture.svg)
+- Codex desktop handoff: [`CODEX_CONTEXT.md`](CODEX_CONTEXT.md)
+- Model: [`src/aiops/models/stategraph_psr.py`](src/aiops/models/stategraph_psr.py)
+- Feature cache: [`src/aiops/features/industreal_cache.py`](src/aiops/features/industreal_cache.py)
+- Trainer: [`src/aiops/training/train_stategraph_psr.py`](src/aiops/training/train_stategraph_psr.py)
+- Portable label contract: [`docs/procedure_schema_v2.md`](docs/procedure_schema_v2.md)
+- Reference implementation review: [`docs/reference_implementations_review.md`](docs/reference_implementations_review.md)
+- Critique response and evidence-first roadmap: [`docs/stategraph_psr_critique_response_plan.md`](docs/stategraph_psr_critique_response_plan.md)
+- State-centric inference core and typed belief tracker: [`docs/stateverify_psr_core.md`](docs/stateverify_psr_core.md)
+- Gaze-free hand/object observer training: [`docs/stateverify_observer_training.md`](docs/stateverify_observer_training.md)
+- StateVerify observer experiment results: [`docs/stateverify_observer_experiment_2026-07-23.md`](docs/stateverify_observer_experiment_2026-07-23.md)
+- StateVerify normal-prototype results: [`docs/stateverify_prototype_experiment_2026-07-23.md`](docs/stateverify_prototype_experiment_2026-07-23.md)
+- Strict-causal IndustReal baseline protocol: [`docs/industreal_staged_baseline_protocol.md`](docs/industreal_staged_baseline_protocol.md)
+- Component-conditioned IndustReal evidence pilot: [`docs/industreal_component_evidence_experiment.md`](docs/industreal_component_evidence_experiment.md)
+- Strict-causal IndustReal ROI evidence experiment: [`docs/industreal_roi_evidence_experiment.md`](docs/industreal_roi_evidence_experiment.md)
+
+Audit an extracted release, build a cache, and train:
+
+```bash
+python -m aiops.data.industreal --data-root "D:/IndustReal"
+python -m aiops.features.industreal_cache --data-root "D:/IndustReal" --output-dir "D:/IndustReal_cache/stategraph_v2" --device cuda
+python -m aiops.training.train_stategraph_psr --cache-index "D:/IndustReal_cache/stategraph_v2/index.json" --output-dir runs/stategraph_psr_v2
+```
+
+The cache builder accepts the official `recordings/train|val|test/...` annotation tree with either per-recording `rgb/` frames or root-level `RECORDING_ID.mp4` videos. Headerless official AR/PSR CSVs and headered exports are supported. Video-only bundles cannot supervise the action/error/state heads. Cache schema v2 rejects the old 24-way PSR proxy target, which silently lost simultaneous events. The trainer keeps splits at recording level, uses BF16 and gradient accumulation by default, selects checkpoints using action segmentation and incorrect-event F1, and evaluates the test split only when explicitly requested.
+
+### Assembly101 mistake-aware training
+
+Assembly101 is the active replacement while the complete IndustReal release is unavailable. The reproducible research subset uses 60 one-frame-per-second C10095 RGB recordings from a public Assembly101-derived mirror and the official part-to-part mistake annotations. Splits are actor-disjoint (40/10/10 recordings), and validation thresholds are frozen before test evaluation. Raw data and cached features remain ignored by Git.
+
+```bash
+python scripts/download_assembly101_subset.py --workers 4
+
+TORCH_HOME=data/model_cache PYTHONPATH=.deps:src .venv/bin/python \
+  -m aiops.features.assembly101_cache \
+  --manifest data/raw/assembly101/subset_manifest.json \
+  --output-dir data/processed/assembly101_stategraph \
+  --device cuda
+
+PYTHONPATH=.deps:src .venv/bin/python \
+  -m aiops.training.train_stategraph_psr \
+  --cache-index data/processed/assembly101_stategraph/index.json \
+  --output-dir runs/stategraph_assembly101_80ep \
+  --epochs 80 --patience 100 --batch-size 8 --accumulation-steps 2 \
+  --sequence-length 256 --sequence-stride 192 \
+  --hidden-dim 256 --num-temporal-blocks 8 --attention-every 2 --num-heads 8 \
+  --num-action-refinement-stages 1 --num-refinement-blocks 4 --num-event-blocks 4 \
+  --learning-rate 0.0002 --rare-windows-per-batch 2 \
+  --incorrect-selection-weight 1.0 --evaluate-test
+```
+
+See [`configs/stategraph_assembly101.json`](configs/stategraph_assembly101.json) for the selected architecture and exact training settings. Assembly101 is CC BY-NC 4.0; this data path is for non-commercial research.
+
+The completed 80-epoch experiment, actor-held-out results, limitations, and artifact checksum are documented in [`docs/assembly101_stategraph_80epoch_report.md`](docs/assembly101_stategraph_80epoch_report.md). The compact BF16 inference checkpoint is [`artifacts/stategraph_assembly101_80ep_bf16.pt`](artifacts/stategraph_assembly101_80ep_bf16.pt).
 
 Implemented temporal pipeline:
 
@@ -150,4 +221,4 @@ The Streamlit UI supports baseline inference, temporal inference, learned MS-TCN
 
 ## Compute Notes
 
-This workspace currently sees an NVIDIA RTX 5000 Ada on PCI, but `nvidia-smi` cannot communicate with the driver and PyTorch is not installed. Treat local development as CPU-only until `/dev/nvidia*`, CUDA, and PyTorch are available.
+The validated training host exposes an NVIDIA RTX 5000 Ada with 32 GB VRAM. The workspace-local runtime uses `PYTHONPATH=.deps:src`; pretrained torchvision weights are cached under `data/model_cache` and selected through `TORCH_HOME=data/model_cache`.

@@ -1,0 +1,78 @@
+{
+  "protocol": {
+    "name": "IndustReal staged dual-expert baseline",
+    "purpose": "Measure the existing architecture before ROI evidence, MIL, or persistent belief tracking is introduced",
+    "cache_contract": {
+      "legacy_offline": "center-anchored clips; reproduction/comparison only",
+      "strict_causal": "trailing clips whose final source frame is not later than the prediction timestamp",
+      "rule": "Never pool results from the two cache contracts; include the contract in every run name"
+    },
+    "development_seeds": [7, 17, 29],
+    "test_policy": "Select checkpoints and calibrate thresholds on validation. Evaluate the official test once after the three-seed development decision is frozen.",
+    "maximum_vram_gib": 23
+  },
+  "architecture": {
+    "type": "dual-expert StateGraph-PSR",
+    "hidden_dim": 384,
+    "num_temporal_blocks": 12,
+    "attention_every": 2,
+    "num_heads": 8,
+    "num_action_refinement_stages": 2,
+    "num_refinement_blocks": 4,
+    "num_event_blocks": 4,
+    "dropout": 0.15,
+    "graph_strength": 0.08,
+    "procedural_event_context": true,
+    "learned_event_fusion": false,
+    "factorized_mistake_detection": false,
+    "reason": "Use the validated Large capacity rather than the 87.5M XL head: XL added little action quality and no fault recall. Isolate action and fault optimization while deliberately excluding new evidence sources."
+  },
+  "training": {
+    "precision": "bf16",
+    "batch_size": 4,
+    "accumulation_steps": 2,
+    "sequence_length": 384,
+    "sequence_stride": 288,
+    "step_class_weight_power": 1.0,
+    "state_class_weight_power": 0.5,
+    "state_class_weight_cap": 12.0,
+    "event_label_horizon": 2,
+    "incorrect_hard_negative_ratio": 0.0,
+    "calibration_interval": 4
+  },
+  "stages": [
+    {
+      "id": "action",
+      "epochs": 25,
+      "patience": 10,
+      "learning_rate": 0.0002,
+      "selection_strategy": "action_only",
+      "event_centered_crops_per_event": 0,
+      "freeze_action_backbone": false,
+      "evaluate_test": false
+    },
+    {
+      "id": "event",
+      "epochs": 16,
+      "patience": 8,
+      "learning_rate": 0.00005,
+      "initialization": "selected action checkpoint from the same seed and cache",
+      "event_centered_crops_per_event": 2,
+      "event_centered_crop_radius": 96,
+      "freeze_action_backbone": true,
+      "selection_strategy": "legacy",
+      "reason_for_legacy_selection": "A baseline must remain measurable when exact validation event recall is zero. The stricter operational_harmonic selector is a subsequent deployment gate, not a prerequisite for producing the baseline.",
+      "evaluate_test": false
+    },
+    {
+      "id": "compose",
+      "operation": "Route action outputs from the action expert and event/state outputs from the adapted event expert; calibrate thresholds on validation only",
+      "maximum_incorrect_false_alerts_per_minute": 2.0
+    }
+  ],
+  "primary_metrics": {
+    "action": ["frame_accuracy", "edit", "f1@10", "f1@25", "f1@50"],
+    "state": ["state_macro_f1", "state_incorrect_f1"],
+    "fault": ["incorrect_event_precision", "incorrect_event_recall", "incorrect_event_f1", "incorrect_event_f1_tol2s", "incorrect_event_f1_tol4s", "incorrect_event_pr_auc", "normality_incorrect_average_precision", "normality_incorrect_prevalence", "incorrect_false_alerts_per_minute", "incorrect_detection_delay_seconds"]
+  }
+}
