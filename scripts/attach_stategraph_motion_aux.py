@@ -87,12 +87,14 @@ def attach_motion_aux(
     }
     output_metadata["motion_aux_provenance"] = {
         "kind": "current_frame_roi",
+        "format_version": int(roi_manifest.get("format_version", 0)),
         "causality_verified": True,
         "max_future_offset_frames": int(
             roi_manifest.get("max_future_offset_frames", 0)
         ),
         "manifest": str(manifest_path),
         "roi_names": roi_manifest.get("roi_names", []),
+        "feature_contract": roi_manifest.get("feature_contract"),
         "source_contract": roi_manifest.get("source_contract"),
     }
     index_path = destination_root / "index.json"

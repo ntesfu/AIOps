@@ -132,13 +132,16 @@ def build_state_effect_loss(config: StateEffectLossConfig):
 
     class StateEffectLoss(nn.Module):
         @staticmethod
-        def _focal_cross_entropy(logits, labels, mask):
+        def _focal_cross_entropy(logits, labels, mask, class_weights=None):
             if not mask.any():
                 return logits.sum() * 0.0
             selected_logits = logits[mask]
             selected_labels = labels[mask]
             cross_entropy = functional.cross_entropy(
-                selected_logits, selected_labels, reduction="none"
+                selected_logits,
+                selected_labels,
+                reduction="none",
+                weight=class_weights,
             )
             probability = torch.softmax(selected_logits, dim=-1).gather(
                 1, selected_labels.unsqueeze(-1)
@@ -148,14 +151,27 @@ def build_state_effect_loss(config: StateEffectLossConfig):
                 * cross_entropy
             ).mean()
 
-        def forward(self, outputs, targets, event_state_indices):
+        def forward(
+            self,
+            outputs,
+            targets,
+            event_state_indices,
+            state_class_weights=None,
+            effect_class_weights=None,
+        ):
             typed = state_effect_targets(targets, event_state_indices)
             losses = {
                 "state": self._focal_cross_entropy(
-                    outputs["state_logits"], typed["state"], typed["state_mask"]
+                    outputs["state_logits"],
+                    typed["state"],
+                    typed["state_mask"],
+                    state_class_weights,
                 ),
                 "effect": self._focal_cross_entropy(
-                    outputs["effect_logits"], typed["effect"], typed["effect_mask"]
+                    outputs["effect_logits"],
+                    typed["effect"],
+                    typed["effect_mask"],
+                    effect_class_weights,
                 ),
             }
 
