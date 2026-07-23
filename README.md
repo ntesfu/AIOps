@@ -78,6 +78,7 @@ The default trainable head is approximately four million parameters. Its outputs
 - Critique response and evidence-first roadmap: [`docs/stategraph_psr_critique_response_plan.md`](docs/stategraph_psr_critique_response_plan.md)
 - State-centric inference core and typed belief tracker: [`docs/stateverify_psr_core.md`](docs/stateverify_psr_core.md)
 - Gaze-free hand/object observer training: [`docs/stateverify_observer_training.md`](docs/stateverify_observer_training.md)
+- StateVerify observer experiment results: [`docs/stateverify_observer_experiment_2026-07-23.md`](docs/stateverify_observer_experiment_2026-07-23.md)
 - Strict-causal IndustReal baseline protocol: [`docs/industreal_staged_baseline_protocol.md`](docs/industreal_staged_baseline_protocol.md)
 - Component-conditioned IndustReal evidence pilot: [`docs/industreal_component_evidence_experiment.md`](docs/industreal_component_evidence_experiment.md)
 - Strict-causal IndustReal ROI evidence experiment: [`docs/industreal_roi_evidence_experiment.md`](docs/industreal_roi_evidence_experiment.md)
