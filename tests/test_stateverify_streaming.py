@@ -9,6 +9,7 @@ from aiops.evaluation.stateverify_streaming import (
     component_anomaly_scores,
     match_streaming_alerts,
     predicted_step_anomaly_scores,
+    run_streaming_tracker,
 )
 
 
@@ -83,3 +84,22 @@ def test_matching_is_recording_and_component_aware():
     assert metrics["false_positives"] == 1
     assert metrics["false_negatives"] == 1
     assert metrics["false_alerts_per_minute"] == 0.5
+
+
+def test_tracker_cannot_start_incorrect_transition_without_completion_candidate():
+    state = np.asarray([[[0.01, 0.01, 0.98]]] * 6)
+    anomaly = np.asarray([[8.0]] * 6)
+    available = np.ones_like(anomaly, dtype=bool)
+    effect = np.asarray([[[0.99, 0.005, 0.005, 0.0]]] * 6)
+    trace = run_streaming_tracker(
+        state,
+        anomaly,
+        available,
+        effect,
+        StreamingConfig(
+            completion_threshold=0.5,
+            alert_threshold=0.45,
+            confirmation_steps=1,
+        ),
+    )
+    assert not any(event.kind == "alert" for event in trace.events)
