@@ -21,8 +21,6 @@
     "num_heads": 4,
     "effect_lag": 4,
     "dropout": 0.15,
-    "factorized_state": "installed probability x correct/incorrect conditional probability",
-    "factorized_effect": "no-change/complete/remove x correct/incorrect conditional probability",
     "state_order": [
       "not_completed",
       "installed_correct",
@@ -47,8 +45,6 @@
     "event_centered_crops_per_event": 2,
     "effect_no_change_ratio": 4.0,
     "effect_min_no_change": 64,
-    "state_correctness_weight": 0.5,
-    "effect_correctness_weight": 1.0,
     "selection_score": "state macro recall + effect macro recall + incorrect-effect recall"
   }
 }

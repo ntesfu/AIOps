@@ -262,8 +262,6 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     loss_config = StateEffectLossConfig(
         state_weight=args.state_weight,
         effect_weight=args.effect_weight,
-        state_correctness_weight=args.state_correctness_weight,
-        effect_correctness_weight=args.effect_correctness_weight,
         transition_consistency_weight=args.transition_consistency_weight,
         focal_gamma=args.focal_gamma,
         effect_no_change_ratio=args.effect_no_change_ratio,
@@ -459,8 +457,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--state-weight", type=float, default=1.0)
     parser.add_argument("--effect-weight", type=float, default=1.0)
-    parser.add_argument("--state-correctness-weight", type=float, default=0.5)
-    parser.add_argument("--effect-correctness-weight", type=float, default=1.0)
     parser.add_argument("--transition-consistency-weight", type=float, default=0.25)
     parser.add_argument("--focal-gamma", type=float, default=1.5)
     parser.add_argument("--effect-no-change-ratio", type=float, default=4.0)
