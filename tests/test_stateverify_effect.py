@@ -4,8 +4,11 @@ import unittest
 from dataclasses import fields
 
 from aiops.models.stateverify_effect import (
+    StateEffectLossConfig,
     StateEffectObserverConfig,
+    build_state_effect_loss,
     build_state_effect_observer,
+    state_effect_targets,
 )
 
 
@@ -124,6 +127,48 @@ class StateEffectObserverTest(unittest.TestCase):
             output = model(**inputs)
         self.assertTrue(bool(torch.isfinite(output["state_logits"]).all()))
         self.assertTrue(bool(torch.isfinite(output["effect_logits"]).all()))
+
+    def test_legacy_states_map_to_typed_states_and_effects(self) -> None:
+        torch = self.torch
+        targets = {
+            "state": torch.tensor([[[1], [2], [2], [1], [0]]]),
+            "state_mask": torch.ones(1, 5, 1, dtype=torch.bool),
+            "valid_mask": torch.ones(1, 5, dtype=torch.bool),
+            "component_outcome": torch.full((1, 5, 1), -100, dtype=torch.long),
+        }
+        typed = state_effect_targets(targets, (0,))
+        self.assertEqual(typed["state"][0, :, 0].tolist(), [0, 1, 1, 0, 2])
+        self.assertEqual(typed["effect"][0, :, 0].tolist(), [-100, 1, 0, 3, 2])
+
+    def test_sparse_event_overrides_dense_transition(self) -> None:
+        torch = self.torch
+        targets = {
+            "state": torch.tensor([[[1], [1]]]),
+            "state_mask": torch.ones(1, 2, 1, dtype=torch.bool),
+            "valid_mask": torch.ones(1, 2, dtype=torch.bool),
+            "component_outcome": torch.tensor([[[-100], [1]]]),
+        }
+        typed = state_effect_targets(targets, (0,))
+        self.assertEqual(int(typed["effect"][0, 1, 0]), 2)
+
+    def test_state_effect_loss_is_finite_and_differentiable(self) -> None:
+        torch = self.torch
+        model = build_state_effect_observer(self._config())
+        outputs = model(**self._inputs())
+        targets = {
+            "state": torch.randint(0, 3, (2, 7, 3)),
+            "state_mask": torch.ones(2, 7, 3, dtype=torch.bool),
+            "valid_mask": torch.ones(2, 7, dtype=torch.bool),
+            "component_outcome": torch.full((2, 7, 2), -100, dtype=torch.long),
+        }
+        targets["component_outcome"][0, 3, 0] = 1
+        targets["component_outcome"][1, 4, 1] = 2
+        criterion = build_state_effect_loss(StateEffectLossConfig())
+        losses = criterion(outputs, targets, (0, 2))
+        self.assertTrue(bool(torch.isfinite(losses["total"])))
+        losses["total"].backward()
+        self.assertIsNotNone(model.state_head.weight.grad)
+        self.assertIsNotNone(model.effect_head[-1].weight.grad)
 
 
 if __name__ == "__main__":

@@ -140,6 +140,16 @@ temporal blocks predict persistent state and four typed effects:
 residual is a bounded mismatch between the observed effect distribution and the
 procedure-supplied expected distribution.
 
+`state_effect_targets` makes the observer trainable from the current cache
+without relabeling the dataset. It remaps the legacy raw-state order
+`incorrect / pending / correct` into
+`not_completed / installed_correct / installed_incorrect`, derives typed
+effects from consecutive observed component states, and lets exact sparse PSR
+events override those derived labels. `build_state_effect_loss` adds focal
+state/effect supervision and couples the two heads with a probabilistic
+transition-consistency loss. This is deliberately a separate loss module so the
+existing Stage-1 baseline remains checkpoint-compatible.
+
 2. Restore raw IndustReal RGB, object detections, hand and headset-pose streams, depth, and
    state labels on the working disk.
 3. Train the real component state/effect observer.

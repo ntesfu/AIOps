@@ -6,8 +6,11 @@ from aiops.models.stategraph_psr import (
     build_stategraph_psr,
 )
 from aiops.models.stateverify_effect import (
+    StateEffectLossConfig,
     StateEffectObserverConfig,
+    build_state_effect_loss,
     build_state_effect_observer,
+    state_effect_targets,
 )
 
 __all__ = [
@@ -17,5 +20,8 @@ __all__ = [
     "build_stategraph_loss",
     "build_stategraph_psr",
     "StateEffectObserverConfig",
+    "StateEffectLossConfig",
+    "build_state_effect_loss",
     "build_state_effect_observer",
+    "state_effect_targets",
 ]

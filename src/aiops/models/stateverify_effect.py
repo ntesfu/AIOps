@@ -39,6 +39,163 @@ class StateEffectObserverConfig:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class StateEffectLossConfig:
+    """Supervision weights for persistent state and typed effects."""
+
+    state_weight: float = 1.0
+    effect_weight: float = 1.0
+    transition_consistency_weight: float = 0.25
+    focal_gamma: float = 1.5
+
+    def validate(self) -> None:
+        if min(
+            self.state_weight,
+            self.effect_weight,
+            self.transition_consistency_weight,
+            self.focal_gamma,
+        ) < 0:
+            raise ValueError("State/effect loss weights and focal_gamma cannot be negative.")
+
+
+def state_effect_targets(targets, event_state_indices):
+    """Convert legacy IndustReal labels into the StateVerify typed contract.
+
+    Raw persistent-state order is ``incorrect, pending, correct``. StateVerify
+    uses ``not_completed, installed_correct, installed_incorrect``. Sparse
+    completion outcomes are ``correct, incorrect, remove`` and map to effect
+    classes 1..3; class 0 is a dense observed no-change transition.
+    """
+
+    state = targets["state"]
+    state_mask = targets["state_mask"].bool()
+    valid_mask = targets["valid_mask"].bool()
+    if state.shape != state_mask.shape:
+        raise ValueError("state and state_mask must have identical shapes.")
+    if state.shape[:2] != valid_mask.shape:
+        raise ValueError("valid_mask must match the batch/time state axes.")
+
+    typed_state = state.new_full(state.shape, -100)
+    typed_state[state == 1] = 0
+    typed_state[state == 2] = 1
+    typed_state[state == 0] = 2
+    typed_state_mask = state_mask & valid_mask.unsqueeze(-1)
+
+    effect = state.new_full(state.shape, -100)
+    if state.shape[1] > 1:
+        previous = typed_state[:, :-1]
+        current = typed_state[:, 1:]
+        pair_mask = (
+            typed_state_mask[:, :-1]
+            & typed_state_mask[:, 1:]
+            & valid_mask[:, :-1].unsqueeze(-1)
+            & valid_mask[:, 1:].unsqueeze(-1)
+        )
+        transition = current.new_zeros(current.shape)
+        transition[(current == 1) & (current != previous)] = 1
+        transition[(current == 2) & (current != previous)] = 2
+        transition[(current == 0) & (current != previous)] = 3
+        effect[:, 1:][pair_mask] = transition[pair_mask]
+
+    outcomes = targets["component_outcome"]
+    if outcomes.shape[:2] != state.shape[:2]:
+        raise ValueError("component_outcome must match the batch/time state axes.")
+    if len(event_state_indices) != outcomes.shape[-1]:
+        raise ValueError(
+            "event_state_indices must contain one state component for each "
+            "component_outcome column."
+        )
+    for event_component, state_component in enumerate(event_state_indices):
+        if not 0 <= int(state_component) < state.shape[-1]:
+            raise ValueError("event_state_indices contains an invalid state component.")
+        event = outcomes[..., event_component]
+        event_mask = (event >= 0) & valid_mask
+        effect[..., int(state_component)][event_mask] = event[event_mask] + 1
+
+    return {
+        "state": typed_state,
+        "state_mask": typed_state_mask,
+        "effect": effect,
+        "effect_mask": (effect >= 0) & valid_mask.unsqueeze(-1),
+    }
+
+def build_state_effect_loss(config: StateEffectLossConfig):
+    """Build the typed StateVerify loss with probabilistic transition coupling."""
+
+    config.validate()
+    try:
+        import torch
+        import torch.nn as nn
+        import torch.nn.functional as functional
+    except ImportError as exc:  # pragma: no cover - optional ML dependency
+        raise RuntimeError("Install the ml dependencies to build the observer loss.") from exc
+
+    class StateEffectLoss(nn.Module):
+        @staticmethod
+        def _focal_cross_entropy(logits, labels, mask):
+            if not mask.any():
+                return logits.sum() * 0.0
+            selected_logits = logits[mask]
+            selected_labels = labels[mask]
+            cross_entropy = functional.cross_entropy(
+                selected_logits, selected_labels, reduction="none"
+            )
+            probability = torch.softmax(selected_logits, dim=-1).gather(
+                1, selected_labels.unsqueeze(-1)
+            ).squeeze(-1)
+            return (
+                (1.0 - probability).clamp_min(0.0).pow(config.focal_gamma)
+                * cross_entropy
+            ).mean()
+
+        def forward(self, outputs, targets, event_state_indices):
+            typed = state_effect_targets(targets, event_state_indices)
+            losses = {
+                "state": self._focal_cross_entropy(
+                    outputs["state_logits"], typed["state"], typed["state_mask"]
+                ),
+                "effect": self._focal_cross_entropy(
+                    outputs["effect_logits"], typed["effect"], typed["effect_mask"]
+                ),
+            }
+
+            state_probability = torch.softmax(outputs["state_logits"], dim=-1)
+            effect_probability = torch.softmax(outputs["effect_logits"], dim=-1)
+            pair_mask = (
+                targets["valid_mask"][:, 1:].bool()
+                & targets["valid_mask"][:, :-1].bool()
+            ).unsqueeze(-1).unsqueeze(-1)
+            if pair_mask.any():
+                previous = state_probability[:, :-1]
+                current = state_probability[:, 1:]
+                no_change = (previous * current).sum(dim=-1)
+                complete_correct = current[..., 1] * (1.0 - previous[..., 1])
+                complete_incorrect = current[..., 2] * (1.0 - previous[..., 2])
+                remove = current[..., 0] * (1.0 - previous[..., 0])
+                implied_effect = torch.stack(
+                    [no_change, complete_correct, complete_incorrect, remove], dim=-1
+                )
+                implied_effect = implied_effect / implied_effect.sum(
+                    dim=-1, keepdim=True
+                ).clamp_min(1e-6)
+                consistency_mask = pair_mask.expand_as(implied_effect)
+                losses["transition_consistency"] = functional.smooth_l1_loss(
+                    effect_probability[:, 1:][consistency_mask],
+                    implied_effect[consistency_mask],
+                )
+            else:
+                losses["transition_consistency"] = effect_probability.sum() * 0.0
+            losses["total"] = (
+                config.state_weight * losses["state"]
+                + config.effect_weight * losses["effect"]
+                + config.transition_consistency_weight
+                * losses["transition_consistency"]
+            )
+            return losses
+
+    return StateEffectLoss()
+
+
 def build_state_effect_observer(config: StateEffectObserverConfig):
     """Build a causal observer without importing PyTorch at package import time."""
 
