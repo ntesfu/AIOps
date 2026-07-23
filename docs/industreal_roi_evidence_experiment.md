@@ -179,6 +179,22 @@ under `optimizer/structured_roi_gate*`. A gate that remains near zero means the
 structured evidence is not useful under the current supervision; a large gate
 without improved operational metrics is evidence of overfitting.
 
+If a cold-start hybrid fails while the flat branch succeeds, control for rare
+event initialization by extending the promoted flat action checkpoint. The
+extension copies every existing tensor exactly, adds only the structured ROI
+modules, and verifies that the zero gate preserves flat action and event logits:
+
+```bash
+SOURCE_ACTION_CHECKPOINT=artifacts/industreal_roi_pair_2ac65fe_flat_quick_s7_action.pt \
+RUN_PREFIX=industreal_roi_hybrid_warmstart_s7 \
+EXPERIMENT_TIER=quick \
+bash scripts/run_industreal_hybrid_warmstart.sh
+```
+
+This stage trains only the event branch. It is the appropriate controlled test
+after a cold-start result because the action expert and initial mistake signal
+are inherited from the successful flat checkpoint rather than redrawn.
+
 The separate frozen-backbone experiment is specified in
 `docs/industreal_backbone_ablation_protocol.md`. It compares Swin3D-S with a
 genuine VideoMAE V2-B strict-causal cache; it must not relabel the extractor's
