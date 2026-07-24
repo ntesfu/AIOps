@@ -226,3 +226,69 @@ proxy) cannot cleanly localize "which part / how it is wrong."
    (replacing the onset proxy) — implemented but not yet used online.
 3. Close the train→val gap: more diverse counterfactuals + regularization.
 4. Repeat seeds 17/29; the official test stays sealed.
+
+## #3 episode-level verdict (2026-07-24) — refuted, root cause found
+
+Reformulated detection from per-frame thresholding to **episode-level**: alert
+only at a completion episode (a peak of `P(cc)+P(ci)`), classified by the
+*conditional* incorrect prob `P(ci)/(P(cc)+P(ci))`. On the 5-fold 19-event screen
+it did **not** cut false-positives. Diagnostic revealed why: the effect head
+predicts a completion (`cc+ci ≥ 0.5`) at **49% of all frames** — completions are
+not localized. Cause: the effect loss subsamples `no_change` negatives
+(`effect_no_change_ratio=4`), training the head on a ~20%-completion distribution
+so it over-predicts completions at inference (~1% reality).
+
+Retraining with `effect_no_change_ratio=40` fixed the over-prediction
+(`cc+ci ≥ 0.5`: 49% → 5.5%) **but collapsed the signal at true events too**: real
+completions dropped to `comp ≈ 0.46`, *below* the top 5.5% of background frames.
+**Real completion events do not stand out at any calibration** — no threshold,
+episode rule, or detector can localize them. The bottleneck is evidence quality,
+not detection logic. Runs: `runs/grpsv_cal_fold{0-4}`.
+
+## #2 spatial-evidence verdict (2026-07-24) — premise refuted
+
+Measured operator-disjoint separability of correct-vs-incorrect completions (363
+events, 19 incorrect, 17 operators; nearest-centroid leave-one-operator-out AUC)
+on the **existing** cached features:
+
+| feature | operator-disjoint AUC |
+|---|---:|
+| motion (Swin3D-S, 768-d) | **0.669** |
+| left_hand ROI | 0.536 |
+| active_object ROI | 0.500 |
+| appearance (global ConvNeXt) | 0.393 |
+| interaction_context ROI | 0.330 |
+| right_hand ROI | 0.302 |
+| VideoMAEv2-giant motion (1408-d) | 0.434 |
+| dual-motion VideoMAEv2+Swin (2176-d) | 0.517 |
+
+- **ConvNeXt appearance / ROI crops are at or below chance** → better object
+  detection or tighter crops cannot help; the frozen appearance does not encode
+  fault-relevant information at completions.
+- `OD_labels.json` is **ground-truth per-frame assembly *state*** (binary
+  component strings + an unused `error_state` class), sampled on a different frame
+  grid than the cache — it is not a deployable part detector and cannot be a model
+  input without leakage. The only usable asset (GT assembly bbox) is oracle
+  localization; but since the ConvNeXt appearance is uninformative anyway, cleaner
+  crops would not help.
+- **Alternative motion backbones are worse**, not better (this "giant" is the
+  UnlabeledHybrid pretrain, not the motion-sensitive SSv2 finetune).
+- The best available feature (Swin motion, 0.669) is **too weak** for operational
+  detection with 19 errors.
+
+## Consolidated verdict (#1 + #2 + #3)
+
+The counterfactual + expected-effect + ranking work is a **genuine representation
+improvement** — the first movement in the project's history on the held-out
+incorrect signal (per-event `P(complete_incorrect)` 0.008 → 0.386). But
+**operational fault detection is blocked by two structural facts that no tuning,
+detection reformulation, or available evidence channel can overcome**: (a) only
+**19 real error events** in development, and (b) **every available frozen feature
+is weakly fault-discriminative** (best 0.669 AUC). The genuine paths forward are
+**collecting more real error recordings** (Hand Atlas labeler + new HoloLens
+captures) and/or **training a real part/state detector** — not further tuning of
+the current pipeline.
+
+Diagnostic scripts (not committed; on the box under `/tmp/`):
+`pooled_eval.py`, `episode_eval.py`, `cache_probe.py`, `giant_probe.py`,
+`direct_effect_detector.py`, `enhanced_detector.py`.
