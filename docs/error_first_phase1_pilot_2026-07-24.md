@@ -292,3 +292,61 @@ the current pipeline.
 Diagnostic scripts (not committed; on the box under `/tmp/`):
 `pooled_eval.py`, `episode_eval.py`, `cache_probe.py`, `giant_probe.py`,
 `direct_effect_detector.py`, `enhanced_detector.py`.
+
+## Part/state-detector evidence sweep — SAM3 + Grounding DINO (2026-07-24)
+
+Since the frozen features could not separate faults, we tested whether a trained /
+foundation part detector could. IndustReal here has **no part-level labels or
+CAD/synthetic** (only whole-assembly GT bbox + state string), so open-vocabulary
+detection/segmentation is the only option (no part-detector training data).
+
+Operator-disjoint separability of correct-vs-incorrect completions (243 events,
+16–19 errors, 17 operators; nearest-centroid leave-one-operator-out AUC):
+
+| evidence source | AUC |
+|---|---:|
+| ConvNeXt appearance / ROI crops | 0.33–0.50 |
+| VideoMAEv2 motion | 0.43–0.52 |
+| **Swin motion (best)** | **0.65–0.67** |
+| Grounding DINO 2D detection (presence) | 0.64 |
+| Grounding DINO geometry | 0.49 |
+| **SAM 3 concept segmentation** | **0.28 (noise)** |
+| fusion (motion + any of the above) | ≤ 0.65 (no gain; SAM3 fusion *hurt*) |
+
+**Every 2D evidence source fails.** Frozen backbones, open-vocab detection
+(Grounding DINO), and the strongest foundation segmenter (SAM 3) all sit at or
+below the weak ~0.65 ceiling — far from the ~0.9 AUC needed for operational
+detection with 16–19 errors. SAM3 (transformers 5.14, `facebook/sam3`) actually
+did *worse* than a plain detector.
+
+**SAM 3D (orientation) — the only untested lever — is doubly blocked:**
+`facebook/sam-3d-objects` is *separately* gated (403; the `facebook/sam3` grant
+does not cover it) and it is a heavy custom SLAT/Gaussian-splat 3D pipeline (not
+transformers). Even if built, it would address only *orientation-subset* faults
+and remains unmeasurable on ~19 events.
+
+## Final consolidated verdict
+
+Operational execution-error detection is **not achievable on the IndustReal data
+available here.** Two structural limits, neither fixable by more feature
+engineering or better detectors:
+
+1. **~19 real error events** in development — a hard statistical ceiling for both
+   training and validation.
+2. **A genuinely weak visual fault signal** (~0.65 AUC best-case across *all*
+   evidence sources, frozen or foundation-model).
+
+The counterfactual + expected-effect + ranking work remains a real *representation*
+improvement (first movement on the held-out incorrect signal, 0.008→0.386), and
+the belief-tracker decomposition is sound. But the error-detection objective is
+**data-limited, not method-limited**.
+
+**Recommended direction:**
+- **Bank the working system** — step/action recognition, component-state
+  recognition (~80% acc), and the auditable belief tracker — as the deliverable.
+- **Collect more real errors** (Hand Atlas labeler + new HoloLens captures, or a
+  comparable error-rich egocentric procedural dataset) as the genuine unlock for
+  fault detection.
+
+SAM3 probe scripts on the box: `/tmp/sam3_probe.py` (saves `/tmp/sam3_feats.npz`),
+`/tmp/sam3_feasibility.py`, `/tmp/gdino_probe.py`.
