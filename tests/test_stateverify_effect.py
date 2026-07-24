@@ -172,6 +172,42 @@ class StateEffectObserverTest(unittest.TestCase):
         typed = state_effect_targets(targets, (0,))
         self.assertEqual(int(typed["effect"][0, 1, 0]), 2)
 
+    def test_rank_loss_rewards_incorrect_above_correct(self) -> None:
+        torch = self.torch
+        event_state_indices = (0, 2)
+
+        def outputs_for(inc_at_incorrect: float, inc_at_correct: float):
+            effect = torch.zeros(1, 4, 3, 4)
+            effect[..., 0] = 1.0  # default no_change everywhere
+            effect[0, 1, 0] = torch.tensor(
+                [1 - inc_at_incorrect, 0.0, inc_at_incorrect, 0.0]
+            )
+            effect[0, 2, 0] = torch.tensor(
+                [1 - inc_at_correct, 0.0, inc_at_correct, 0.0]
+            )
+            return {
+                "state_logits": torch.zeros(1, 4, 3, 3),
+                "effect_logits": torch.zeros(1, 4, 3, 4),
+                "effect_probabilities": effect,
+                "step_logits": None,
+            }
+
+        targets = {
+            "state": torch.ones(1, 4, 3, dtype=torch.long),
+            "state_mask": torch.ones(1, 4, 3, dtype=torch.bool),
+            "valid_mask": torch.ones(1, 4, dtype=torch.bool),
+            "component_outcome": torch.full((1, 4, 2), -100, dtype=torch.long),
+        }
+        targets["component_outcome"][0, 1, 0] = 1  # incorrect completion, comp 0
+        targets["component_outcome"][0, 2, 0] = 0  # correct completion, comp 0
+        criterion = build_state_effect_loss(
+            StateEffectLossConfig(rank_weight=1.0, rank_margin=0.3)
+        )
+        good = criterion(outputs_for(0.9, 0.1), targets, event_state_indices)["rank"]
+        bad = criterion(outputs_for(0.1, 0.9), targets, event_state_indices)["rank"]
+        self.assertLess(float(good), float(bad))
+        self.assertGreaterEqual(float(good), 0.0)
+
     def test_state_effect_loss_is_finite_and_differentiable(self) -> None:
         torch = self.torch
         model = build_state_effect_observer(self._config())

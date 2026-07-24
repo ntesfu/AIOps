@@ -53,6 +53,13 @@ class StateEffectLossConfig:
     focal_gamma: float = 1.5
     effect_no_change_ratio: float = 4.0
     effect_min_no_change: int = 64
+    # Same-component margin-ranking between incorrect and correct completions.
+    # Counterfactual synthesis supplies enough incorrect positives to keep this
+    # term active; it directly attacks background false onsets by pushing
+    # P(complete_incorrect) at correct installs below that at incorrect installs
+    # of the same component.
+    rank_weight: float = 0.5
+    rank_margin: float = 0.3
 
     def validate(self) -> None:
         if min(
@@ -63,6 +70,8 @@ class StateEffectLossConfig:
             self.focal_gamma,
             self.effect_no_change_ratio,
             self.effect_min_no_change,
+            self.rank_weight,
+            self.rank_margin,
         ) < 0:
             raise ValueError("State/effect loss weights and focal_gamma cannot be negative.")
 
@@ -166,6 +175,41 @@ def build_state_effect_loss(config: StateEffectLossConfig):
             return selected
 
         @staticmethod
+        def _effect_rank_loss(
+            effect_probabilities, component_outcome, valid_mask, event_state_indices
+        ):
+            """Margin-ranking of P(complete_incorrect): incorrect > correct per component.
+
+            Positives are incorrect completions (real or counterfactual,
+            ``component_outcome == 1``); negatives are correct completions
+            (``== 0``) of the same event component. This term is only active when
+            a batch contains both for some component, which counterfactual
+            synthesis makes routine.
+            """
+
+            incorrect_class = 2
+            valid = valid_mask.bool()
+            total = effect_probabilities.new_zeros(())
+            count = 0
+            for event_component, state_component in enumerate(event_state_indices):
+                column = component_outcome[..., event_component]
+                positive_mask = (column == 1) & valid
+                negative_mask = (column == 0) & valid
+                if not (bool(positive_mask.any()) and bool(negative_mask.any())):
+                    continue
+                scores = effect_probabilities[..., int(state_component), incorrect_class]
+                positive = scores[positive_mask]
+                negative = scores[negative_mask]
+                difference = positive.unsqueeze(1) - negative.unsqueeze(0)
+                total = total + torch.clamp(
+                    config.rank_margin - difference, min=0.0
+                ).mean()
+                count += 1
+            if count == 0:
+                return effect_probabilities.sum() * 0.0
+            return total / count
+
+        @staticmethod
         def _focal_cross_entropy(logits, labels, mask, class_weights=None):
             if not mask.any():
                 return logits.sum() * 0.0
@@ -245,11 +289,18 @@ def build_state_effect_loss(config: StateEffectLossConfig):
                 )
             else:
                 losses["transition_consistency"] = effect_probability.sum() * 0.0
+            losses["rank"] = self._effect_rank_loss(
+                outputs["effect_probabilities"],
+                targets["component_outcome"],
+                targets["valid_mask"],
+                event_state_indices,
+            )
             losses["total"] = (
                 config.state_weight * losses["state"]
                 + config.effect_weight * losses["effect"]
                 + config.transition_consistency_weight
                 * losses["transition_consistency"]
+                + config.rank_weight * losses["rank"]
             )
             if "step" in losses:
                 losses["total"] = losses["total"] + config.step_weight * losses["step"]

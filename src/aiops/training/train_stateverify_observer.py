@@ -21,6 +21,16 @@ from aiops.models.stateverify_effect import (
     build_state_effect_observer,
     state_effect_targets,
 )
+from aiops.models.expected_effect import (
+    ExpectedEffectPredictorConfig,
+    build_expected_effect_predictor,
+    expected_effect_loss,
+)
+from aiops.data.counterfactuals import (
+    CounterfactualConfig,
+    CounterfactualWindowDataset,
+    build_wrong_part_donors_from_records,
+)
 from aiops.training.monitoring import TrainingMonitor
 from aiops.training.train_stategraph_psr import (
     OutcomeAwareBatchSampler,
@@ -184,10 +194,22 @@ def _confusion_metrics(prefix: str, confusion: np.ndarray) -> dict[str, float]:
     return metrics
 
 
-def _evaluate(model, criterion, loader, device, config, event_state_indices, weights):
+def _evaluate(
+    model,
+    criterion,
+    loader,
+    device,
+    config,
+    event_state_indices,
+    weights,
+    expected_model=None,
+    expected_effect_weight=0.0,
+):
     import torch
 
     model.eval()
+    if expected_model is not None:
+        expected_model.eval()
     totals: dict[str, list[float]] = {}
     state_confusion = np.zeros((3, 3), dtype=np.int64)
     effect_confusion = np.zeros((4, 4), dtype=np.int64)
@@ -208,6 +230,19 @@ def _evaluate(model, criterion, loader, device, config, event_state_indices, wei
                 effect_class_weights=weights[1],
             )
             typed = state_effect_targets(batch, event_state_indices)
+            if expected_model is not None:
+                expected = expected_model(
+                    outputs["component_features"],
+                    step_probabilities=outputs.get("step_probabilities"),
+                    valid_mask=batch["valid_mask"],
+                )
+                ee_loss = expected_effect_loss(
+                    expected["expected_effect_logits"],
+                    typed["effect"],
+                    typed["effect_mask"],
+                )
+                losses["expected_effect"] = ee_loss
+                losses["total"] = losses["total"] + expected_effect_weight * ee_loss
             _update_confusion(
                 state_confusion,
                 outputs["state_logits"],
@@ -282,10 +317,23 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         focal_gamma=args.focal_gamma,
         effect_no_change_ratio=args.effect_no_change_ratio,
         effect_min_no_change=args.effect_min_no_change,
+        rank_weight=args.rank_weight,
+        rank_margin=args.rank_margin,
     )
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     model = build_state_effect_observer(config).to(device)
     criterion = build_state_effect_loss(loss_config).to(device)
+    expected_model = None
+    expected_effect_config = None
+    if args.expected_effect_weight > 0:
+        expected_effect_config = ExpectedEffectPredictorConfig(
+            hidden_dim=args.hidden_dim,
+            num_components=first.num_components,
+            num_steps=len(metadata.get("action_ids", [])),
+            effect_lag=args.effect_lag,
+            dropout=args.dropout,
+        )
+        expected_model = build_expected_effect_predictor(expected_effect_config).to(device)
     state_weights_np, effect_weights_np, state_counts, effect_counts = _class_weights(
         train_records, event_state_indices
     )
@@ -314,6 +362,29 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         sampling_weights=sampling,
         seed=args.seed,
     )
+    # Counterfactual error synthesis: donors are collected from training records
+    # only and the base validation dataset is never wrapped, so held-out numbers
+    # stay honest. The sampler above indexes the base dataset; the wrapper keeps
+    # length and indices identical, only substituting some windows in-place.
+    counterfactual_donor_components = 0
+    if not args.no_counterfactuals and args.counterfactual_rate > 0:
+        counterfactual_config = CounterfactualConfig(
+            roi_count=len(ROI_ORDER),
+            roi_dim=roi_dim,
+            event_state_indices=event_state_indices,
+        )
+        donors = build_wrong_part_donors_from_records(
+            train_records, counterfactual_config
+        )
+        counterfactual_donor_components = len(donors)
+        if donors:
+            train_dataset = CounterfactualWindowDataset(
+                train_dataset,
+                donors,
+                counterfactual_config,
+                rate=args.counterfactual_rate,
+                seed=args.seed,
+            )
     worker_options = dict(
         num_workers=args.workers,
         collate_fn=pad_stategraph_batch,
@@ -333,8 +404,11 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         shuffle=False,
         **worker_options,
     )
+    trainable_parameters = list(model.parameters())
+    if expected_model is not None:
+        trainable_parameters += list(expected_model.parameters())
     optimizer = torch.optim.AdamW(
-        model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
+        trainable_parameters, lr=args.learning_rate, weight_decay=args.weight_decay
     )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=max(args.epochs, 1), eta_min=args.learning_rate * 0.05
@@ -353,6 +427,8 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         for epoch in range(1, args.epochs + 1):
             train_dataset.set_epoch(epoch)
             model.train()
+            if expected_model is not None:
+                expected_model.train()
             running: dict[str, list[float]] = {}
             for batch_index, batch in enumerate(train_loader):
                 if args.max_train_batches and batch_index >= args.max_train_batches:
@@ -373,9 +449,25 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                         state_class_weights=state_weights,
                         effect_class_weights=effect_weights,
                     )
+                    if expected_model is not None:
+                        typed = state_effect_targets(batch, event_state_indices)
+                        expected = expected_model(
+                            outputs["component_features"],
+                            step_probabilities=outputs.get("step_probabilities"),
+                            valid_mask=batch["valid_mask"],
+                        )
+                        ee_loss = expected_effect_loss(
+                            expected["expected_effect_logits"],
+                            typed["effect"],
+                            typed["effect_mask"],
+                        )
+                        losses["expected_effect"] = ee_loss
+                        losses["total"] = (
+                            losses["total"] + args.expected_effect_weight * ee_loss
+                        )
                 scaler.scale(losses["total"]).backward()
                 scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+                torch.nn.utils.clip_grad_norm_(trainable_parameters, args.grad_clip)
                 scaler.step(optimizer)
                 scaler.update()
                 for name, value in losses.items():
@@ -396,6 +488,8 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                 config,
                 event_state_indices,
                 (state_weights, effect_weights),
+                expected_model=expected_model,
+                expected_effect_weight=args.expected_effect_weight,
             )
             score = (
                 val_metrics["state_macro_recall"]
@@ -428,6 +522,14 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                 "loss_config": asdict(loss_config),
                 "event_state_mapping": mapping,
                 "metrics": val_metrics,
+                "expected_effect_model": (
+                    expected_model.state_dict() if expected_model is not None else None
+                ),
+                "expected_effect_config": (
+                    asdict(expected_effect_config)
+                    if expected_effect_config is not None
+                    else None
+                ),
             }
             torch.save(checkpoint, output_dir / "last.pt")
             if score > best_score:
@@ -446,6 +548,15 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         "state_class_weights": state_weights_np.tolist(),
         "effect_class_weights": effect_weights_np.tolist(),
         "best_selection_score": best_score,
+        "expected_effect_config": (
+            asdict(expected_effect_config)
+            if expected_effect_config is not None
+            else None
+        ),
+        "counterfactual_rate": (
+            0.0 if args.no_counterfactuals else args.counterfactual_rate
+        ),
+        "counterfactual_donor_components": counterfactual_donor_components,
         "history": history,
     }
     (output_dir / "result.json").write_text(
@@ -479,8 +590,35 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--focal-gamma", type=float, default=1.5)
     parser.add_argument("--effect-no-change-ratio", type=float, default=4.0)
     parser.add_argument("--effect-min-no-change", type=int, default=64)
+    parser.add_argument(
+        "--rank-weight",
+        type=float,
+        default=0.5,
+        help="Weight of the same-component incorrect>correct completion ranking "
+        "loss; set 0 to disable.",
+    )
+    parser.add_argument("--rank-margin", type=float, default=0.3)
     parser.add_argument("--rare-window-boost", type=float, default=6.0)
     parser.add_argument("--rare-windows-per-batch", type=int, default=1)
+    parser.add_argument(
+        "--expected-effect-weight",
+        type=float,
+        default=0.5,
+        help="Weight of the expected-effect (verify-by-predicted-outcome) loss; "
+        "set to 0 to disable the predictor and reproduce the Phase-0 baseline.",
+    )
+    parser.add_argument(
+        "--counterfactual-rate",
+        type=float,
+        default=0.5,
+        help="Probability of replacing a training window with a synthesized "
+        "wrong-part incorrect install (train-only augmentation).",
+    )
+    parser.add_argument(
+        "--no-counterfactuals",
+        action="store_true",
+        help="Disable counterfactual error synthesis entirely.",
+    )
     parser.add_argument("--event-centered-crops-per-event", type=int, default=2)
     parser.add_argument("--event-centered-crop-radius", type=int, default=64)
     parser.add_argument("--workers", type=int, default=2)
