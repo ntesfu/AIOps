@@ -382,10 +382,52 @@ error signal (contrast IndustReal held-out error F1 ≈ 0–2.5%).
 **Decision.** Architecture validated on the two axes that matter: (a) the method
 reaches the achievable band once errors are abundant, and (b) our expected-normal
 contribution is robust and *superior* exactly in the weak-feature/low-data regime
-IndustReal lives in. Remaining levers to push the ceiling (next campaign): a **V2
-attention-pool head** over the stored per-clip features (the paper's stronger head;
-headroom above 0.635), the **stage-2 CLIP-aligned** InternVideo2 (more semantic than
-the K710 stage-1), and a **counterfactual-augmentation** ablation on these features.
+IndustReal lives in. Remaining levers to push the ceiling: a **V2 attention-pool
+head** over the stored per-clip features, the **stage-2 CLIP-aligned** InternVideo2
+(more semantic than the K710 stage-1), and a **counterfactual-augmentation** ablation.
+
+**Addendum — V2 attention head (tested, no gain).** Trained a `[CLS]`+transformer
+attention-pool head over the per-clip InternVideo2 sequence per segment (the paper's
+stronger V2 head; `scripts/run_captaincook4d_v2_head.py`). Result: **it does not beat
+V1 mean-pool** — person AUC 0.589 (vs V1 0.604), recordings AUC 0.606 / AP 0.485 (vs
+V1 MLP **0.635 / 0.520**). Interpretation: on these per-segment features the
+discriminative signal is roughly uniform across clips, so mean-pool already captures
+it — **the head is not the bottleneck, the feature is.** The only remaining lever
+that can move the ceiling is a more semantic backbone (stage-2 CLIP-aligned
+InternVideo2); a bigger head cannot. Best result on the dataset stays **V1 MLP,
+recordings-split AUC 0.635 / AP 0.520.**
+
+---
+
+## Campaign 8 — Cross-dataset control: InternVideo2 on IndustReal
+
+**Question.** InternVideo2 lifted CaptainCook4D from chance to 0.635. If we point
+the *same* backbone at IndustReal, does the wrong-pin/orientation fault signal
+appear — or is IndustReal blocked for a reason a better backbone can't fix?
+
+**Approach.** The same operator-disjoint separability probe as the evidence sweep
+(Campaign 5): an 8-frame trailing clip at each of the 243 completion events,
+InternVideo2-B feature, leave-one-operator-out AUC (correct vs incorrect), plus
+fusion with the cached Swin motion. Directly comparable to the sweep numbers.
+
+**Result (decisive).** InternVideo2-B **AUC = 0.500 — exactly chance.** Swin motion
+0.647 (reproduces the sweep's 0.669, so the harness is sound); fusion motion+IV2
+**0.592 — *below* motion alone.** The strongest semantic video backbone available
+is not merely weak on IndustReal, it is at chance, and fusing it *hurts*.
+
+**Interpretation — the two datasets fail/succeed for orthogonal reasons.**
+CaptainCook4D errors are **semantic** (wrong ingredient/quantity/temperature) →
+InternVideo2's action-semantic representation captures them. IndustReal errors are
+**spatial/geometric** (wrong pin, orientation, connection at the *same* step) → no
+2-D semantic feature sees them; the fault is a geometric property of the placed
+part, not an appearance/action category. A better 2-D encoder — even a SOTA one
+that works on a different error *type* — cannot manufacture a signal that is not in
+the 2-D pixels.
+
+**Decision.** Confirms, now with the strongest semantic backbone, that the
+IndustReal blocker is **not** a backbone problem. The two real levers stay: (a) 3-D
+/ orientation / pose evidence, and (b) more than 19 real errors. Closes the
+"try better features" hypothesis for good.
 
 ---
 
