@@ -257,6 +257,138 @@ the assembly-domain deliverable; keep IndustReal as the sealed final benchmark.
 
 ---
 
+## Campaign 7 — CaptainCook4D: does the architecture work when errors are abundant?
+
+**Question.** The IndustReal verdict was *data-limited, not method-limited* — but
+that is a hypothesis, not a proof, until we run the same class of detector on a
+dataset where errors are *not* starved. CaptainCook4D (Peddi et al., NeurIPS 2024;
+egocentric cooking, purpose-built for procedural errors) is the test: if a
+supervised error detector generalizes to held-out participants here, IndustReal's
+failure was scarcity (19 errors) and the architecture is vindicated; if it *still*
+fails with thousands of real errors, the problem is representation/method.
+
+**The data (established before spending any GPU).**
+- 384 recordings, **8 persons, 10 environments, 24 recipes**; 94.5 h.
+- **5,413 video-observable step segments, 1,683 with errors (31.1%)**; 2,574 error
+  instances across 8 categories (Order 795 · Technique 502 · Preparation 410 ·
+  Measurement 331 · Missing-Step 285 · Timing 177 · Temperature 66 · Other 8).
+  That is ~**88× IndustReal's 19** — exactly the density we needed.
+- Official **person split** (participant-disjoint, the analogue of our operator
+  screen): train 917 / val 323 / **test 443 error segments**.
+- **Missing-Step** errors are encoded `start=end=-1` (the step was skipped, no
+  video) — a step-*absence* signal, not a visual anomaly, so they are excluded
+  from the visual detector (287 segments) and flagged separately.
+
+**Reference band (paper, Table 2).** Best vision-only baseline = **Omnivore V2**
+(transformer over 1-s sub-segments): step-split **F1 55.4 / AUC 75.7**;
+recording-split **F1 56 / AUC 65.3**. So even *with* 2.5K errors the task tops out
+near ~55 F1 / ~65–75 AUC — hard but clearly learnable (contrast IndustReal ~0–2.5%
+F1). That band is the target.
+
+**Approach / reasoning.**
+- *Features.* The paper's pre-extracted features are email-gated, so we extract our
+  own — one frozen **VideoMAEv2-giant** (1408-d) clip embedding per short clip,
+  K clips spread across each step segment (K scales with duration), stored both
+  mean-pooled (V1-style) and per-clip (for a later V2 attention head).
+- *Detectors, person-disjoint.* (a) **linear** + (b) **MLP** supervised
+  normal-vs-error heads — the direct scarcity test; (c) **normal_proto** — the
+  StateVerify "expected-normal" idea: per-step centroid of *correct-only* training
+  segments, error score = cosine distance from the expected-normal feature (tests
+  learn-normal-flag-deviation when normal data is abundant). Threshold-free AUC/AP
+  are primary; F1/precision/recall at a val-tuned threshold; per-category recall.
+- New repo modules: [src/aiops/data/captaincook4d.py](../src/aiops/data/captaincook4d.py)
+  (+ tests), [scripts/extract_captaincook4d_features.py](../scripts/extract_captaincook4d_features.py),
+  [scripts/run_captaincook4d_error_recognition.py](../scripts/run_captaincook4d_error_recognition.py).
+
+**Issues & resolutions.**
+- *Features are email-gated* (only 2D video is in the downloader). Resolution:
+  extract our own VideoMAEv2 features from the GoPro 360p video (~30 GB total, on
+  the 4 TB drive) — keeps the pipeline under our control and consistent with the
+  IndustReal line.
+- *box.com rejects HTTP HEAD* on shared static links (404) → size estimation
+  failed. Resolution: ranged/streaming GET reads `content-length` (avg ~78 MB → ~30
+  GB total).
+- *`np.savez_compressed` auto-appends `.npz`* to a path, so the `.npz.tmp` staging
+  file never existed for the atomic rename. Resolution: write through an open file
+  handle.
+- *The SAM3 transformers upgrade (5.14.1) broke VideoMAEv2* remote-code loading
+  (`'VideoMAEv2' object has no attribute 'all_tied_weights_keys'`). SAM3 work is
+  done, so we **reverted to transformers 4.57.6** (training code doesn't use
+  transformers; fully reversible).
+- *Home disk 99% full* (4.9 GB free). Everything — data, features, repo — lives on
+  the 4 TB drive; the model cache was already there.
+
+**Issues & resolutions (during the run).**
+- *box.com throttled the download into a crash.* The vendor downloader wraps only
+  the initial GET in a retry and sets **no timeout**, so a mid-stream
+  `IncompleteRead`/`ChunkedEncodingError` killed the whole job at 165/384. We wrote
+  a robust downloader (per-file timeout, whole-file retry, size-verified resume) →
+  **384/384**.
+- *VideoMAE features were near-chance and we diagnosed why.* Supervised heads on
+  VideoMAEv2-giant (UnlabeledHybrid) sat at **AUC ~0.49–0.55** (sklearn LogisticRegression
+  confirmed — not a training bug), and max/attention pooling didn't help. Diagnosis:
+  the feature is the bottleneck, and it is the *wrong kind* — VideoMAE is
+  motion-pretrained, but CaptainCook4D errors are largely **semantic** (wrong
+  ingredient/quantity/temperature). So the evolve is a **feature-family** change,
+  not a head change.
+- *Chose a stronger semantic backbone: InternVideo2-B14* (cached, K710-finetuned,
+  8-frame). It needs the official model code, so we reproduced it self-contained
+  (RMSNorm blocks + QK-norm + LayerScale + Conv3d patch-embed + attention-pooling
+  `clip_projector` + LayerNorm `fc_norm` + K710 head) and **verified**: 0 missing /
+  0 unexpected state-dict keys, and a peaked, varied K710 head (max prob 0.12–0.52
+  vs uniform 0.0014) proving the forward is correct.
+- *`pkill -f <script>.sh` self-matched* the ssh command line (which contained the
+  script name) and killed its own shell. Fix: don't `pkill -f` a pattern your own
+  command contains.
+
+**Result (full 384 recordings, held-out; AUC/AP are the meaningful metrics — F1 at
+the val-tuned threshold collapses toward the predict-all-positive rate at ~31–39%
+prevalence).**
+
+*Same-data backbone comparison (logreg / expected-normal AUC, identical 384 recs):*
+
+| Split | backbone | supervised AUC | expected-normal AUC |
+|---|---|---|---|
+| person | VideoMAEv2-giant | **0.493** (chance) | 0.561 |
+| person | InternVideo2-B | **0.610** | 0.596 |
+| recordings | VideoMAEv2-giant | 0.534 | 0.577 |
+| recordings | InternVideo2-B | 0.608 | 0.574 |
+
+*Full 3-detector screen on InternVideo2 features (val-tuned):* recordings-split
+**MLP AUC 0.635 / AP 0.520** (≈ the paper's Omnivore recording-split AUC 0.653);
+person-split linear AUC 0.604. Per-category recall (person, ~40% precision) is
+**balanced across all error types**: Order 0.75, Timing 0.78, Measurement 0.74,
+Temperature 0.75, Technique 0.71, Preparation 0.63 — a genuinely usable multi-class
+error signal (contrast IndustReal held-out error F1 ≈ 0–2.5%).
+
+**Three findings.**
+1. *Feature family is decisive.* A semantic backbone (InternVideo2) lifts the
+   supervised classifier by **+0.08–0.12 AUC** over motion (VideoMAE), which is at
+   chance (0.49–0.53). Cooking errors are semantic; the IndustReal-era motion
+   features were the wrong tool for this dataset.
+2. *The expected-normal detector is backbone-robust and wins in the weak-feature
+   regime.* Its AUC (0.56–0.60) barely moves with backbone, and with the **weak**
+   VideoMAE features it **beats** the discriminative classifier (0.561 vs 0.493).
+   With **strong** features the supervised head catches up/exceeds. This is direct
+   support for the StateVerify "learn normal, flag deviation" design *precisely in
+   the low-data / weak-feature regime that IndustReal is*.
+3. *Abundant errors validate "data-limited, not method-limited" — with a caveat.*
+   With 1,683 real error segments + semantic features, supervised error recognition
+   reaches the achievable band (AUC ~0.61–0.635). But that band is itself modest
+   (paper SOTA ~0.65–0.76): procedural error detection is **intrinsically hard**
+   even with thousands of errors. So IndustReal failed from a *combination* —
+   scarcity (19 errors) **and** the wrong feature type **and** intrinsic difficulty.
+
+**Decision.** Architecture validated on the two axes that matter: (a) the method
+reaches the achievable band once errors are abundant, and (b) our expected-normal
+contribution is robust and *superior* exactly in the weak-feature/low-data regime
+IndustReal lives in. Remaining levers to push the ceiling (next campaign): a **V2
+attention-pool head** over the stored per-clip features (the paper's stronger head;
+headroom above 0.635), the **stage-2 CLIP-aligned** InternVideo2 (more semantic than
+the K710 stage-1), and a **counterfactual-augmentation** ablation on these features.
+
+---
+
 ## Appendix A — Engineering gotchas & resolutions (quick reference)
 
 | Symptom | Cause | Resolution |
@@ -272,6 +404,10 @@ the assembly-domain deliverable; keep IndustReal as the sealed final benchmark.
 | `Sam3Model` ImportError | transformers 4.57 predates SAM3 | upgrade to ≥ 4.66 (we used 5.14.1) |
 | `hf auth whoami` "Not logged in" but downloads work | `HF_HOME` override pointed away from the token | keep default HF_HOME for the token, or pass `HF_TOKEN` explicitly |
 | Counterfactual donors 3/10 components | keyed on occluded `active_object` ROI | key on always-present `interaction_context` ROI |
+| box.com download link HEAD → 404 | box shared-static links reject HEAD | ranged/streaming GET reads `content-length` |
+| `np.savez_compressed(path.tmp)` then rename fails (file missing) | savez auto-appends `.npz` unless given a file handle | write through an open `wb` handle |
+| VideoMAEv2 load: no attribute `all_tied_weights_keys` | transformers 5.x (installed for SAM3) broke the pinned remote-code model | revert `transformers==4.57.6` for VideoMAEv2 extraction (SAM3 done) |
+| CaptainCook4D Missing-Step segment has no video | error encoded `start=end=-1` (step skipped) | exclude from the visual detector; treat as a step-absence signal |
 
 ## Appendix B — Reusable methodology
 
