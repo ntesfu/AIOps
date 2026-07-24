@@ -97,35 +97,62 @@ class ClaudeVLMBackend:
 
 
 class QwenVLBackend:
-    """Local Qwen2.5-VL backend on the GPU box (lazy import)."""
+    """Local Qwen2.5-VL backend on the GPU box (lazy import).
+
+    Resolves each ``FrameRef`` to a PIL image (file path or ``data:``/``base64:``
+    URI), builds the Qwen chat with one image placeholder per frame (no
+    ``qwen_vl_utils`` needed), and greedy-decodes. ``max_pixels`` caps vision
+    tokens so a few 360p frames stay well within the 24 GB GPU.
+    """
 
     name = "qwen-vl"
 
     def __init__(self, model_id: str = "Qwen/Qwen2.5-VL-7B-Instruct",
-                 device: str | None = None, max_new_tokens: int = 512) -> None:
+                 device: str | None = None, max_new_tokens: int = 512,
+                 max_pixels: int = 768 * 768) -> None:
         self.model_id = model_id
         self.device = device
         self.max_new_tokens = max_new_tokens
+        self.max_pixels = max_pixels
         self._model = None
         self._processor = None
+
+    def load(self) -> None:  # pragma: no cover - GPU only
+        """Eagerly initialize the model. Call before any decord decoding — decord
+        must not touch CUDA before the torch model is initialized (init-order
+        segfault). The pipeline invokes this warmup hook automatically."""
+        self._load()
 
     def _load(self):  # pragma: no cover - GPU only
         if self._model is None:
             import torch
             from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
-            self._processor = AutoProcessor.from_pretrained(self.model_id)
+            self._processor = AutoProcessor.from_pretrained(self.model_id, max_pixels=self.max_pixels)
             self._model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-                self.model_id, torch_dtype=torch.bfloat16,
+                self.model_id, dtype="auto",
                 device_map=self.device or "auto").eval()
 
+    def _resolve(self, fr):  # pragma: no cover - PIL only on box
+        from PIL import Image
+        ref = fr.ref
+        if ref.startswith("data:") or ref.startswith("base64:"):
+            import base64
+            import io
+            b64 = ref.split(",", 1)[-1].replace("base64:", "")
+            return Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB")
+        return Image.open(ref).convert("RGB")
+
     def generate(self, prompt: Prompt) -> str:  # pragma: no cover - GPU only
+        import torch
         self._load()
-        images = [fr.ref for fr in prompt.images]
+        images = [self._resolve(fr) for fr in prompt.images]
+        content = [{"type": "image"} for _ in images] + [{"type": "text", "text": prompt.user}]
         messages = [{"role": "system", "content": prompt.system},
-                    {"role": "user", "content": [{"type": "text", "text": prompt.user},
-                                                 *[{"type": "image", "image": im} for im in images]]}]
+                    {"role": "user", "content": content}]
         text = self._processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        inputs = self._processor(text=[text], images=images or None, return_tensors="pt").to(self._model.device)
-        out = self._model.generate(**inputs, max_new_tokens=self.max_new_tokens)
+        inputs = self._processor(text=[text], images=images or None,
+                                 return_tensors="pt", padding=True).to(self._model.device)
+        with torch.inference_mode():
+            out = self._model.generate(**inputs, max_new_tokens=self.max_new_tokens, do_sample=False)
         gen = out[:, inputs.input_ids.shape[1]:]
         return self._processor.batch_decode(gen, skip_special_tokens=True)[0]

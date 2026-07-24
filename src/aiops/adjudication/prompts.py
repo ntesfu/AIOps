@@ -11,7 +11,11 @@ import json
 from typing import Protocol, runtime_checkable
 
 from aiops.adjudication.schema import ATTRIBUTION_SCHEMA
-from aiops.adjudication.types import EvidencePacket, Prompt
+from aiops.adjudication.types import MISTAKE_FAMILIES, EvidencePacket, Prompt
+
+_FAMILIES_LINE = (
+    "mistake_family MUST be exactly one of: " + ", ".join(MISTAKE_FAMILIES) + "."
+)
 
 _SYSTEM = (
     "You are a procedural-error adjudicator for an egocentric assembly/cooking "
@@ -50,7 +54,8 @@ class ZeroShotPromptBuilder:
     def build(self, packet: EvidencePacket) -> Prompt:
         user = (
             _context_block(packet)
-            + "\n\nAttribute the mistake. Return JSON with fields: "
+            + "\n\nAttribute the mistake. " + _FAMILIES_LINE
+            + " Return JSON with fields: "
             + ", ".join(ATTRIBUTION_SCHEMA["properties"].keys())
             + ".\nSchema:\n" + json.dumps(ATTRIBUTION_SCHEMA)
         )
@@ -65,7 +70,8 @@ class ChainOfThoughtPromptBuilder:
             + "\n\nThink step by step about (1) what the step required, (2) what the "
             "frames show, (3) the delta between them — then output the final JSON "
             "attribution ONLY, matching the schema. Put reasoning in the 'rationale' "
-            "field.\nSchema:\n" + json.dumps(ATTRIBUTION_SCHEMA)
+            "field. " + _FAMILIES_LINE
+            + "\nSchema:\n" + json.dumps(ATTRIBUTION_SCHEMA)
         )
         return Prompt(system=_SYSTEM, user=user, images=list(packet.frames),
                       response_schema=ATTRIBUTION_SCHEMA, packet=packet)

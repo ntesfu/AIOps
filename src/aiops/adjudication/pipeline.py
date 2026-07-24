@@ -38,6 +38,12 @@ class AdjudicationPipeline:
 
     def adjudicate(self, candidates: Sequence[Candidate]) -> list[AdjudicationResult]:
         """Run trigger -> evidence -> prompt -> backend -> parse for each event."""
+        # Warm up the backend before any evidence building. Some backends (e.g.
+        # a torch VLM) must initialize CUDA before decord decodes frames, or the
+        # process segfaults on init order.
+        warmup = getattr(self.backend, "load", None)
+        if callable(warmup):
+            warmup()
         results: list[AdjudicationResult] = []
         for cand in self.trigger.select(candidates):
             packet = self.evidence_builder.build(cand)
