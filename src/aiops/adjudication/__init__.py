@@ -29,7 +29,10 @@ from aiops.adjudication.fusion import EnrichmentFuser, Fuser
 from aiops.adjudication.parsing import JsonResponseParser, ResponseParser
 from aiops.adjudication.pipeline import AdjudicationPipeline, build_default_pipeline
 from aiops.adjudication.prompts import (
+    DEFAULT_FEWSHOT,
+    FAMILY_DEFINITIONS,
     ChainOfThoughtPromptBuilder,
+    FewShotExemplar,
     PromptBuilder,
     ZeroShotPromptBuilder,
 )
@@ -63,6 +66,7 @@ __all__ = [
     "Trigger", "AllEventsTrigger", "ScoreThresholdTrigger", "TopKTrigger",
     "EvidenceBuilder", "DefaultEvidenceBuilder", "ProcedureContext", "NullProcedureContext",
     "PromptBuilder", "ZeroShotPromptBuilder", "ChainOfThoughtPromptBuilder",
+    "FewShotExemplar", "FAMILY_DEFINITIONS", "DEFAULT_FEWSHOT",
     "ResponseParser", "JsonResponseParser",
     "Fuser", "EnrichmentFuser",
     "evaluate_attributions", "AttributionScores",
