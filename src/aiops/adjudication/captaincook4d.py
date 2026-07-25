@@ -98,7 +98,14 @@ class CaptainCook4DProcedureContext:
 
 class CaptainCook4DFrameProvider:
     """Decode before/contact/effect frames for a candidate and cache them as JPEGs;
-    returns ``FrameRef``s pointing at the files (a VLM backend loads them)."""
+    returns ``FrameRef``s pointing at the files (a VLM backend loads them).
+
+    A decord ``VideoReader`` for a long 360p GoPro video holds ~0.5-1 GB, so a
+    per-recording reader cache OOMs a many-recording batch (50 readers ~35 GB on a
+    31 GB box). We open one reader per call, materialize the frames to JPEG, and
+    release it *before* the memory-heavy VLM step. Round-robin sampling makes
+    consecutive events different recordings anyway, so a cache would barely hit.
+    """
 
     def __init__(self, data_root: str | Path, cache_dir: str | Path,
                  roles: Sequence[tuple[str, float]] = DEFAULT_ROLES,
@@ -108,33 +115,34 @@ class CaptainCook4DFrameProvider:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.roles = tuple(roles)
         self.max_width = max_width
-        self._readers: dict[str, object] = {}
-
-    def _reader(self, recording_id: str):
-        from decord import VideoReader
-        if recording_id not in self._readers:
-            self._readers[recording_id] = VideoReader(
-                str(video_path(self.data_root, recording_id)))
-        return self._readers[recording_id]
 
     def __call__(self, candidate: Candidate) -> list[FrameRef]:
+        import gc
+
+        from decord import VideoReader
         from PIL import Image
 
         start = float(candidate.metadata.get("start_time", 0.0))
         end = float(candidate.metadata.get("end_time", start))
-        reader = self._reader(candidate.recording_id)
-        n = len(reader)
-        fps = float(reader.get_avg_fps()) or 30.0
         stem = candidate.event_id.replace("#", "_").replace("/", "_")
+        reader = VideoReader(str(video_path(self.data_root, candidate.recording_id)))
         refs: list[FrameRef] = []
-        for role, frac in self.roles:
-            t = start + frac * max(0.0, end - start)
-            f = int(min(max(0, round(t * fps)), n - 1))
-            pil = Image.fromarray(reader[f].asnumpy())  # RGB
-            if pil.width > self.max_width:
-                h = round(pil.height * self.max_width / pil.width)
-                pil = pil.resize((self.max_width, h))
-            out = self.cache_dir / f"{stem}_{role}.jpg"
-            pil.save(out, quality=90)
-            refs.append(FrameRef(str(out), role, timestamp=t))
+        try:
+            n = len(reader)
+            fps = float(reader.get_avg_fps()) or 30.0
+            for role, frac in self.roles:
+                t = start + frac * max(0.0, end - start)
+                f = int(min(max(0, round(t * fps)), n - 1))
+                pil = Image.fromarray(reader[f].asnumpy())  # RGB, copied out of reader
+                if pil.width > self.max_width:
+                    h = round(pil.height * self.max_width / pil.width)
+                    pil = pil.resize((self.max_width, h))
+                out = self.cache_dir / f"{stem}_{role}.jpg"
+                pil.save(out, quality=90)
+                refs.append(FrameRef(str(out), role, timestamp=t))
+        finally:
+            # Release the reader (and its ~GB of buffers) before returning so it
+            # never coexists with the VLM forward pass.
+            del reader
+            gc.collect()
         return refs

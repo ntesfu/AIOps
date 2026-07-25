@@ -105,7 +105,14 @@ def main() -> None:
         fuser=EnrichmentFuser(),
     )
 
-    results = pipe.adjudicate(candidates)
+    def _progress(i, total, res):
+        a = res.attribution
+        fam = a.mistake_family if a else "-"
+        lat = f"{round(res.latency_ms)}ms" if res.latency_ms else "-"
+        print(f"  [{i}/{total}] {res.event_id} status={res.status} fam={fam!r} lat={lat}",
+              flush=True)
+
+    results = pipe.adjudicate(candidates, progress=_progress)
     for r in results[:12]:
         g = gt.get(r.event_id, {})
         a = r.attribution

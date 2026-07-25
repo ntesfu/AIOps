@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 from aiops.adjudication.backends import MockVLMBackend, VLMBackend
 from aiops.adjudication.evidence import DefaultEvidenceBuilder, EvidenceBuilder
@@ -36,30 +36,41 @@ class AdjudicationPipeline:
     parser: ResponseParser
     fuser: Fuser = None  # optional; only needed for fuse()
 
-    def adjudicate(self, candidates: Sequence[Candidate]) -> list[AdjudicationResult]:
-        """Run trigger -> evidence -> prompt -> backend -> parse for each event."""
+    def adjudicate(
+        self,
+        candidates: Sequence[Candidate],
+        progress: Optional[Callable[[int, int, AdjudicationResult], None]] = None,
+    ) -> list[AdjudicationResult]:
+        """Run trigger -> evidence -> prompt -> backend -> parse for each event.
+
+        ``progress(i, total, result)`` is called after each event (1-based ``i``)
+        so long batches can log incrementally without the core knowing how."""
         # Warm up the backend before any evidence building. Some backends (e.g.
         # a torch VLM) must initialize CUDA before decord decodes frames, or the
         # process segfaults on init order.
         warmup = getattr(self.backend, "load", None)
         if callable(warmup):
             warmup()
+        selected = list(self.trigger.select(candidates))
+        total = len(selected)
         results: list[AdjudicationResult] = []
-        for cand in self.trigger.select(candidates):
+        for i, cand in enumerate(selected, 1):
             packet = self.evidence_builder.build(cand)
             prompt = self.prompt_builder.build(packet)
             t0 = time.perf_counter()
             try:
                 raw = self.backend.generate(prompt)
             except Exception as exc:  # never let one event sink the batch
-                results.append(AdjudicationResult(
+                res = AdjudicationResult(
                     event_id=cand.event_id, status="backend_error",
-                    backend=getattr(self.backend, "name", "?"), error=str(exc)))
-                continue
-            res = self.parser.parse(raw, packet)
-            res.backend = getattr(self.backend, "name", "?")
-            res.latency_ms = (time.perf_counter() - t0) * 1000.0
+                    backend=getattr(self.backend, "name", "?"), error=str(exc))
+            else:
+                res = self.parser.parse(raw, packet)
+                res.backend = getattr(self.backend, "name", "?")
+                res.latency_ms = (time.perf_counter() - t0) * 1000.0
             results.append(res)
+            if progress is not None:
+                progress(i, total, res)
         return results
 
     def fuse(self, alerts: Sequence[Alert],
