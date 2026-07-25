@@ -18,10 +18,35 @@ from dataclasses import dataclass
 from typing import Optional, Protocol, Sequence, runtime_checkable
 
 from aiops.adjudication.schema import ATTRIBUTION_SCHEMA
-from aiops.adjudication.types import MISTAKE_FAMILIES, EvidencePacket, Prompt
+from aiops.adjudication.types import ABSTAIN_FAMILY, MISTAKE_FAMILIES, EvidencePacket, Prompt
 
 _FAMILIES_LINE = (
     "mistake_family MUST be exactly one of: " + ", ".join(MISTAKE_FAMILIES) + "."
+)
+
+
+def _families_line(allow_abstention: bool) -> str:
+    fams = list(MISTAKE_FAMILIES) + ([ABSTAIN_FAMILY] if allow_abstention else [])
+    return "mistake_family MUST be exactly one of: " + ", ".join(fams) + "."
+
+
+# Legend for the temporal frame roles a context-aware provider emits, so the model
+# can reason about ordering/timing across the neighbouring steps.
+_FRAME_LEGEND = (
+    "Frame roles are chronological: 'prev_end' = end of the PREVIOUS step, "
+    "'before'/'contact'/'effect' = the flagged step, 'next_start' = start of the "
+    "NEXT step. Use the neighbours + the recipe step order to judge ordering/timing."
+)
+
+# Abstention: the escape hatch that stops the model fabricating an unseeable
+# Timing/Temperature/Order/Missing error when the frames simply don't show it.
+_ABSTENTION = (
+    "ABSTAIN INSTEAD OF GUESSING: if the frames and step context do not let you "
+    "identify the SPECIFIC mistake, set evidence_sufficient=false and "
+    f"mistake_family='{ABSTAIN_FAMILY}', and say what evidence is missing in "
+    "rationale. Do NOT invent a Timing/Temperature/Order/Missing-Step error you "
+    "cannot actually observe. Only when you CAN see the mistake, set "
+    "evidence_sufficient=true and attribute it."
 )
 
 # One-line definition per canonical family. The wording is chosen to force the
@@ -170,7 +195,8 @@ class PromptBuilder(Protocol):
 
 
 class _GuidedPromptBuilder:
-    """Shared base: holds the injectable guidance (definitions + rule + exemplars)."""
+    """Shared base: holds the injectable guidance (definitions + rule + exemplars +
+    the abstention escape hatch)."""
 
     def __init__(
         self,
@@ -178,13 +204,22 @@ class _GuidedPromptBuilder:
         families: Sequence[str] = MISTAKE_FAMILIES,
         few_shot: Optional[Sequence[FewShotExemplar]] = None,
         disambiguation: str = _DISAMBIGUATION,
+        allow_abstention: bool = True,
     ) -> None:
         self.families = tuple(families)
         self.few_shot = tuple(DEFAULT_FEWSHOT if few_shot is None else few_shot)
         self.disambiguation = disambiguation
+        self.allow_abstention = allow_abstention
 
     def _guidance(self) -> str:
         return _guidance(self.families, self.few_shot, self.disambiguation)
+
+    def _constraints(self) -> str:
+        """Frame legend + families line (+ abstention), shared by both builders."""
+        parts = [_FRAME_LEGEND, _families_line(self.allow_abstention)]
+        if self.allow_abstention:
+            parts.append(_ABSTENTION)
+        return "\n".join(parts)
 
 
 class ZeroShotPromptBuilder(_GuidedPromptBuilder):
@@ -192,8 +227,8 @@ class ZeroShotPromptBuilder(_GuidedPromptBuilder):
         user = (
             _context_block(packet)
             + "\n\n" + self._guidance()
-            + "\n\nAttribute the mistake. " + _FAMILIES_LINE
-            + " Return JSON with fields: "
+            + "\n\nAttribute the mistake.\n" + self._constraints()
+            + "\nReturn JSON with fields: "
             + ", ".join(ATTRIBUTION_SCHEMA["properties"].keys())
             + ".\nSchema:\n" + json.dumps(ATTRIBUTION_SCHEMA)
         )
@@ -210,7 +245,7 @@ class ChainOfThoughtPromptBuilder(_GuidedPromptBuilder):
             "the required action happened at all in the frames, (3) if it happened, "
             "how the result differs from what was required - then output the final "
             "JSON attribution ONLY, matching the schema. Put reasoning in the "
-            "'rationale' field. " + _FAMILIES_LINE
+            "'rationale' field.\n" + self._constraints()
             + "\nSchema:\n" + json.dumps(ATTRIBUTION_SCHEMA)
         )
         return Prompt(system=_SYSTEM, user=user, images=list(packet.frames),

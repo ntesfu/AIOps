@@ -26,6 +26,11 @@ MISTAKE_FAMILIES: tuple[str, ...] = (
     "Other",
 )
 
+# Abstention sentinel — the model may return this (or set evidence_sufficient=false)
+# when the frames/context do not let it identify the specific mistake. It is NOT a
+# mistake family; it is scored separately (abstention), never as a wrong family.
+ABSTAIN_FAMILY = "Insufficient Evidence"
+
 _FAMILY_KEYWORDS = {
     "prepar": "Preparation Error",
     "measure": "Measurement Error",
@@ -40,15 +45,26 @@ _FAMILY_KEYWORDS = {
     "skip": "Missing Step",
 }
 
+_ABSTAIN_KEYS = (
+    "insufficient", "cannot determine", "can't determine", "undetermined",
+    "uncertain", "not enough", "indeterminate", "unable to determine",
+)
+
 
 def normalize_family(value: str) -> str:
-    """Map a free-text family to the canonical taxonomy (best effort)."""
+    """Map a free-text family to the canonical taxonomy (best effort).
+
+    Abstention phrasings collapse to ``ABSTAIN_FAMILY`` (checked before the fuzzy
+    keyword pass, so "cannot determine the timing" abstains rather than mapping to
+    Timing)."""
     if not value:
         return "Other"
     low = value.strip().lower()
     for fam in MISTAKE_FAMILIES:
         if low == fam.lower():
             return fam
+    if low == ABSTAIN_FAMILY.lower() or any(k in low for k in _ABSTAIN_KEYS):
+        return ABSTAIN_FAMILY
     for key, fam in _FAMILY_KEYWORDS.items():
         if key in low:
             return fam
@@ -122,6 +138,13 @@ class MistakeAttribution:
     violated_role: str = ""
     evidence: str = ""
     rationale: str = ""
+    evidence_sufficient: bool = True
+
+    @property
+    def abstained(self) -> bool:
+        """True when the model declined to attribute (explicit flag or sentinel)."""
+        return (not self.evidence_sufficient) or (
+            normalize_family(self.mistake_family) == ABSTAIN_FAMILY)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -135,6 +158,7 @@ class MistakeAttribution:
             "evidence": self.evidence,
             "confidence": self.confidence,
             "rationale": self.rationale,
+            "evidence_sufficient": self.evidence_sufficient,
         }
 
 

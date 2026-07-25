@@ -48,6 +48,7 @@ from aiops.adjudication.triggers import (
     Trigger,
 )
 from aiops.adjudication.types import (
+    ABSTAIN_FAMILY,
     MISTAKE_FAMILIES,
     AdjudicationResult,
     Alert,
@@ -73,5 +74,5 @@ __all__ = [
     "ATTRIBUTION_SCHEMA", "validate_attribution", "coerce_attribution",
     "Candidate", "EvidencePacket", "Prompt", "FrameRef", "MistakeAttribution",
     "AdjudicationResult", "Alert", "EnrichedAlert",
-    "MISTAKE_FAMILIES", "normalize_family",
+    "MISTAKE_FAMILIES", "ABSTAIN_FAMILY", "normalize_family",
 ]

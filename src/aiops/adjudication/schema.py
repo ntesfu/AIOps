@@ -29,6 +29,9 @@ ATTRIBUTION_SCHEMA: dict[str, Any] = {
         "evidence": {"type": "string", "description": "where in the frames the evidence is"},
         "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
         "rationale": {"type": "string"},
+        "evidence_sufficient": {"type": "boolean",
+                                "description": "false if the frames/context do not let you "
+                                "identify the specific mistake (then abstain, do not guess)"},
     },
 }
 
@@ -75,6 +78,9 @@ def coerce_attribution(payload: dict[str, Any]) -> MistakeAttribution:
     has_error = payload.get("has_error", True)
     if not isinstance(has_error, bool):
         has_error = str(has_error).strip().lower() in {"true", "1", "yes"}
+    es = payload.get("evidence_sufficient", True)
+    if not isinstance(es, bool):
+        es = str(es).strip().lower() not in {"false", "0", "no"}
     return MistakeAttribution(
         has_error=has_error,
         mistake_family=s("mistake_family") or "Other",
@@ -86,6 +92,7 @@ def coerce_attribution(payload: dict[str, Any]) -> MistakeAttribution:
         violated_role=s("violated_role"),
         evidence=s("evidence"),
         rationale=s("rationale"),
+        evidence_sufficient=es,
     )
 
 

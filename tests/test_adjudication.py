@@ -1,4 +1,5 @@
 from aiops.adjudication import (
+    ABSTAIN_FAMILY,
     AdjudicationResult,
     Alert,
     AllEventsTrigger,
@@ -10,9 +11,11 @@ from aiops.adjudication import (
     MockVLMBackend,
     ScoreThresholdTrigger,
     TopKTrigger,
+    ZeroShotPromptBuilder,
     build_default_pipeline,
     coerce_attribution,
     evaluate_attributions,
+    normalize_family,
     validate_attribution,
 )
 from aiops.adjudication.evidence import DefaultEvidenceBuilder
@@ -142,3 +145,55 @@ def test_pluggability_swap_prompt_and_evidence():
     assert results[0].status == "ok"
     # evidence frames flowed through to the mock's 'evidence' field
     assert "before" in results[0].attribution.evidence
+
+
+def test_normalize_family_abstention():
+    assert normalize_family("Insufficient Evidence") == ABSTAIN_FAMILY
+    # abstain phrasing wins over a family keyword it happens to contain
+    assert normalize_family("cannot determine the timing here") == ABSTAIN_FAMILY
+    assert normalize_family("Timing Error") == "Timing Error"
+
+
+def test_abstention_coercion_and_flag():
+    attr = coerce_attribution({"has_error": True, "mistake_family": "Insufficient Evidence",
+                               "description": "cannot tell", "confidence": 0.2,
+                               "evidence_sufficient": False})
+    assert attr.evidence_sufficient is False and attr.abstained is True
+    # explicit-flag-false abstains even when a family is named
+    attr2 = coerce_attribution({"has_error": True, "mistake_family": "Timing Error",
+                                "description": "x", "confidence": 0.5,
+                                "evidence_sufficient": "false"})
+    assert attr2.abstained is True
+    # a committed answer is not an abstention
+    attr3 = coerce_attribution({"has_error": True, "mistake_family": "Timing Error",
+                                "description": "x", "confidence": 0.5})
+    assert attr3.evidence_sufficient is True and attr3.abstained is False
+
+
+def test_prompt_abstention_toggle():
+    pkt = EvidencePacket(_cands()[0], frames=[FrameRef("f0", "before")])
+    on = ChainOfThoughtPromptBuilder(allow_abstention=True).build(pkt).user
+    off = ChainOfThoughtPromptBuilder(allow_abstention=False).build(pkt).user
+    assert ABSTAIN_FAMILY in on and "ABSTAIN" in on
+    assert ABSTAIN_FAMILY not in off
+    # zero-shot builder honors the toggle too
+    assert ABSTAIN_FAMILY in ZeroShotPromptBuilder(allow_abstention=True).build(pkt).user
+
+
+def test_evaluation_abstention_metrics():
+    # one committed correct, one abstention (excluded from committed accuracy)
+    good = AdjudicationResult(event_id="e1", status="ok",
+                              attribution=coerce_attribution(
+                                  {"has_error": True, "mistake_family": "Timing Error",
+                                   "description": "d", "confidence": 0.9}))
+    absd = AdjudicationResult(event_id="e2", status="ok",
+                              attribution=coerce_attribution(
+                                  {"has_error": True, "mistake_family": "Insufficient Evidence",
+                                   "description": "d", "confidence": 0.2,
+                                   "evidence_sufficient": False}))
+    gt = {"e1": {"family": "Timing Error", "description": "d"},
+          "e2": {"family": "Measurement Error", "description": "d"}}
+    scores = evaluate_attributions([good, absd], gt)
+    assert scores.abstention_rate == 0.5
+    assert scores.committed_family_accuracy == 1.0  # only e1 is committed, and it hits
+    assert scores.family_accuracy == 0.5  # abstention counts as a non-hit overall

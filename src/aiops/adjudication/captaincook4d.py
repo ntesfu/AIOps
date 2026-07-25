@@ -75,9 +75,14 @@ def ground_truth(annotations_root: str | Path) -> dict[str, dict]:
 
 
 class CaptainCook4DProcedureContext:
-    """Expected action + neighbouring steps from the recipe."""
+    """Expected action + an ordered window of neighbouring recipe steps.
 
-    def __init__(self, segments: Sequence[CaptainCook4DSegment]) -> None:
+    ``window`` controls how many steps before/after the flagged step are included;
+    the current step is marked so the model can reason about *order* (which step
+    should precede/follow which)."""
+
+    def __init__(self, segments: Sequence[CaptainCook4DSegment], window: int = 1) -> None:
+        self.window = window
         self.by_rec: dict[str, dict[int, str]] = {}
         for s in segments:
             self.by_rec.setdefault(s.recording_id, {})[s.step_index] = s.description
@@ -90,9 +95,10 @@ class CaptainCook4DProcedureContext:
         steps = self.by_rec.get(candidate.recording_id, {})
         out = []
         if isinstance(idx, int):
-            for j in (idx - 1, idx + 1):
+            for j in range(idx - self.window, idx + self.window + 1):
                 if j in steps:
-                    out.append(f"step {j}: {steps[j]}")
+                    mark = "  <-- flagged step" if j == idx else ""
+                    out.append(f"step {j}: {steps[j]}{mark}")
         return out
 
 
@@ -109,12 +115,34 @@ class CaptainCook4DFrameProvider:
 
     def __init__(self, data_root: str | Path, cache_dir: str | Path,
                  roles: Sequence[tuple[str, float]] = DEFAULT_ROLES,
-                 max_width: int = 640) -> None:
+                 max_width: int = 640,
+                 segments: Optional[Sequence[CaptainCook4DSegment]] = None) -> None:
         self.data_root = Path(data_root)
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.roles = tuple(roles)
         self.max_width = max_width
+        # Optional per-recording timeline (sorted by start time) so we can add
+        # prev-step-end / next-step-start frames for temporal/ordering context.
+        # The neighbours are in the SAME video, so no extra reader is opened.
+        self._timeline: dict[str, list[tuple[float, float]]] = {}
+        if segments is not None:
+            tmp: dict[str, list[tuple[float, float]]] = {}
+            for s in segments:
+                tmp.setdefault(s.recording_id, []).append(
+                    (float(s.start_time), float(s.end_time)))
+            for rid, spans in tmp.items():
+                self._timeline[rid] = sorted(spans, key=lambda t: t[0])
+
+    def _neighbors(self, rid: str, start: float):
+        """(prev_span, next_span) around the segment whose start ~= ``start``."""
+        lst = self._timeline.get(rid)
+        if not lst:
+            return None, None
+        i = min(range(len(lst)), key=lambda k: abs(lst[k][0] - start))
+        prev = lst[i - 1] if i > 0 else None
+        nxt = lst[i + 1] if i + 1 < len(lst) else None
+        return prev, nxt
 
     def __call__(self, candidate: Candidate) -> list[FrameRef]:
         import gc
@@ -130,8 +158,8 @@ class CaptainCook4DFrameProvider:
         try:
             n = len(reader)
             fps = float(reader.get_avg_fps()) or 30.0
-            for role, frac in self.roles:
-                t = start + frac * max(0.0, end - start)
+
+            def grab(t: float, role: str) -> None:
                 f = int(min(max(0, round(t * fps)), n - 1))
                 pil = Image.fromarray(reader[f].asnumpy())  # RGB, copied out of reader
                 if pil.width > self.max_width:
@@ -140,6 +168,15 @@ class CaptainCook4DFrameProvider:
                 out = self.cache_dir / f"{stem}_{role}.jpg"
                 pil.save(out, quality=90)
                 refs.append(FrameRef(str(out), role, timestamp=t))
+
+            # Chronological order: prev_end -> this step -> next_start.
+            prev, nxt = self._neighbors(candidate.recording_id, start)
+            if prev is not None:
+                grab(prev[0] + 0.9 * max(0.0, prev[1] - prev[0]), "prev_end")
+            for role, frac in self.roles:
+                grab(start + frac * max(0.0, end - start), role)
+            if nxt is not None:
+                grab(nxt[0] + 0.1 * max(0.0, nxt[1] - nxt[0]), "next_start")
         finally:
             # Release the reader (and its ~GB of buffers) before returning so it
             # never coexists with the VLM forward pass.
