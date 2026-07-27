@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 from aiops.features.assembly101_video import iter_causal_clips
+from aiops.features.assembly101_video_cache import _manifest_video_path
 
 
 def _video(path: Path, fps: float, frames: int) -> None:
@@ -27,3 +28,13 @@ def test_one_fps_mirror_is_rejected(tmp_path: Path):
     _video(path, 1.0, 2)
     with pytest.raises(ValueError, match="genuine 30-fps"):
         list(iter_causal_clips(path))
+
+
+def test_external_video_root_uses_recording_and_selected_camera():
+    row = {
+        "recording_id": "recording-a",
+        "camera_file": "recording-a_e1_rgb.mp4",
+        "video_relative_path": "legacy/missing.mp4",
+    }
+    path = _manifest_video_path(row, Path("/annotations"), Path("/videos"))
+    assert path == Path("/videos/recording-a/recording-a_e1_rgb.mp4")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,7 @@ from aiops.data.procedure_schema import CACHE_SCHEMA_VERSION, EVENT_OUTCOME_NAME
 from aiops.data.stategraph_cache import StateGraphCacheRecord, save_cache_record, write_cache_index
 from aiops.features.assembly101_cache import BatchedConvNeXtExtractor
 from aiops.features.assembly101_video import Swin3DFeatureExtractor, iter_causal_clips
+from aiops.features.videomaev2_features import OfficialVideoMAEv2SSv2Encoder
 
 
 def _official_actions(path: Path) -> tuple[list[str], list[dict[str, str]]]:
@@ -30,7 +32,7 @@ def _official_actions(path: Path) -> tuple[list[str], list[dict[str, str]]]:
 
 def _extract_recording(
     video: Path,
-    motion_extractor: Swin3DFeatureExtractor,
+    motion_extractor: Swin3DFeatureExtractor | OfficialVideoMAEv2SSv2Encoder,
     appearance_extractor: BatchedConvNeXtExtractor,
     *,
     target_fps: float,
@@ -48,7 +50,16 @@ def _extract_recording(
     def flush() -> None:
         if not clip_batch:
             return
-        motion_rows.append(motion_extractor.extract(clip_batch))
+        if isinstance(motion_extractor, OfficialVideoMAEv2SSv2Encoder):
+            # iter_causal_clips returns RGB while the reusable encoder contract
+            # follows OpenCV and accepts BGR.
+            bgr_clips = [
+                [np.ascontiguousarray(frame[..., ::-1]) for frame in clip]
+                for clip in clip_batch
+            ]
+            motion_rows.append(motion_extractor.encode(bgr_clips))
+        else:
+            motion_rows.append(motion_extractor.extract(clip_batch))
         encoded = []
         for clip in clip_batch:
             # ConvNeXt supplies complementary spatial detail from the current
@@ -79,6 +90,22 @@ def _extract_recording(
         np.concatenate(appearance_rows).astype(np.float32),
         np.asarray(sampled_frames, dtype=np.int64),
     )
+
+
+def _manifest_video_path(
+    row: dict[str, Any], data_root: Path, video_root: str | Path | None
+) -> Path:
+    if video_root is None:
+        return data_root / row["video_relative_path"]
+    return Path(video_root) / row["recording_id"] / row["camera_file"]
+
+
+def _sha256(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def build_video_cache(args: argparse.Namespace) -> dict[str, Any]:
@@ -118,7 +145,34 @@ def build_video_cache(args: argparse.Namespace) -> dict[str, Any]:
             for record in source_payload["records"]
         }
 
-    motion_extractor = Swin3DFeatureExtractor(args.device, args.precision)
+    if args.motion_backend == "videomaev2-ssv2":
+        if args.clip_frames != OfficialVideoMAEv2SSv2Encoder.num_frames:
+            raise ValueError(
+                "videomaev2-ssv2 requires --clip-frames "
+                f"{OfficialVideoMAEv2SSv2Encoder.num_frames}"
+            )
+        if not args.videomaev2_root or not args.videomaev2_checkpoint:
+            raise ValueError(
+                "videomaev2-ssv2 requires --videomaev2-root and "
+                "--videomaev2-checkpoint"
+            )
+        motion_extractor = OfficialVideoMAEv2SSv2Encoder(
+            args.videomaev2_root,
+            args.videomaev2_checkpoint,
+            args.device,
+            args.precision,
+        )
+        motion_backend: dict[str, Any] | str = {
+            "name": "videomaev2_giant_ssv2_finetuned",
+            "checkpoint": str(Path(args.videomaev2_checkpoint).resolve()),
+            "checkpoint_sha256": _sha256(args.videomaev2_checkpoint),
+            "repository": str(Path(args.videomaev2_root).resolve()),
+            "pooling": "official_mean_pooling",
+            "normalization": "imagenet_mean_std",
+        }
+    else:
+        motion_extractor = Swin3DFeatureExtractor(args.device, args.precision)
+        motion_backend = "torchvision_swin3d_s_kinetics400_v1"
     appearance_extractor = BatchedConvNeXtExtractor(args.device, args.precision)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -143,7 +197,7 @@ def build_video_cache(args: argparse.Namespace) -> dict[str, Any]:
                 sampled_frames = np.rint(timestamps * args.target_fps).astype(np.int64)
             else:
                 motion, appearance, sampled_frames = _extract_recording(
-                    data_root / row["video_relative_path"],
+                    _manifest_video_path(row, data_root, args.video_root),
                     motion_extractor,
                     appearance_extractor,
                     target_fps=args.target_fps,
@@ -218,7 +272,7 @@ def build_video_cache(args: argparse.Namespace) -> dict[str, Any]:
         "causal_clips": True,
         "camera": "e1",
         "feature_backends": {
-            "motion": "torchvision_swin3d_s_kinetics400_v1",
+            "motion": motion_backend,
             "appearance": "torchvision_convnext_tiny_imagenet1k_v1",
             "sensor": None,
         },
@@ -357,6 +411,18 @@ def main() -> None:
     parser.add_argument("--feature-batch-size", type=int, default=8)
     parser.add_argument("--precision", choices=("fp32", "bf16", "fp16"), default="bf16")
     parser.add_argument("--device", default=None)
+    parser.add_argument(
+        "--motion-backend",
+        choices=("swin3d", "videomaev2-ssv2"),
+        default="swin3d",
+    )
+    parser.add_argument(
+        "--video-root",
+        default=None,
+        help="Root containing <recording_id>/<camera_file>; overrides manifest legacy paths.",
+    )
+    parser.add_argument("--videomaev2-root", default=None)
+    parser.add_argument("--videomaev2-checkpoint", default=None)
     parser.add_argument("--num-shards", type=int, default=1)
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument("--max-recordings", type=int)

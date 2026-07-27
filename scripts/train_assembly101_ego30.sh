@@ -33,6 +33,7 @@ mistake_component_weight="${MISTAKE_COMPONENT_WEIGHT:-1.0}"
 any_mistake_pos_weight="${ANY_MISTAKE_POS_WEIGHT:-1.0}"
 selection_strategy="${SELECTION_STRATEGY:-legacy}"
 selection_max_false_alerts_per_minute="${SELECTION_MAX_FALSE_ALERTS_PER_MINUTE:-2.0}"
+python_bin="${PYTHON_BIN:-.venv/bin/python}"
 
 case "$variant" in
   base)
@@ -99,7 +100,7 @@ if [[ "$factorized_mistake_detection" == "1" ]]; then
 fi
 
 export PYTHONPATH=".deps:src${PYTHONPATH:+:${PYTHONPATH}}"
-.venv/bin/python -m aiops.training.train_stategraph_psr \
+"$python_bin" -m aiops.training.train_stategraph_psr \
   --cache-index "$cache_index" \
   --output-dir "runs/${run_name}" \
   --export-checkpoint "artifacts/${run_name}.pt" \

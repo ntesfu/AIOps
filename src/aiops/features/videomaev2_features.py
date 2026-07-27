@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
+import sys
 from collections import OrderedDict
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -194,6 +196,103 @@ class HuggingFaceVideoMAEv2Encoder:
         if features.ndim != 2:
             raise RuntimeError(f"Expected [batch, dim] VideoMAEv2 features, got {tuple(features.shape)}")
         return features.float().cpu().numpy()
+
+
+class OfficialVideoMAEv2SSv2Encoder:
+    """Official VideoMAEv2 giant encoder with strict SSv2 checkpoint loading."""
+
+    feature_dim = 1408
+    output_dim = 1408
+    num_frames = 16
+
+    def __init__(
+        self,
+        repository: str | Path,
+        checkpoint: str | Path,
+        device: str | None = None,
+        precision: str = "bf16",
+    ) -> None:
+        import torch
+
+        repository_path = Path(repository).resolve()
+        checkpoint_path = Path(checkpoint).resolve()
+        model_file = repository_path / "models" / "modeling_finetune.py"
+        if not model_file.is_file():
+            raise FileNotFoundError(f"VideoMAEv2 modeling code is missing: {model_file}")
+        if not checkpoint_path.is_file():
+            raise FileNotFoundError(f"SSv2 checkpoint is missing: {checkpoint_path}")
+        if str(repository_path) not in sys.path:
+            sys.path.insert(0, str(repository_path))
+        # VideoMAEv2 imports this legacy path; timm 1.x moved the registry.
+        try:
+            registry = importlib.import_module("timm.models._registry")
+            sys.modules.setdefault("timm.models.registry", registry)
+        except ImportError:
+            pass
+        module = importlib.import_module("models.modeling_finetune")
+        factory = getattr(module, "vit_giant_patch14_224")
+
+        self.torch = torch
+        self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
+        if self.device.type == "cpu" and precision != "fp32":
+            precision = "fp32"
+        self.dtype = {
+            "bf16": torch.bfloat16,
+            "fp16": torch.float16,
+            "fp32": torch.float32,
+        }[precision]
+        model = factory(
+            img_size=224,
+            num_classes=174,
+            all_frames=self.num_frames,
+            tubelet_size=2,
+            drop_path_rate=0.3,
+            use_mean_pooling=True,
+        )
+        payload = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        for key in ("model", "module"):
+            if isinstance(payload, dict) and key in payload:
+                payload = payload[key]
+                break
+        if not isinstance(payload, dict):
+            raise ValueError(f"Unsupported checkpoint payload in {checkpoint_path}")
+        model.load_state_dict(payload, strict=True)
+        self.model = model.eval().to(self.device)
+
+    def encode(self, clips: list[list[np.ndarray]]) -> np.ndarray:
+        """Encode OpenCV-style BGR clips as pooled 1408-D features."""
+        if not clips:
+            return np.empty((0, self.feature_dim), dtype=np.float32)
+        torch = self.torch
+        mean = torch.tensor((0.485, 0.456, 0.406)).view(3, 1, 1, 1)
+        std = torch.tensor((0.229, 0.224, 0.225)).view(3, 1, 1, 1)
+        tensors = []
+        for clip in clips:
+            if len(clip) != self.num_frames:
+                raise ValueError(
+                    f"Official SSv2 encoder requires {self.num_frames} frames, got {len(clip)}"
+                )
+            rgb = np.stack([np.ascontiguousarray(frame[..., ::-1]) for frame in clip])
+            x = torch.from_numpy(rgb).float().div_(255.0).permute(3, 0, 1, 2)
+            if x.shape[-2:] != (224, 224):
+                x = torch.nn.functional.interpolate(
+                    x, size=(224, 224), mode="bilinear", align_corners=False
+                )
+            tensors.append((x - mean) / std)
+        batch = torch.stack(tensors).to(self.device, non_blocking=True)
+        enabled = self.device.type == "cuda" and self.dtype != torch.float32
+        if self.device.type == "cuda":
+            torch.cuda.reset_peak_memory_stats(self.device)
+        with torch.inference_mode(), torch.autocast(
+            device_type=self.device.type, dtype=self.dtype, enabled=enabled
+        ):
+            features = self.model.forward_features(batch)
+        if features.shape != (len(clips), self.feature_dim):
+            raise RuntimeError(
+                f"Expected [{len(clips)}, {self.feature_dim}] SSv2 features, "
+                f"got {tuple(features.shape)}"
+            )
+        return features.float().cpu().numpy().astype(np.float32, copy=False)
 
 
 def extract_recording(
