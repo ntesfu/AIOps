@@ -110,6 +110,36 @@ class StepTaxonomy:
         return out
 
 
+def densify_completion_to_steps(
+    completion: np.ndarray, background_step: int = BACKGROUND_STEP
+) -> np.ndarray:
+    """Per-frame 11-class STEP target from sparse completion events (psr_tas run-up).
+
+    ``completion`` is ``(T, C)`` with a 1 at the frame a component completes. Under the
+    psr_tas "run-up assignment", the frames in ``(prev_event, this_event]`` are the
+    run-up to ``this_event`` and are labelled with **this** event's component (step =
+    component index + 1); frames after the final completion are background. So each
+    frame's step is "the component whose completion we are working toward" — which is
+    exactly "which procedural step am I performing".
+
+    Returns ``(T,)`` int steps in ``0..C`` (0 = background).
+    """
+    completion = np.asarray(completion)
+    if completion.ndim != 2:
+        raise ValueError("completion must be (T, C)")
+    num_frames = completion.shape[0]
+    steps = np.full(num_frames, background_step, dtype=np.int64)
+    prev = -1
+    for frame in range(num_frames):
+        fired = np.nonzero(completion[frame] > 0.5)[0]
+        if fired.size == 0:
+            continue
+        component = int(fired[-1])  # ties: take the highest-indexed completion
+        steps[prev + 1 : frame + 1] = component + 1
+        prev = frame
+    return steps
+
+
 def step_lut_from_component_indices(
     component_indices: Sequence[int], background_step: int = BACKGROUND_STEP
 ) -> np.ndarray:

@@ -15,6 +15,7 @@ from aiops.recognition import (
     StepTaxonomy,
     aggregate_and_score,
     build_transition_matrix,
+    densify_completion_to_steps,
     frame_accuracy,
     map_via_lut,
     marginalize_to_steps,
@@ -171,6 +172,32 @@ def test_viterbi_respects_forbidden_mask():
 def test_viterbi_empty():
     log_t = build_transition_matrix(3)
     assert viterbi_decode(np.empty((0, 3)), log_t).shape == (0,)
+
+
+def test_densify_completion_run_up():
+    # 3 components, completions at frames 2 (c0), 5 (c1), 8 (c2), T=11.
+    T = 11
+    completion = np.zeros((T, 3))
+    completion[2, 0] = 1
+    completion[5, 1] = 1
+    completion[8, 2] = 1
+    steps = densify_completion_to_steps(completion)
+    # run-up to c0 (frames 0..2) -> step 1; (3..5) -> step 2; (6..8) -> step 3;
+    # after last completion (9,10) -> background 0.
+    assert steps.tolist() == [1, 1, 1, 2, 2, 2, 3, 3, 3, 0, 0]
+
+
+def test_densify_completion_no_events_all_background():
+    steps = densify_completion_to_steps(np.zeros((5, 4)))
+    assert steps.tolist() == [0, 0, 0, 0, 0]
+
+
+def test_densify_completion_ties_take_highest():
+    completion = np.zeros((3, 3))
+    completion[1, 0] = 1
+    completion[1, 2] = 1  # two completions same frame -> take highest-indexed (c2)
+    steps = densify_completion_to_steps(completion)
+    assert steps.tolist() == [3, 3, 0]
 
 
 def test_map_via_lut_treats_negatives_as_ignore():

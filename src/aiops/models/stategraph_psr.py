@@ -109,6 +109,7 @@ class StateGraphLossConfig:
     progress_weight: float = 0.25
     normality_weight: float = 0.3
     refinement_weight: float = 0.5
+    psr_step_weight: float = 1.0
     focal_gamma: float = 1.5
     asl_negative_gamma: float = 4.0
     asl_clip: float = 0.05
@@ -581,6 +582,12 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             self.boundary_head = nn.Linear(config.hidden_dim, 1)
             self.progress_head = nn.Linear(config.hidden_dim, 1)
             self.next_step_head = nn.Linear(config.hidden_dim, config.num_steps)
+            # Dedicated coarse STEP head (Track A): 11-class = 10 completion
+            # components + background. Predicts "which procedural step am I in",
+            # supervised on the run-up-densified completion target.
+            self.psr_step_head = nn.Linear(
+                config.hidden_dim, config.num_completion_components + 1
+            )
             graph_gate = min(max(float(config.graph_strength_init), 1e-4), 1.0 - 1e-4)
             self.graph_strength_raw = nn.Parameter(
                 torch.tensor(math.log(graph_gate / (1.0 - graph_gate)))
@@ -1128,6 +1135,7 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 "boundary_logits": self.boundary_head(temporal).squeeze(-1),
                 "progress_logits": self.progress_head(temporal).squeeze(-1),
                 "next_step_logits": next_step_logits,
+                "psr_step_logits": self.psr_step_head(temporal),
                 "procedure_violation_score": procedure_violation_score,
                 "uncertainty": normalized_entropy,
                 "energy": energy,
@@ -1181,6 +1189,7 @@ def build_dual_expert_stategraph_psr(
             "boundary_logits",
             "progress_logits",
             "next_step_logits",
+            "psr_step_logits",
             "procedure_violation_score",
             "uncertainty",
             "energy",
@@ -1337,6 +1346,18 @@ def build_stategraph_loss(config: StateGraphLossConfig):
             losses["step"] = self._focal_ce(
                 outputs["step_logits"], step_targets, config.focal_gamma, step_class_weights
             )
+            # Dedicated coarse STEP head (Track A) supervised on the run-up-densified
+            # completion target (which procedural step we are in). Independent of the
+            # fine 75-class action head above.
+            if "psr_step_logits" in outputs:
+                psr_step_targets = _completion_run_up_steps(
+                    targets["completion"], valid_mask
+                )
+                losses["psr_step"] = self._focal_ce(
+                    outputs["psr_step_logits"], psr_step_targets, config.focal_gamma, None
+                )
+            else:
+                losses["psr_step"] = outputs["step_logits"].sum() * 0.0
             refinement_logits = outputs.get("refinement_step_logits", [])
             if refinement_logits:
                 refinement_losses = [
@@ -1623,11 +1644,38 @@ def build_stategraph_loss(config: StateGraphLossConfig):
                 + config.normality_weight * losses["normality"]
                 + config.component_rank_weight * losses["component_rank"]
                 + config.refinement_weight * losses["refinement"]
+                + config.psr_step_weight * losses["psr_step"]
             )
             losses["total"] = total
             return losses
 
     return StateGraphMultiTaskLoss()
+
+
+def _completion_run_up_steps(completion, valid_mask):
+    """Per-frame 11-class STEP target from sparse completion events (psr_tas run-up).
+
+    ``completion`` is ``(B, T, C)`` with a 1 at each component's completion frame.
+    Returns ``(B, T)`` long steps where ``step[t]`` is the component (+1) of the NEXT
+    completion at frame ``>= t`` (the run-up target), ``0`` (background) after the last
+    completion, and ``-100`` (ignore) on invalid frames. Causal: computed by a reverse
+    carry-back, purely a supervision target (not fed to the model). On-device, no host
+    sync."""
+    torch, _, _ = _load_torch()
+    fired = completion > 0.5
+    batch, length, components = fired.shape
+    component = fired.new_full((batch, length), -1, dtype=torch.long)
+    for index in range(components):
+        component = torch.where(
+            fired[..., index], torch.full_like(component, index), component
+        )
+    any_fired = fired.any(dim=-1)
+    steps = torch.zeros((batch, length), dtype=torch.long, device=completion.device)
+    carry = torch.zeros((batch,), dtype=torch.long, device=completion.device)
+    for t in range(length - 1, -1, -1):
+        carry = torch.where(any_fired[:, t], component[:, t] + 1, carry)
+        steps[:, t] = carry
+    return steps.masked_fill(~valid_mask.bool(), -100)
 
 
 def _expand_causal_event_targets(completion, outcomes, valid_mask, horizon: int):

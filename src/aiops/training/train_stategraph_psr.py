@@ -982,6 +982,19 @@ def evaluate(
     state_truth_chunks: list[np.ndarray] = []
     state_other_prediction_chunks: list[np.ndarray] = []
     evaluated_steps = 0
+    # --- Track A: step-level (which procedural step) metric from the step head ---
+    # The dedicated psr_step_head predicts the 11-class step; scored against the
+    # run-up-densified completion target (psr_tas labelling), with the fine action
+    # timeline reported separately. Reporting-only: it changes no training signal.
+    # Defined before the batch loop so the densifier is available during chunk build.
+    from aiops.recognition import densify_completion_to_steps as _densify_steps
+    from aiops.recognition import mean_scores as _mean_scores
+    from aiops.recognition import step_level_report as _step_level_report
+
+    _eval_core = getattr(model, "_orig_mod", getattr(model, "module", model))
+    _num_step_classes = int(getattr(_eval_core.config, "num_completion_components", 0)) + 1
+    _identity_lut = list(range(_num_step_classes))
+    _step_reports: list[dict[str, dict[str, float]]] = []
     with torch.inference_mode():
         for batch in loader:
             batch = _move_batch(batch, device)
@@ -1096,6 +1109,14 @@ def evaluate(
                         "state_mask": batch["state_mask"][sample_index, :length].detach().cpu().numpy(),
                         "seen_action_mask": seen_lookup.detach().cpu().numpy(),
                     }
+                if "psr_step_logits" in outputs:
+                    chunk["psr_step_prediction"] = (
+                        outputs["psr_step_logits"][sample_index, :length]
+                        .argmax(dim=-1).detach().cpu().numpy()
+                    )
+                    chunk["psr_step_target"] = _densify_steps(
+                        batch["completion"][sample_index, :length].detach().cpu().numpy()
+                    )
                 any_mistake_logits = outputs.get("any_mistake_onset_logits")
                 component_probabilities = outputs.get(
                     "incorrect_component_probabilities"
@@ -1121,24 +1142,6 @@ def evaluate(
     unseen_action_correct = unseen_action_total = 0
     reconstructed_recordings: list[dict[str, np.ndarray]] = []
     stateverify_archives: list[dict[str, Any]] = []
-    # --- Track A: step-level recognition baseline ---
-    # The primary recognition target is which procedural STEP we are in. Collapse the
-    # fine action timeline to steps via the model's fine->component map and score
-    # (aggregation baseline + a legal-transition Viterbi decode). Purely a reporting
-    # add-on over the same stitched predictions; it changes no training signal.
-    from aiops.recognition import mean_scores as _mean_scores
-    from aiops.recognition import step_level_report as _step_level_report
-    from aiops.recognition import step_lut_from_component_indices as _step_lut_from_ci
-
-    _eval_core = getattr(model, "_orig_mod", getattr(model, "module", model))
-    _component_indices = tuple(
-        getattr(getattr(_eval_core, "config", None), "action_event_component_indices", ())
-        or ()
-    )
-    _step_reports: list[dict[str, dict[str, float]]] = []
-    if _component_indices:
-        _step_lut = _step_lut_from_ci(_component_indices)
-        _num_step_classes = int(_eval_core.config.num_completion_components) + 1
     for recording_id, chunks in recording_chunks.items():
         recording = _stitch_recording_chunks(chunks)
         reconstructed_recordings.append(recording)
@@ -1163,9 +1166,13 @@ def evaluate(
         for overlap in f1_scores:
             f1_scores[overlap].append(segmental_f1(pred_list, truth_list, overlap))
             raw_f1_scores[overlap].append(segmental_f1(raw_list, truth_list, overlap))
-        if _component_indices:
+        if "psr_step_prediction" in recording:
             _step_reports.append(
-                _step_level_report(pred_list, truth_list, _step_lut, _num_step_classes)
+                _step_level_report(
+                    recording["psr_step_prediction"].tolist(),
+                    recording["psr_step_target"].tolist(),
+                    _identity_lut, _num_step_classes,
+                )
             )
 
         state_valid = recording["state_mask"].astype(bool)
