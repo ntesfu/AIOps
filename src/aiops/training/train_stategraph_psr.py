@@ -1121,6 +1121,24 @@ def evaluate(
     unseen_action_correct = unseen_action_total = 0
     reconstructed_recordings: list[dict[str, np.ndarray]] = []
     stateverify_archives: list[dict[str, Any]] = []
+    # --- Track A: step-level recognition baseline ---
+    # The primary recognition target is which procedural STEP we are in. Collapse the
+    # fine action timeline to steps via the model's fine->component map and score
+    # (aggregation baseline + a legal-transition Viterbi decode). Purely a reporting
+    # add-on over the same stitched predictions; it changes no training signal.
+    from aiops.recognition import mean_scores as _mean_scores
+    from aiops.recognition import step_level_report as _step_level_report
+    from aiops.recognition import step_lut_from_component_indices as _step_lut_from_ci
+
+    _eval_core = getattr(model, "_orig_mod", getattr(model, "module", model))
+    _component_indices = tuple(
+        getattr(getattr(_eval_core, "config", None), "action_event_component_indices", ())
+        or ()
+    )
+    _step_reports: list[dict[str, dict[str, float]]] = []
+    if _component_indices:
+        _step_lut = _step_lut_from_ci(_component_indices)
+        _num_step_classes = int(_eval_core.config.num_completion_components) + 1
     for recording_id, chunks in recording_chunks.items():
         recording = _stitch_recording_chunks(chunks)
         reconstructed_recordings.append(recording)
@@ -1145,6 +1163,10 @@ def evaluate(
         for overlap in f1_scores:
             f1_scores[overlap].append(segmental_f1(pred_list, truth_list, overlap))
             raw_f1_scores[overlap].append(segmental_f1(raw_list, truth_list, overlap))
+        if _component_indices:
+            _step_reports.append(
+                _step_level_report(pred_list, truth_list, _step_lut, _num_step_classes)
+            )
 
         state_valid = recording["state_mask"].astype(bool)
         state_score_chunks.append(recording["state_score"][state_valid])
@@ -1297,6 +1319,21 @@ def evaluate(
         )
     state_total = int(state_confusion.sum())
     state_correct = int(np.trace(state_confusion))
+    # Step-level (primary recognition target) summary, macro-averaged over recordings.
+    _step_summary: dict[str, float] = {}
+    if _step_reports:
+        _agg = _mean_scores([r["agg"] for r in _step_reports])
+        _vit = _mean_scores([r["viterbi"] for r in _step_reports])
+        _step_summary = {
+            "step_frame_accuracy": _agg["frame_acc"],
+            "step_edit": _agg["edit"],
+            "step_f1@10": _agg["f1@10"],
+            "step_f1@25": _agg["f1@25"],
+            "step_f1@50": _agg["f1@50"],
+            "step_viterbi_frame_accuracy": _vit["frame_acc"],
+            "step_viterbi_edit": _vit["edit"],
+            "step_viterbi_f1@50": _vit["f1@50"],
+        }
     return {
         "frame_accuracy": 100.0 * frame_correct / max(frame_total, 1),
         "raw_frame_accuracy": 100.0 * raw_frame_correct / max(frame_total, 1),
@@ -1308,6 +1345,7 @@ def evaluate(
         "f1@25": float(np.mean(f1_scores[0.25])) if f1_scores[0.25] else 0.0,
         "f1@50": float(np.mean(f1_scores[0.5])) if f1_scores[0.5] else 0.0,
         "raw_f1@50": float(np.mean(raw_f1_scores[0.5])) if raw_f1_scores[0.5] else 0.0,
+        **_step_summary,
         "completion_event_precision": all_event_metrics["precision"],
         "completion_event_recall": all_event_metrics["recall"],
         "completion_event_f1": all_event_metrics["f1"],
