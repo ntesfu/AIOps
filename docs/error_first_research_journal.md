@@ -431,6 +431,51 @@ IndustReal blocker is **not** a backbone problem. The two real levers stay: (a) 
 
 ---
 
+## Campaign 9 — Track A STEP head and bounded-latency decoding
+
+**Question.** Can the existing StateGraph trunk recognize the coarse procedural
+STEP target at useful near-online latency, and how much of its low segmental score
+is head quality versus prediction fragmentation?
+
+**Approach.** Added an 11-class STEP head (background plus ten completion
+components), supervised with the `psr_tas` run-up target. Trained the existing XL
+StateGraph configuration for 25 epochs on the IndustReal dual-motion cache. Added
+soft-posterior Viterbi decoding in three regimes: full-recording offline, fixed-lag
+near-online, and strict zero-lookahead. Evaluated the selected epoch-25 checkpoint
+on 16 validation recordings, then swept transition self-bias and lag using fresh
+per-recording posterior dumps. Code revision: `18429c2`.
+
+**Result.** The raw STEP head reached **54.53 frame accuracy / 12.10 Edit / 7.45
+F1@50**. Fragmentation, rather than class accuracy, was the dominant failure:
+offline Viterbi reached **55.44 / 61.80 / 40.47**. At the locked primary latency,
+the validation-selected self-bias 6 decoder reached **55.35 / 52.23 / 38.79** with
+1.5 seconds lookahead. Strict causal reached **54.69 / 51.87 / 35.58**. The
+near-online result is +31.34 F1@50 over raw and only 1.68 below offline.
+
+**Issues and resolutions.**
+
+- A legacy checkpoint without STEP-head weights could load with `strict=False`
+  and emit plausible-looking metrics from random parameters. The dedicated
+  evaluation command now refuses such checkpoints.
+- The original self-bias 4 setting made 1.5-second decoding slightly worse than
+  zero-lookahead. A validation-only sweep selected bias 6; the latency regime was
+  sound, but the decoder was under-tuned.
+- The main Ubuntu checkout contained unrelated dirty adjudication work. Evaluation
+  used a clean detached worktree at `18429c2`, leaving that checkout untouched.
+
+**Decision.** Bank **38.79 F1@50 at 1.5 seconds** as the Track A IndustReal
+near-online baseline. The next recognition experiment should improve the STEP
+head/features (Assembly101 workhorse and SSv2-finetuned features), not add more
+post-hoc smoothing. Keep offline 40.47 and strict-causal 35.58 as required
+bracketing controls.
+
+Remote artifacts:
+`/media/lm-ciss/LM_4TB/aiops/trackA/eval_stephead_full_18429c2.json`,
+`decoder_sweep_1c1e268.json`, and
+`runs/stephead_full/best_checkpoint.pt`.
+
+---
+
 ## Appendix A — Engineering gotchas & resolutions (quick reference)
 
 | Symptom | Cause | Resolution |
