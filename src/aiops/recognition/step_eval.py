@@ -21,7 +21,11 @@ from aiops.recognition.step_taxonomy import (
     BACKGROUND_STEP,
     DEFAULT_IGNORE_INDEX,
 )
-from aiops.recognition.viterbi import build_transition_matrix, viterbi_decode
+from aiops.recognition.viterbi import (
+    build_transition_matrix,
+    viterbi_decode,
+    viterbi_decode_fixed_lag,
+)
 
 DEFAULT_OVERLAPS = (0.10, 0.25, 0.50)
 
@@ -140,18 +144,24 @@ def step_level_report(
     self_bias: float = 2.0,
     forbidden: np.ndarray | None = None,
     forward_only: bool = False,
+    lag: int | None = None,
+    include_causal: bool = False,
     overlaps: Sequence[float] = DEFAULT_OVERLAPS,
     ignore_index: int = DEFAULT_IGNORE_INDEX,
 ) -> dict[str, dict[str, float]]:
-    """One recording's step-level scores under two decoders.
+    """One recording's step-level scores under up to four decoders.
 
-    Returns ``{"agg": {...}, "viterbi": {...}}``:
+    Returns ``{"agg": {...}, "viterbi": {...}[, "causal": {...}, "online": {...}]}``:
     - **agg** — the free day-one baseline: argmax fine predictions collapsed to steps.
-    - **viterbi** — the same, but MAP-decoded with a legal-transition prior. Uses the
+    - **viterbi** — MAP-decoded (full/offline) with a legal-transition prior. Uses the
       marginalized step posteriors when ``fine_posteriors`` is given; otherwise a
-      one-hot emission built from the argmax steps (still merges spurious 1-frame
-      flips, a valid Edit/F1 lift). ``forbidden``/``forward_only`` inject the task
-      graph's legal transitions.
+      one-hot emission built from the argmax steps. ``forbidden``/``forward_only``
+      inject the task graph's legal transitions.
+    - **causal** — present when ``include_causal`` is true: strict zero-lookahead
+      decoding, reported separately from the primary near-online regime.
+    - **online** — present only when ``lag`` is given: the same decode but fixed-lag
+      (near-online), committing each frame using only a ``lag``-frame trailing
+      lookahead.
     """
     pred_steps = map_via_lut(fine_prediction, step_lut, ignore_index)
     target_steps = map_via_lut(fine_target, step_lut, ignore_index)
@@ -172,4 +182,10 @@ def step_level_report(
     )
     decoded = viterbi_decode(log_emissions, log_transition)
     report["viterbi"] = step_scores(decoded, target_steps, overlaps, ignore_index)
+    if include_causal:
+        causal = viterbi_decode_fixed_lag(log_emissions, log_transition, 0)
+        report["causal"] = step_scores(causal, target_steps, overlaps, ignore_index)
+    if lag is not None:
+        online = viterbi_decode_fixed_lag(log_emissions, log_transition, lag)
+        report["online"] = step_scores(online, target_steps, overlaps, ignore_index)
     return report

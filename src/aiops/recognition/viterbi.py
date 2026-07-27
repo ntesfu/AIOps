@@ -94,3 +94,44 @@ def viterbi_decode(
     for t in range(num_frames - 1, 0, -1):
         path[t - 1] = back[t, path[t]]
     return path
+
+
+def viterbi_decode_fixed_lag(
+    log_emissions: np.ndarray, log_transition: np.ndarray, lag: int
+) -> np.ndarray:
+    """Near-online (fixed-lag) MAP decode: frame ``f``'s label is committed using
+    observations only up to ``f + lag`` (a bounded trailing lookahead), matching the
+    plan's ~1-2 s near-online regime.
+
+    The forward Viterbi DP is causal (``dp[t]`` depends only on frames ``0..t``), so
+    reading back from the best state at ``min(f+lag, T-1)`` uses exactly a ``lag``-frame
+    lookahead. ``lag=0`` is fully online (no lookahead); ``lag >= T-1`` equals the
+    offline :func:`viterbi_decode`.
+    """
+    log_emissions = np.asarray(log_emissions, dtype=np.float64)
+    if log_emissions.ndim != 2:
+        raise ValueError("log_emissions must be (T, S)")
+    if lag < 0:
+        raise ValueError("lag must be >= 0")
+    num_frames, num_steps = log_emissions.shape
+    if num_frames == 0:
+        return np.empty(0, dtype=np.int64)
+    if log_transition.shape != (num_steps, num_steps):
+        raise ValueError("log_transition must be (S, S) matching log_emissions")
+
+    dp = np.full((num_frames, num_steps), _NEG_INF, dtype=np.float64)
+    back = np.zeros((num_frames, num_steps), dtype=np.int64)
+    dp[0] = log_emissions[0]
+    for t in range(1, num_frames):
+        scores = dp[t - 1][:, None] + log_transition
+        back[t] = np.argmax(scores, axis=0)
+        dp[t] = log_emissions[t] + scores[back[t], np.arange(num_steps)]
+
+    out = np.zeros(num_frames, dtype=np.int64)
+    for f in range(num_frames):
+        end = min(f + lag, num_frames - 1)
+        state = int(np.argmax(dp[end]))
+        for t in range(end, f, -1):  # backtrace from end down to f
+            state = int(back[t, state])
+        out[f] = state
+    return out

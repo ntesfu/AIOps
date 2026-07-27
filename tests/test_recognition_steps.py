@@ -23,6 +23,7 @@ from aiops.recognition import (
     step_lut_from_component_indices,
     step_scores,
     viterbi_decode,
+    viterbi_decode_fixed_lag,
 )
 from aiops.evaluation.temporal_metrics import edit_score
 
@@ -172,6 +173,61 @@ def test_viterbi_respects_forbidden_mask():
 def test_viterbi_empty():
     log_t = build_transition_matrix(3)
     assert viterbi_decode(np.empty((0, 3)), log_t).shape == (0,)
+
+
+def test_fixed_lag_matches_offline_at_large_lag():
+    rng = np.random.default_rng(1)
+    probs = rng.dirichlet(np.ones(4), size=15)
+    log_e = np.log(probs + 1e-8)
+    log_t = build_transition_matrix(4, self_bias=2.5)
+    offline = viterbi_decode(log_e, log_t)
+    # lag >= T-1 -> full offline decode
+    assert viterbi_decode_fixed_lag(log_e, log_t, lag=100).tolist() == offline.tolist()
+
+
+def test_fixed_lag_zero_is_causal_forward():
+    # lag=0 commits each frame from the forward DP with no lookahead; still a valid
+    # path and generally not worse than raw argmax on a sticky sequence.
+    T, S = 16, 3
+    true = np.array([1] * 8 + [2] * 8)
+    probs = np.full((T, S), 0.05)
+    probs[np.arange(T), true] = 0.9
+    probs[7] = [0.05, 0.1, 0.85]  # spurious spike
+    probs /= probs.sum(axis=1, keepdims=True)
+    log_e = np.log(probs)
+    log_t = build_transition_matrix(S, self_bias=3.0)
+    online0 = viterbi_decode_fixed_lag(log_e, log_t, lag=0)
+    assert online0.shape == (T,)
+    # a few frames of lookahead should be at least as good as no lookahead (Edit)
+    online3 = viterbi_decode_fixed_lag(log_e, log_t, lag=3)
+    assert edit_score(online3, true) >= edit_score(online0, true)
+
+
+def test_step_level_report_online_present_with_lag():
+    lut = list(range(3))
+    target = [1] * 8 + [2] * 8
+    pred = [1] * 4 + [2] + [1] * 3 + [2] * 8
+    report = step_level_report(pred, target, lut, num_steps=3, self_bias=3.0, lag=2)
+    assert "online" in report and "viterbi" in report and "agg" in report
+    # offline viterbi is an upper bound on the fixed-lag online decode's Edit here
+    assert report["viterbi"]["edit"] >= report["online"]["edit"] - 1e-9
+
+
+def test_step_level_report_causal_is_explicit_secondary_mode():
+    lut = list(range(3))
+    target = [1] * 8 + [2] * 8
+    pred = [1] * 4 + [2] + [1] * 3 + [2] * 8
+    report = step_level_report(
+        pred,
+        target,
+        lut,
+        num_steps=3,
+        self_bias=3.0,
+        lag=3,
+        include_causal=True,
+    )
+    assert set(report) == {"agg", "viterbi", "causal", "online"}
+    assert report["causal"]["frame_acc"] >= 0.0
 
 
 def test_densify_completion_run_up():

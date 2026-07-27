@@ -963,6 +963,9 @@ def evaluate(
     max_incorrect_false_alerts_per_minute: float | None = None,
     stateverify_export_dir: Path | None = None,
     stateverify_component_names: Sequence[str] | None = None,
+    step_lag_seconds: float = 1.5,
+    step_transition_self_bias: float = 4.0,
+    step_dump_dir: Path | str | None = None,
 ) -> dict[str, float]:
     import torch
 
@@ -987,6 +990,8 @@ def evaluate(
     # run-up-densified completion target (psr_tas labelling), with the fine action
     # timeline reported separately. Reporting-only: it changes no training signal.
     # Defined before the batch loop so the densifier is available during chunk build.
+    import os
+
     from aiops.recognition import densify_completion_to_steps as _densify_steps
     from aiops.recognition import mean_scores as _mean_scores
     from aiops.recognition import step_level_report as _step_level_report
@@ -994,6 +999,17 @@ def evaluate(
     _eval_core = getattr(model, "_orig_mod", getattr(model, "module", model))
     _num_step_classes = int(getattr(_eval_core.config, "num_completion_components", 0)) + 1
     _identity_lut = list(range(_num_step_classes))
+    if seconds_per_step <= 0:
+        raise ValueError("seconds_per_step must be positive")
+    if step_lag_seconds < 0:
+        raise ValueError("step_lag_seconds must be non-negative")
+    # Near-online decode: commit each frame with the requested trailing lookahead.
+    _step_lag = max(0, int(round(step_lag_seconds / seconds_per_step)))
+    _step_lag_seconds = _step_lag * seconds_per_step
+    _dump_dir_raw = step_dump_dir or os.environ.get("STEP_DUMP_DIR")
+    _step_dump_dir = Path(_dump_dir_raw) if _dump_dir_raw else None
+    if _step_dump_dir is not None:
+        _step_dump_dir.mkdir(parents=True, exist_ok=True)
     _step_reports: list[dict[str, dict[str, float]]] = []
     with torch.inference_mode():
         for batch in loader:
@@ -1179,9 +1195,22 @@ def evaluate(
                     recording["psr_step_target"].tolist(),
                     _identity_lut, _num_step_classes,
                     fine_posteriors=recording.get("psr_step_posteriors"),
-                    self_bias=4.0,
+                    self_bias=step_transition_self_bias,
+                    lag=_step_lag,
+                    include_causal=True,
                 )
             )
+            if _step_dump_dir is not None and "psr_step_posteriors" in recording:
+                safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", recording_id).strip("._")
+                if not safe_name:
+                    safe_name = hashlib.sha256(
+                        recording_id.encode("utf-8")
+                    ).hexdigest()[:16]
+                np.savez_compressed(
+                    _step_dump_dir / f"{safe_name}.npz",
+                    posteriors=recording["psr_step_posteriors"],
+                    target=recording["psr_step_target"],
+                )
 
         state_valid = recording["state_mask"].astype(bool)
         state_score_chunks.append(recording["state_score"][state_valid])
@@ -1349,6 +1378,27 @@ def evaluate(
             "step_viterbi_edit": _vit["edit"],
             "step_viterbi_f1@50": _vit["f1@50"],
         }
+        if "online" in _step_reports[0]:
+            _onl = _mean_scores([r["online"] for r in _step_reports])
+            _step_summary.update({
+                "step_online_frame_accuracy": _onl["frame_acc"],
+                "step_online_edit": _onl["edit"],
+                "step_online_f1@10": _onl["f1@10"],
+                "step_online_f1@25": _onl["f1@25"],
+                "step_online_f1@50": _onl["f1@50"],
+                "step_online_lag_steps": float(_step_lag),
+                "step_online_lag_seconds": float(_step_lag_seconds),
+                "step_transition_self_bias": float(step_transition_self_bias),
+            })
+        if "causal" in _step_reports[0]:
+            _causal = _mean_scores([r["causal"] for r in _step_reports])
+            _step_summary.update({
+                "step_causal_frame_accuracy": _causal["frame_acc"],
+                "step_causal_edit": _causal["edit"],
+                "step_causal_f1@10": _causal["f1@10"],
+                "step_causal_f1@25": _causal["f1@25"],
+                "step_causal_f1@50": _causal["f1@50"],
+            })
     return {
         "frame_accuracy": 100.0 * frame_correct / max(frame_total, 1),
         "raw_frame_accuracy": 100.0 * raw_frame_correct / max(frame_total, 1),

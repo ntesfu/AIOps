@@ -39,6 +39,23 @@ def main() -> None:
     p.add_argument("--batch-size", type=int, default=4)
     p.add_argument("--sequence-length", type=int, default=384)
     p.add_argument("--precision", choices=["bf16", "fp32"], default="bf16")
+    p.add_argument(
+        "--near-online-lag-seconds",
+        type=float,
+        default=1.5,
+        help="Trailing lookahead for the primary near-online STEP decode.",
+    )
+    p.add_argument(
+        "--step-transition-self-bias",
+        type=float,
+        default=4.0,
+        help="Viterbi self-transition log-score bonus.",
+    )
+    p.add_argument(
+        "--step-dump-dir",
+        default=None,
+        help="Optional directory for compressed per-recording STEP posteriors and targets.",
+    )
     p.add_argument("--out", default=None)
     args = p.parse_args()
 
@@ -61,6 +78,15 @@ def main() -> None:
     if getattr(missing, "missing_keys", None) or getattr(missing, "unexpected_keys", None):
         print(f"[load_state_dict] missing={list(missing.missing_keys)} "
               f"unexpected={list(missing.unexpected_keys)}", flush=True)
+    missing_step_head = [
+        key for key in getattr(missing, "missing_keys", [])
+        if "psr_step_head." in key
+    ]
+    if missing_step_head:
+        raise SystemExit(
+            "checkpoint has no trained STEP head; refusing to report metrics from "
+            f"randomly initialized parameters: {missing_step_head}"
+        )
 
     metadata, records = read_cache_index(args.cache_index)
     wanted = {"val", "validation"} if args.split == "val" else {args.split}
@@ -94,6 +120,9 @@ def main() -> None:
         model, loader, device, use_amp, amp_dtype, config.num_components,
         seconds_per_step=seconds_per_step,
         calibrate_events=True, calibrate_state=True,
+        step_lag_seconds=args.near_online_lag_seconds,
+        step_transition_self_bias=args.step_transition_self_bias,
+        step_dump_dir=args.step_dump_dir,
     )
 
     step_keys = [k for k in metrics if k.startswith("step_")]

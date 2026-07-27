@@ -30,7 +30,11 @@ from aiops.recognition.step_taxonomy import (
     densify_completion_to_steps,
     step_lut_from_component_indices,
 )
-from aiops.recognition.viterbi import build_transition_matrix, viterbi_decode
+from aiops.recognition.viterbi import (
+    build_transition_matrix,
+    viterbi_decode,
+    viterbi_decode_fixed_lag,
+)
 
 __all__ = [
     "StepTaxonomy",
@@ -47,4 +51,5 @@ __all__ = [
     "mean_scores",
     "build_transition_matrix",
     "viterbi_decode",
+    "viterbi_decode_fixed_lag",
 ]
