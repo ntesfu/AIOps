@@ -1110,9 +1110,12 @@ def evaluate(
                         "seen_action_mask": seen_lookup.detach().cpu().numpy(),
                     }
                 if "psr_step_logits" in outputs:
+                    _psr_logits = outputs["psr_step_logits"][sample_index, :length]
                     chunk["psr_step_prediction"] = (
-                        outputs["psr_step_logits"][sample_index, :length]
-                        .argmax(dim=-1).detach().cpu().numpy()
+                        _psr_logits.argmax(dim=-1).detach().cpu().numpy()
+                    )
+                    chunk["psr_step_posteriors"] = (
+                        torch.softmax(_psr_logits, dim=-1).detach().float().cpu().numpy()
                     )
                     chunk["psr_step_target"] = _densify_steps(
                         batch["completion"][sample_index, :length].detach().cpu().numpy()
@@ -1167,11 +1170,16 @@ def evaluate(
             f1_scores[overlap].append(segmental_f1(pred_list, truth_list, overlap))
             raw_f1_scores[overlap].append(segmental_f1(raw_list, truth_list, overlap))
         if "psr_step_prediction" in recording:
+            # Viterbi over the SOFT step posteriors with a stickiness prior collapses
+            # the per-frame head's flicker (the fragmentation that tanks Edit/F1);
+            # "agg" is the raw argmax, "viterbi" is the smoothed decode.
             _step_reports.append(
                 _step_level_report(
                     recording["psr_step_prediction"].tolist(),
                     recording["psr_step_target"].tolist(),
                     _identity_lut, _num_step_classes,
+                    fine_posteriors=recording.get("psr_step_posteriors"),
+                    self_bias=4.0,
                 )
             )
 
