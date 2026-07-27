@@ -1974,7 +1974,26 @@ def _binary_average_precision(scores: list[float], targets: list[int]) -> float:
 def _validation_selection_score(
     metrics: dict[str, float], mistake_weight: float = 1.0
 ) -> float:
-    """Balanced validation-only checkpoint criterion for the full task contract."""
+    """Balanced validation-only checkpoint criterion for the full task contract.
+
+    When STEP-head metrics are present (Track A), selection is **step-dominant**: the
+    score mirrors the ``action_score`` design on the step-level near-online metrics,
+    which are the primary recognition target. This fixes a failure mode where the
+    fine-metric + false-alert formula selected a near-untrained early epoch (fine
+    frame-acc ~1.6%): early on, ``state_macro_f1`` is high and the model emits almost
+    no events, so the false-alert penalty vanishes and the noisy fault terms dominate.
+    Falls back to the original fine-metric formula for models with no step head.
+    """
+    step_f1 = metrics.get("step_online_f1@50")
+    if step_f1 is None:
+        step_f1 = metrics.get("step_f1@50")
+    step_acc = metrics.get("step_frame_accuracy")
+    if step_f1 is not None and step_acc is not None:
+        step_edit = metrics.get("step_online_edit", metrics.get("step_edit", 0.0))
+        # Step-dominant; fault/mistake metrics are tracked separately and used only
+        # as a deterministic tie-break (see _validation_selection_result.tie_key).
+        return 0.40 * step_acc + 0.30 * step_edit + 0.30 * step_f1
+
     general = (
         0.25 * metrics["f1@50"]
         + 0.10 * metrics["edit"]
