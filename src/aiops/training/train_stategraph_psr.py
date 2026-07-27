@@ -964,7 +964,7 @@ def evaluate(
     stateverify_export_dir: Path | None = None,
     stateverify_component_names: Sequence[str] | None = None,
     step_lag_seconds: float = 1.5,
-    step_transition_self_bias: float = 4.0,
+    step_transition_self_bias: float = 6.0,
     step_dump_dir: Path | str | None = None,
 ) -> dict[str, float]:
     import torch

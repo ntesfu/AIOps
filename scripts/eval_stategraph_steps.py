@@ -48,8 +48,8 @@ def main() -> None:
     p.add_argument(
         "--step-transition-self-bias",
         type=float,
-        default=4.0,
-        help="Viterbi self-transition log-score bonus.",
+        default=6.0,
+        help="Viterbi self-transition log-score bonus (validation-selected default: 6).",
     )
     p.add_argument(
         "--step-dump-dir",
