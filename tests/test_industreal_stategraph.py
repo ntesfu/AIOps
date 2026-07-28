@@ -27,6 +27,7 @@ from aiops.data.stategraph_cache import (
     StateGraphCacheDataset,
     StateGraphCacheRecord,
     build_transition_matrix,
+    pad_stategraph_batch,
     read_cache_index,
     save_cache_record,
     write_cache_index,
@@ -216,6 +217,53 @@ class IndustRealAdapterTest(unittest.TestCase):
             self.assertGreater(float(graph[0, 1]), 0.0)
             self.assertGreater(float(graph[0, 2]), 0.0)
             np.testing.assert_allclose(graph.sum(axis=1), 1.0)
+
+    def test_run_up_step_target_is_derived_before_window_slicing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "record.npz"
+            length = 8
+            completion = np.zeros((length, 2), dtype=np.float32)
+            completion[6, 1] = 1.0
+            save_cache_record(
+                path,
+                motion=np.ones((length, 4), dtype=np.float32),
+                appearance=np.ones((length, 3), dtype=np.float32),
+                sensor=np.ones((length, 2), dtype=np.float32),
+                modality_mask=np.ones((length, 3), dtype=np.bool_),
+                step=np.zeros(length, dtype=np.int64),
+                completion=completion,
+                component_outcome=np.full(
+                    (length, 2), -100, dtype=np.int64
+                ),
+                state=np.ones((length, 2), dtype=np.int64),
+                state_mask=np.ones((length, 2), dtype=np.bool_),
+                boundary=np.zeros(length, dtype=np.float32),
+                timestamps=np.arange(length, dtype=np.float32),
+            )
+            record = StateGraphCacheRecord(
+                "rec", "train", path, 1, 4, 3, 2, 2, 2
+            )
+            dataset = StateGraphCacheDataset(
+                [record], sequence_length=4, sequence_stride=4
+            )
+            first, second = dataset[0], dataset[1]
+            # The first crop contains no completion by itself, but its rows
+            # are the run-up to the recording-level event at row 6.
+            np.testing.assert_array_equal(
+                first["psr_step_target"], [2, 2, 2, 2]
+            )
+            np.testing.assert_array_equal(
+                second["psr_step_target"], [2, 2, 2, 0]
+            )
+            try:
+                import torch  # noqa: F401
+            except ImportError:
+                return
+            batch = pad_stategraph_batch([first, second])
+            np.testing.assert_array_equal(
+                batch["psr_step_target"].numpy(),
+                [[2, 2, 2, 2], [2, 2, 2, 0]],
+            )
 
     def test_event_centered_crops_are_training_only_and_cover_each_event(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

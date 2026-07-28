@@ -154,6 +154,27 @@ def test_psr_step_weights_are_used_by_focal_loss() -> None:
     assert not torch.isclose(unweighted, weighted)
 
 
+def test_loss_prefers_explicit_recording_global_step_target() -> None:
+    model = build_stategraph_psr(_config()).eval()
+    output = model(*_inputs())
+    logits = torch.full((1, 8, 4), -8.0)
+    logits[..., 3] = 8.0
+    output["psr_step_logits"] = logits
+    output["psr_step_raw_logits"] = logits
+    targets = _targets()
+    targets["completion"].zero_()
+    fallback_loss = build_stategraph_loss(StateGraphLossConfig())(
+        output, targets
+    )["psr_step"]
+    targets["psr_step_target"] = torch.full(
+        (1, 8), 3, dtype=torch.long
+    )
+    explicit_loss = build_stategraph_loss(StateGraphLossConfig())(
+        output, targets
+    )["psr_step"]
+    assert explicit_loss < fallback_loss
+
+
 def test_train_only_run_up_weights_favor_rare_classes_with_bounds(
     tmp_path: Path,
 ) -> None:

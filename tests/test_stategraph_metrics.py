@@ -322,6 +322,57 @@ class StateGraphMetricsTest(unittest.TestCase):
         # not local rows 0/1 of the second window.
         np.testing.assert_array_equal(stitched["step_prediction"], [0, 0, 2, 2, 2, 2])
 
+    def test_overlapping_windows_supply_declared_future_context_first(self) -> None:
+        seen = np.ones(30, dtype=np.bool_)
+        first = {
+            "start": 0,
+            "step_target": np.arange(6),
+            "step_prediction": np.arange(10, 16),
+            "seen_action_mask": seen,
+        }
+        second = {
+            "start": 3,
+            "step_target": np.arange(3, 9),
+            "step_prediction": np.arange(20, 26),
+            "seen_action_mask": seen,
+        }
+        stitched = _stitch_recording_chunks(
+            [first, second], required_right_context=2
+        )
+        # Row 3 has two real future rows in the first window, so the causal
+        # past-context tie-break keeps it. Rows 4/5 would see padding there and
+        # therefore come from the later overlapping window.
+        np.testing.assert_array_equal(
+            stitched["step_prediction"],
+            [10, 11, 12, 13, 21, 22, 23, 24, 25],
+        )
+
+    def test_stitching_never_prefers_context_beyond_declared_budget(self) -> None:
+        seen = np.ones(30, dtype=np.bool_)
+        first = {
+            "start": 0,
+            "step_target": np.arange(6),
+            "step_prediction": np.arange(10, 16),
+            "seen_action_mask": seen,
+        }
+        second = {
+            "start": 3,
+            "step_target": np.arange(3, 9),
+            "step_prediction": np.arange(20, 26),
+            "seen_action_mask": seen,
+        }
+        stitched = _stitch_recording_chunks(
+            [first, second], required_right_context=1
+        )
+        # Both candidates provide the one allowed future row at global row 4.
+        # Extra future in the later window is ignored, so greater past context
+        # in the first window remains the tie-break.
+        self.assertEqual(int(stitched["step_prediction"][4]), 14)
+        with self.assertRaises(ValueError):
+            _stitch_recording_chunks(
+                [first, second], required_right_context=-1
+            )
+
     def test_training_rng_state_round_trip(self) -> None:
         try:
             import torch

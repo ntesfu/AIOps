@@ -1284,9 +1284,20 @@ def evaluate(
                     chunk["psr_step_posteriors"] = (
                         torch.softmax(_psr_logits, dim=-1).detach().float().cpu().numpy()
                     )
-                    chunk["psr_step_target"] = _densify_steps(
-                        batch["completion"][sample_index, :length].detach().cpu().numpy()
-                    )
+                    if "psr_step_target" in batch:
+                        chunk["psr_step_target"] = (
+                            batch["psr_step_target"][sample_index, :length]
+                            .detach()
+                            .cpu()
+                            .numpy()
+                        )
+                    else:
+                        chunk["psr_step_target"] = _densify_steps(
+                            batch["completion"][sample_index, :length]
+                            .detach()
+                            .cpu()
+                            .numpy()
+                        )
                     _psr_raw_logits = outputs.get("psr_step_raw_logits")
                     if _psr_raw_logits is not None:
                         _psr_raw_logits = _psr_raw_logits[sample_index, :length]
@@ -1326,7 +1337,9 @@ def evaluate(
     reconstructed_recordings: list[dict[str, np.ndarray]] = []
     stateverify_archives: list[dict[str, Any]] = []
     for recording_id, chunks in recording_chunks.items():
-        recording = _stitch_recording_chunks(chunks)
+        recording = _stitch_recording_chunks(
+            chunks, required_right_context=_neural_right_context
+        )
         reconstructed_recordings.append(recording)
         pred = recording["step_prediction"]
         raw_pred = recording["raw_step_prediction"]
@@ -1740,17 +1753,25 @@ def _factorized_mistake_diagnostics(
 
 def _stitch_recording_chunks(
     chunks: list[dict[str, np.ndarray | int]],
+    required_right_context: int = 0,
 ) -> dict[str, np.ndarray]:
-    """Reconstruct one recording, preferring the prediction with most past context.
+    """Reconstruct a recording with the configured context on both sides.
 
     Ground-truth and prediction arrays share the same placement rule so metrics
-    count every recording row exactly once. For overlapping causal windows, a
-    later local row has observed more history and is therefore the least
-    boundary-affected prediction available for that global row.
+    count every recording row exactly once. Candidates first maximize available
+    real future rows up to ``required_right_context``; ties prefer more past
+    context. With zero right context this exactly preserves the legacy causal
+    policy. Context is capped by both the declared budget and the recording end.
     """
 
     if not chunks:
         raise ValueError("Cannot stitch an empty recording")
+    if (
+        isinstance(required_right_context, bool)
+        or not isinstance(required_right_context, int)
+        or required_right_context < 0
+    ):
+        raise ValueError("required_right_context must be a non-negative integer")
     ordered = sorted(chunks, key=lambda chunk: int(chunk["start"]))
     temporal_keys = [
         key
@@ -1769,18 +1790,29 @@ def _stitch_recording_chunks(
         )
         for key in temporal_keys
     }
-    context = np.full(total_length, -1, dtype=np.int64)
+    past_context = np.full(total_length, -1, dtype=np.int64)
+    future_context = np.full(total_length, -1, dtype=np.int64)
     covered = np.zeros(total_length, dtype=np.bool_)
     for chunk in ordered:
         start = int(chunk["start"])
         length = len(np.asarray(chunk["step_target"]))
         rows = start + np.arange(length)
-        local_context = np.arange(length)
-        take = local_context > context[rows]
+        local_past = np.arange(length)
+        real_recording_future = total_length - 1 - rows
+        local_future = length - 1 - local_past
+        available_future = np.minimum(
+            required_right_context,
+            np.minimum(real_recording_future, local_future),
+        )
+        take = (available_future > future_context[rows]) | (
+            (available_future == future_context[rows])
+            & (local_past > past_context[rows])
+        )
         selected_rows = rows[take]
         for key in temporal_keys:
             result[key][selected_rows] = np.asarray(chunk[key])[take]
-        context[selected_rows] = local_context[take]
+        past_context[selected_rows] = local_past[take]
+        future_context[selected_rows] = available_future[take]
         covered[selected_rows] = True
     if not covered.all():
         missing = np.flatnonzero(~covered)

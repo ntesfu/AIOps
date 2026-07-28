@@ -1452,9 +1452,21 @@ def build_stategraph_loss(config: StateGraphLossConfig):
             # completion target (which procedural step we are in). Independent of the
             # fine 75-class action head above.
             if "psr_step_logits" in outputs:
-                psr_step_targets = _completion_run_up_steps(
-                    targets["completion"], valid_mask
-                )
+                psr_step_targets = targets.get("psr_step_target")
+                if psr_step_targets is None:
+                    # Backward compatibility for external callers/checkpoints
+                    # that still provide only sparse completion events.
+                    psr_step_targets = _completion_run_up_steps(
+                        targets["completion"], valid_mask
+                    )
+                else:
+                    if psr_step_targets.shape != valid_mask.shape:
+                        raise ValueError(
+                            "psr_step_target must have shape [batch, time]"
+                        )
+                    psr_step_targets = psr_step_targets.long().masked_fill(
+                        ~valid_mask, -100
+                    )
                 raw_psr_logits = outputs.get(
                     "psr_step_raw_logits", outputs["psr_step_logits"]
                 )

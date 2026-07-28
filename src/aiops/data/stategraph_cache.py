@@ -8,6 +8,8 @@ from typing import Any, Iterable
 
 import numpy as np
 
+from aiops.recognition.step_taxonomy import densify_completion_to_steps
+
 
 @dataclass(frozen=True)
 class StateGraphCacheRecord:
@@ -171,6 +173,17 @@ class StateGraphCacheDataset:
                     self._preloaded.append(
                         {name: arrays[name].copy() for name in arrays.files}
                     )
+        # Derive the run-up target before any window/crop slicing. The target
+        # for a row depends on the next completion, which may live beyond the
+        # current training or evaluation window.
+        self._psr_step_targets: list[np.ndarray] = []
+        for record_index in range(len(records)):
+            with self._open_record(record_index) as arrays:
+                self._psr_step_targets.append(
+                    densify_completion_to_steps(
+                        np.asarray(arrays["completion"])
+                    )
+                )
         self.windows: list[tuple[int, int]] = []
         self.incorrect_event_windows: set[int] = set()
         self.event_centered_window_indices: set[int] = set()
@@ -261,6 +274,9 @@ class StateGraphCacheDataset:
             end = min(length, start + self.sequence_length)
             names = arrays.files if hasattr(arrays, "files") else arrays.keys()
             sample = {name: arrays[name][start:end].copy() for name in names}
+            sample["psr_step_target"] = self._psr_step_targets[record_index][
+                start:end
+            ].copy()
         sample["recording_id"] = record.recording_id
         sample["start_index"] = start
         return sample
@@ -385,6 +401,24 @@ def pad_stategraph_batch(samples: list[dict[str, Any]]) -> dict[str, Any]:
         [np.arange(max_length) < len(sample["step"]) for sample in samples]
     )
     step = pad_array("step", -100)
+    # Backward-compatible per-sample fallback for external/manual samples that
+    # predate the explicit dataset target. Such samples cannot recover events
+    # outside their supplied completion slice.
+    psr_step_target = np.stack(
+        [
+            np.pad(
+                (
+                    sample["psr_step_target"]
+                    if "psr_step_target" in sample
+                    else densify_completion_to_steps(sample["completion"])
+                ),
+                (0, max_length - len(sample["step"])),
+                mode="constant",
+                constant_values=-100,
+            )
+            for sample in samples
+        ]
+    )
     next_step = np.stack([_next_distinct_labels(row) for row in step])
     next_step[~valid_mask] = -100
     batch = {
@@ -393,6 +427,7 @@ def pad_stategraph_batch(samples: list[dict[str, Any]]) -> dict[str, Any]:
         "sensor": torch.from_numpy(pad_array("sensor", 0.0)),
         "modality_mask": torch.from_numpy(pad_array("modality_mask", False)),
         "step": torch.from_numpy(step),
+        "psr_step_target": torch.from_numpy(psr_step_target),
         "completion": torch.from_numpy(pad_array("completion", 0.0)),
         "component_outcome": torch.from_numpy(pad_array("component_outcome", -100)),
         "state": torch.from_numpy(pad_array("state", 1)),
