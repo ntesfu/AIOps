@@ -30,6 +30,11 @@ from aiops.recognition.step_taxonomy import (
     densify_completion_to_steps,
     step_lut_from_component_indices,
 )
+from aiops.recognition.latency import LookaheadBudget, quantize_lookahead
+from aiops.recognition.step_prior import (
+    StepTransitionPrior,
+    build_step_transition_prior,
+)
 from aiops.recognition.viterbi import (
     build_transition_matrix,
     viterbi_decode,
@@ -52,4 +57,8 @@ __all__ = [
     "build_transition_matrix",
     "viterbi_decode",
     "viterbi_decode_fixed_lag",
+    "LookaheadBudget",
+    "quantize_lookahead",
+    "StepTransitionPrior",
+    "build_step_transition_prior",
 ]

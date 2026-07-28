@@ -143,6 +143,7 @@ def step_level_report(
     fine_posteriors: np.ndarray | None = None,
     self_bias: float = 2.0,
     forbidden: np.ndarray | None = None,
+    transition_penalty: np.ndarray | None = None,
     forward_only: bool = False,
     lag: int | None = None,
     include_causal: bool = False,
@@ -178,7 +179,11 @@ def step_level_report(
 
     log_emissions = np.log(step_post + 1e-9)
     log_transition = build_transition_matrix(
-        num_steps, self_bias=self_bias, forbidden=forbidden, forward_only=forward_only
+        num_steps,
+        self_bias=self_bias,
+        forbidden=forbidden,
+        transition_penalty=transition_penalty,
+        forward_only=forward_only,
     )
     decoded = viterbi_decode(log_emissions, log_transition)
     report["viterbi"] = step_scores(decoded, target_steps, overlaps, ignore_index)

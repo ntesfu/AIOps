@@ -126,6 +126,17 @@ def test_transition_matrix_is_normalized_and_masks():
     assert masked[1, 3] < -50
 
 
+def test_transition_matrix_applies_finite_soft_penalty():
+    penalties = np.zeros((3, 3), dtype=np.float64)
+    penalties[1, 2] = -4.0
+    log_t = build_transition_matrix(
+        3, self_bias=0.0, transition_penalty=penalties
+    )
+    assert np.isfinite(log_t[1, 2])
+    assert log_t[1, 2] < log_t[1, 0] - 3.9
+    assert np.exp(log_t).sum(axis=1).tolist() == pytest.approx([1.0, 1.0, 1.0])
+
+
 def test_viterbi_recovers_argmax_without_prior():
     # Zero transition prior (self_bias 0, uniform) -> Viterbi == per-frame argmax.
     rng = np.random.default_rng(0)

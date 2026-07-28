@@ -27,6 +27,7 @@ from aiops.models.stategraph_psr import (
     build_dual_expert_stategraph_psr,
     build_stategraph_psr,
 )
+from aiops.recognition import build_step_transition_prior, quantize_lookahead
 from aiops.training.train_stategraph_psr import evaluate
 
 
@@ -52,6 +53,18 @@ def main() -> None:
         help="Viterbi self-transition log-score bonus (validation-selected default: 6).",
     )
     p.add_argument(
+        "--step-transition-prior",
+        choices=("none", "soft", "hard"),
+        default="none",
+        help="Optional legality prior built only from train-split run-up targets.",
+    )
+    p.add_argument(
+        "--step-transition-soft-penalty",
+        type=float,
+        default=-6.0,
+        help="Finite log penalty for train-unobserved transitions in soft mode.",
+    )
+    p.add_argument(
         "--step-dump-dir",
         default=None,
         help="Optional directory for compressed per-recording STEP posteriors and targets.",
@@ -67,12 +80,14 @@ def main() -> None:
     if ckpt.get("architecture_type") == "dual_expert_stategraph_psr":
         action_config = StateGraphPSRConfig(**ckpt["action_model_config"])
         config = StateGraphPSRConfig(**ckpt["event_model_config"])
+        step_config = action_config
         model = build_dual_expert_stategraph_psr(
             action_config, config,
             ckpt["action_transition_matrix"], ckpt["event_transition_matrix"],
         ).to(device).eval()
     else:
         config = StateGraphPSRConfig(**ckpt["model_config"])
+        step_config = config
         model = build_stategraph_psr(config, ckpt["transition_matrix"]).to(device).eval()
     missing = model.load_state_dict(ckpt["model_state"], strict=False)
     if getattr(missing, "missing_keys", None) or getattr(missing, "unexpected_keys", None):
@@ -96,6 +111,27 @@ def main() -> None:
     fps = float(metadata.get("fps", 0.0) or 0.0)
     stride = float(metadata.get("stride_frames", 1) or 1)
     seconds_per_step = (stride / fps) if fps > 0 else 0.5
+    neural_right_context = int(
+        getattr(step_config, "psr_step_refinement_right_context", 0)
+    )
+    lookahead = quantize_lookahead(
+        args.near_online_lag_seconds,
+        seconds_per_step,
+        neural_steps=neural_right_context,
+    )
+    step_prior = None
+    step_forbidden = None
+    step_penalty = None
+    if args.step_transition_prior != "none":
+        step_prior = build_step_transition_prior(
+            records,
+            step_config.num_completion_components + 1,
+            soft_penalty=args.step_transition_soft_penalty,
+        )
+        if args.step_transition_prior == "hard":
+            step_forbidden = step_prior.forbidden
+        else:
+            step_penalty = step_prior.penalties
 
     loader = DataLoader(
         StateGraphCacheDataset(
@@ -113,6 +149,15 @@ def main() -> None:
     )
     print(f"split={args.split} recordings={len(split_records)} "
           f"seconds_per_step={seconds_per_step:.3f} device={device}", flush=True)
+    print(
+        "STEP latency "
+        f"requested={lookahead.requested_seconds:.6f}s "
+        f"effective={lookahead.effective_seconds:.6f}s "
+        f"total_rows={lookahead.total_steps} "
+        f"neural_rows={lookahead.neural_steps} "
+        f"decoder_rows={lookahead.decoder_steps}",
+        flush=True,
+    )
 
     use_amp = device.type == "cuda" and args.precision == "bf16"
     amp_dtype = torch.bfloat16
@@ -122,6 +167,8 @@ def main() -> None:
         calibrate_events=True, calibrate_state=True,
         step_lag_seconds=args.near_online_lag_seconds,
         step_transition_self_bias=args.step_transition_self_bias,
+        step_transition_forbidden=step_forbidden,
+        step_transition_penalty=step_penalty,
         step_dump_dir=args.step_dump_dir,
     )
 
@@ -136,7 +183,24 @@ def main() -> None:
 
     if args.out:
         with open(args.out, "w", encoding="utf-8") as h:
-            json.dump({k: float(v) for k, v in metrics.items()}, h, indent=2)
+            json.dump(
+                {
+                    "metrics": {k: float(v) for k, v in metrics.items()},
+                    "step_latency": {
+                        "requested_seconds": lookahead.requested_seconds,
+                        "effective_seconds": lookahead.effective_seconds,
+                        "total_steps": lookahead.total_steps,
+                        "neural_steps": lookahead.neural_steps,
+                        "decoder_steps": lookahead.decoder_steps,
+                    },
+                    "step_transition_prior_mode": args.step_transition_prior,
+                    "step_transition_prior": (
+                        step_prior.to_dict() if step_prior is not None else None
+                    ),
+                },
+                h,
+                indent=2,
+            )
         print(f"\nwrote {args.out}", flush=True)
 
 

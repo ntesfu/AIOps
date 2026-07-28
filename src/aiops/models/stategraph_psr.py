@@ -47,6 +47,10 @@ class StateGraphPSRConfig:
     num_action_refinement_stages: int = 0
     num_refinement_blocks: int = 4
     num_event_blocks: int = 0
+    # Optional coarse STEP adapter. The legacy linear head remains the raw
+    # prediction and checkpoint-compatible initialization point.
+    num_psr_step_refinement_blocks: int = 0
+    psr_step_refinement_right_context: int = 0
     dropout: float = 0.2
     graph_strength_init: float = 0.12
     composition_strength_init: float = 1.0
@@ -142,9 +146,18 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
         config.num_action_refinement_stages,
         config.num_refinement_blocks,
         config.num_event_blocks,
+        config.num_psr_step_refinement_blocks,
+        config.psr_step_refinement_right_context,
         config.component_evidence_temporal_blocks,
     ) < 0:
         raise ValueError("Refinement stage/block counts cannot be negative.")
+    if (
+        config.psr_step_refinement_right_context > 0
+        and config.num_psr_step_refinement_blocks == 0
+    ):
+        raise ValueError(
+            "psr_step_refinement_right_context requires STEP refinement blocks"
+        )
     if config.structured_roi_tokens:
         if not config.component_evidence:
             raise ValueError("structured_roi_tokens requires component_evidence.")
@@ -340,6 +353,68 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             for block in self.blocks:
                 features = block(features, valid_mask)
             return logits + self.output(features)
+
+    class StepTemporalRefinement(nn.Module):
+        """Lightweight STEP adapter with explicitly bounded future context."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            num_step_classes = config.num_completion_components + 1
+            self.right_context = config.psr_step_refinement_right_context
+            self.input = nn.Sequential(
+                nn.LayerNorm(config.hidden_dim + num_step_classes + 1),
+                nn.Linear(
+                    config.hidden_dim + num_step_classes + 1,
+                    config.hidden_dim,
+                ),
+                nn.GELU(),
+            )
+            self.future_mixer = (
+                nn.Conv1d(
+                    config.hidden_dim,
+                    config.hidden_dim,
+                    kernel_size=self.right_context + 1,
+                    groups=config.hidden_dim,
+                )
+                if self.right_context > 0
+                else None
+            )
+            self.blocks = nn.ModuleList(
+                CausalDepthwiseBlock(
+                    min(2 ** (index % 5), config.max_dilation)
+                )
+                for index in range(config.num_psr_step_refinement_blocks)
+            )
+            self.output = nn.Sequential(
+                nn.LayerNorm(config.hidden_dim),
+                nn.Linear(config.hidden_dim, num_step_classes),
+            )
+            # An extended checkpoint starts exactly at the proven raw head.
+            nn.init.zeros_(self.output[-1].weight)
+            nn.init.zeros_(self.output[-1].bias)
+
+        def forward(self, temporal, raw_logits, boundary_logits, valid_mask):
+            features = self.input(
+                torch.cat(
+                    [
+                        temporal,
+                        torch.softmax(raw_logits, dim=-1),
+                        torch.sigmoid(boundary_logits).unsqueeze(-1),
+                    ],
+                    dim=-1,
+                )
+            )
+            mask = valid_mask.unsqueeze(-1).to(features.dtype)
+            features = features * mask
+            if self.future_mixer is not None:
+                mixed = functional.pad(
+                    features.transpose(1, 2), (0, self.right_context)
+                )
+                features = features + self.future_mixer(mixed).transpose(1, 2)
+                features = features * mask
+            for block in self.blocks:
+                features = block(features) * mask
+            return raw_logits + self.output(features)
 
     class StateGraphPSRLite(nn.Module):
         def __init__(self) -> None:
@@ -588,6 +663,11 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
             self.psr_step_head = nn.Linear(
                 config.hidden_dim, config.num_completion_components + 1
             )
+            self.psr_step_refinement = (
+                StepTemporalRefinement()
+                if config.num_psr_step_refinement_blocks > 0
+                else None
+            )
             graph_gate = min(max(float(config.graph_strength_init), 1e-4), 1.0 - 1e-4)
             self.graph_strength_raw = nn.Parameter(
                 torch.tensor(math.log(graph_gate / (1.0 - graph_gate)))
@@ -810,6 +890,23 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 refinement_step_logits.append(raw_step_logits)
             graph_step_logits, step_probabilities = self._apply_graph_filter(raw_step_logits, valid_mask)
             next_step_logits = self.next_step_head(temporal)
+            boundary_logits = self.boundary_head(temporal).squeeze(-1)
+            psr_step_raw_logits = self.psr_step_head(temporal)
+            psr_step_refined_logits = (
+                self.psr_step_refinement(
+                    temporal,
+                    psr_step_raw_logits,
+                    boundary_logits,
+                    valid_mask,
+                )
+                if self.psr_step_refinement is not None
+                else None
+            )
+            psr_step_logits = (
+                psr_step_refined_logits
+                if psr_step_refined_logits is not None
+                else psr_step_raw_logits
+            )
             # Assembly101 explicitly labels failed actions as ``attempt to ...``.
             # Convert that dense action supervision into a component-aware,
             # causal mistake-onset cue instead of asking a sparse 140-event head
@@ -1132,10 +1229,12 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 "state_outcome_probabilities": state_outcome_probabilities,
                 "event_state_indices": self.event_state_indices,
                 "state_logits": state_logits,
-                "boundary_logits": self.boundary_head(temporal).squeeze(-1),
+                "boundary_logits": boundary_logits,
                 "progress_logits": self.progress_head(temporal).squeeze(-1),
                 "next_step_logits": next_step_logits,
-                "psr_step_logits": self.psr_step_head(temporal),
+                "psr_step_raw_logits": psr_step_raw_logits,
+                "psr_step_refined_logits": psr_step_refined_logits,
+                "psr_step_logits": psr_step_logits,
                 "procedure_violation_score": procedure_violation_score,
                 "uncertainty": normalized_entropy,
                 "energy": energy,
@@ -1189,6 +1288,8 @@ def build_dual_expert_stategraph_psr(
             "boundary_logits",
             "progress_logits",
             "next_step_logits",
+            "psr_step_raw_logits",
+            "psr_step_refined_logits",
             "psr_step_logits",
             "procedure_violation_score",
             "uncertainty",
@@ -1329,6 +1430,7 @@ def build_stategraph_loss(config: StateGraphLossConfig):
             targets,
             transition_matrix=None,
             step_class_weights=None,
+            psr_step_class_weights=None,
             completion_pos_weights=None,
             component_outcome_class_weights=None,
             state_class_weights=None,
@@ -1353,11 +1455,36 @@ def build_stategraph_loss(config: StateGraphLossConfig):
                 psr_step_targets = _completion_run_up_steps(
                     targets["completion"], valid_mask
                 )
-                losses["psr_step"] = self._focal_ce(
-                    outputs["psr_step_logits"], psr_step_targets, config.focal_gamma, None
+                raw_psr_logits = outputs.get(
+                    "psr_step_raw_logits", outputs["psr_step_logits"]
                 )
+                losses["psr_step_raw"] = self._focal_ce(
+                    raw_psr_logits,
+                    psr_step_targets,
+                    config.focal_gamma,
+                    psr_step_class_weights,
+                )
+                refined_psr_logits = outputs.get("psr_step_refined_logits")
+                if refined_psr_logits is not None:
+                    losses["psr_step_refinement"] = self._focal_ce(
+                        refined_psr_logits,
+                        psr_step_targets,
+                        config.focal_gamma,
+                        psr_step_class_weights,
+                    )
+                    losses["psr_step"] = 0.5 * (
+                        losses["psr_step_raw"]
+                        + losses["psr_step_refinement"]
+                    )
+                else:
+                    losses["psr_step_refinement"] = (
+                        outputs["psr_step_logits"].sum() * 0.0
+                    )
+                    losses["psr_step"] = losses["psr_step_raw"]
             else:
                 losses["psr_step"] = outputs["step_logits"].sum() * 0.0
+                losses["psr_step_raw"] = losses["psr_step"]
+                losses["psr_step_refinement"] = losses["psr_step"]
             refinement_logits = outputs.get("refinement_step_logits", [])
             if refinement_logits:
                 refinement_losses = [

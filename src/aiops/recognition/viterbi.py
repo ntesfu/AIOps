@@ -26,6 +26,7 @@ def build_transition_matrix(
     *,
     self_bias: float = 2.0,
     forbidden: Optional[np.ndarray] = None,
+    transition_penalty: Optional[np.ndarray] = None,
     forward_only: bool = False,
     background_step: int = 0,
 ) -> np.ndarray:
@@ -34,6 +35,7 @@ def build_transition_matrix(
     - ``self_bias`` adds log-weight to the diagonal (temporal stickiness).
     - ``forward_only`` forbids moving to a *lower-numbered* real step (monotone
       procedure); transitions to/from ``background_step`` stay free.
+    - ``transition_penalty`` adds a finite train-derived log score to each edge.
     - ``forbidden`` (bool ``(S, S)``) marks illegal transitions as ``-inf``.
     Rows are log-softmax normalized so the matrix is a proper conditional prior.
     """
@@ -41,6 +43,14 @@ def build_transition_matrix(
         raise ValueError("num_steps must be positive")
     log_t = np.zeros((num_steps, num_steps), dtype=np.float64)
     np.fill_diagonal(log_t, self_bias)
+
+    if transition_penalty is not None:
+        transition_penalty = np.asarray(transition_penalty, dtype=np.float64)
+        if transition_penalty.shape != (num_steps, num_steps):
+            raise ValueError("transition_penalty must be (num_steps, num_steps)")
+        if not np.isfinite(transition_penalty).all():
+            raise ValueError("transition_penalty must contain only finite values")
+        log_t += transition_penalty
 
     if forward_only:
         for i in range(num_steps):

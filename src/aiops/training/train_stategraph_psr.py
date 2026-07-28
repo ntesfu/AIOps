@@ -20,6 +20,11 @@ from aiops.data.stategraph_cache import (
     read_cache_index,
 )
 from aiops.evaluation.temporal_metrics import edit_score, segmental_f1
+from aiops.recognition import (
+    build_step_transition_prior,
+    densify_completion_to_steps,
+    quantize_lookahead,
+)
 from aiops.models.stategraph_psr import (
     StateGraphLossConfig,
     StateGraphPSRConfig,
@@ -74,7 +79,32 @@ def _checkpoint_argument_error(args: argparse.Namespace) -> str | None:
         return "--event-init-checkpoint requires --init-checkpoint"
     if args.freeze_action_backbone and not args.init_checkpoint:
         return "--freeze-action-backbone requires --init-checkpoint"
+    if (
+        getattr(args, "freeze_shared_backbone", False)
+        and not args.init_checkpoint
+    ):
+        return "--freeze-shared-backbone requires --init-checkpoint"
+    if (
+        getattr(args, "freeze_shared_backbone", False)
+        and args.freeze_action_backbone
+    ):
+        return "--freeze-shared-backbone and --freeze-action-backbone are mutually exclusive"
     return None
+
+
+def _configure_step_only_training(model) -> tuple[str, ...]:
+    """Freeze everything except the coarse STEP head and optional adapter."""
+
+    prefixes = ("psr_step_head.", "psr_step_refinement.")
+    trainable: list[str] = []
+    for name, parameter in model.named_parameters():
+        enabled = name.startswith(prefixes)
+        parameter.requires_grad_(enabled)
+        if enabled:
+            trainable.append(name)
+    if not trainable:
+        raise ValueError("STEP-only training selected no parameters")
+    return tuple(trainable)
 
 
 def _initialize_run_directory(args: argparse.Namespace) -> tuple[Path, str]:
@@ -294,6 +324,8 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         num_action_refinement_stages=args.num_action_refinement_stages,
         num_refinement_blocks=args.num_refinement_blocks,
         num_event_blocks=args.num_event_blocks,
+        num_psr_step_refinement_blocks=args.num_psr_step_refinement_blocks,
+        psr_step_refinement_right_context=args.psr_step_refinement_right_context,
         dropout=args.dropout,
         graph_strength_init=args.graph_strength,
         max_sequence_length=args.max_sequence_length,
@@ -325,6 +357,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         progress_weight=args.progress_weight,
         normality_weight=args.normality_weight,
         refinement_weight=args.refinement_weight,
+        psr_step_weight=args.psr_step_weight,
         focal_gamma=args.focal_gamma,
         asl_negative_gamma=args.asl_negative_gamma,
         asl_clip=args.asl_clip,
@@ -348,11 +381,21 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         initialization = torch.load(
             args.init_checkpoint, map_location=device, weights_only=False
         )
-        if not _model_configs_compatible(
+        if not _initialization_model_configs_compatible(
             initialization.get("model_config"), model_config.to_dict()
         ):
             raise ValueError("Initialization checkpoint model configuration does not match.")
-        model.load_state_dict(initialization["model_state"])
+        missing = model.load_state_dict(initialization["model_state"], strict=False)
+        invalid_missing = [
+            name
+            for name in missing.missing_keys
+            if not name.startswith("psr_step_refinement.")
+        ]
+        if invalid_missing or missing.unexpected_keys:
+            raise ValueError(
+                "Initialization checkpoint has incompatible model tensors: "
+                f"missing={invalid_missing}, unexpected={list(missing.unexpected_keys)}"
+            )
         print(f"Initialized model weights from {args.init_checkpoint}", flush=True)
     if args.event_init_checkpoint and initialize_from_provenance:
         event_initialization = torch.load(
@@ -380,6 +423,14 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         trainable_prefixes = _event_branch_parameter_prefixes()
         for name, parameter in model.named_parameters():
             parameter.requires_grad_(name.startswith(trainable_prefixes))
+    step_trainable_names: tuple[str, ...] = ()
+    if args.freeze_shared_backbone:
+        step_trainable_names = _configure_step_only_training(model)
+        print(
+            "STEP-only trainable parameters: "
+            + ", ".join(step_trainable_names),
+            flush=True,
+        )
     criterion = build_stategraph_loss(loss_config).to(device)
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
@@ -394,6 +445,40 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
             power=args.step_class_weight_power,
         )
     ).to(device)
+    psr_step_weight_values = _psr_step_class_weights(
+        train_records,
+        model_config.num_completion_components + 1,
+        method=args.psr_step_class_weighting,
+        cap=args.psr_step_class_weight_cap,
+        effective_beta=args.psr_step_effective_beta,
+    )
+    psr_step_weights = (
+        torch.from_numpy(psr_step_weight_values).to(device)
+        if psr_step_weight_values is not None
+        else None
+    )
+    step_transition_prior = None
+    step_transition_prior_payload = None
+    step_transition_forbidden = None
+    step_transition_penalty = None
+    if args.step_transition_prior != "none":
+        step_transition_prior = build_step_transition_prior(
+            train_records,
+            model_config.num_completion_components + 1,
+            soft_penalty=args.step_transition_soft_penalty,
+        )
+        step_transition_prior_payload = {
+            "mode": args.step_transition_prior,
+            **step_transition_prior.to_dict(),
+        }
+        (output_dir / "step_transition_prior.json").write_text(
+            json.dumps(step_transition_prior_payload, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        if args.step_transition_prior == "hard":
+            step_transition_forbidden = step_transition_prior.forbidden
+        else:
+            step_transition_penalty = step_transition_prior.penalties
     completion_pos_weights = torch.from_numpy(
         _completion_pos_weights(
             train_records,
@@ -513,6 +598,20 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     fps = float(metadata.get("fps", 10.0))
     stride_frames = float(metadata.get("stride_frames", 5.0))
     seconds_per_step = stride_frames / fps if fps > 0 and stride_frames > 0 else 0.5
+    lookahead_budget = quantize_lookahead(
+        args.near_online_lag_seconds,
+        seconds_per_step,
+        neural_steps=model_config.psr_step_refinement_right_context,
+    )
+    print(
+        "STEP latency "
+        f"requested={lookahead_budget.requested_seconds:.6f}s "
+        f"effective={lookahead_budget.effective_seconds:.6f}s "
+        f"total_rows={lookahead_budget.total_steps} "
+        f"neural_rows={lookahead_budget.neural_steps} "
+        f"decoder_rows={lookahead_budget.decoder_steps}",
+        flush=True,
+    )
     calibration_false_alert_limit = args.max_incorrect_false_alerts_per_minute
     if args.selection_strategy == "operational_harmonic":
         calibration_false_alert_limit = (
@@ -634,6 +733,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                         batch,
                         transition_matrix=model.transition_matrix,
                         step_class_weights=step_weights,
+                        psr_step_class_weights=psr_step_weights,
                         completion_pos_weights=completion_pos_weights,
                         component_outcome_class_weights=component_outcome_weights,
                         state_class_weights=state_class_weights,
@@ -683,6 +783,10 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                 state_incorrect_threshold=state_incorrect_threshold,
                 calibrate_state=calibrate_events,
                 max_incorrect_false_alerts_per_minute=calibration_false_alert_limit,
+                step_lag_seconds=args.near_online_lag_seconds,
+                step_transition_self_bias=args.step_transition_self_bias,
+                step_transition_forbidden=step_transition_forbidden,
+                step_transition_penalty=step_transition_penalty,
             )
             event_thresholds = [
                 metrics["correct_event_threshold"],
@@ -776,6 +880,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                     transition_matrix,
                     epoch,
                     metrics,
+                    step_transition_prior=step_transition_prior_payload,
                 )
                 should_stop = False
             else:
@@ -804,6 +909,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                 metrics,
                 training_state=training_state,
                 rng_state=_capture_rng_state(),
+                step_transition_prior=step_transition_prior_payload,
             )
             if should_stop:
                 print(f"Early stopping at epoch {epoch}", flush=True)
@@ -834,6 +940,10 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         max_incorrect_false_alerts_per_minute=calibration_false_alert_limit,
         stateverify_export_dir=output_dir / "stateverify_validation_emissions",
         stateverify_component_names=metadata.get("completion_components") or None,
+        step_lag_seconds=args.near_online_lag_seconds,
+        step_transition_self_bias=args.step_transition_self_bias,
+        step_transition_forbidden=step_transition_forbidden,
+        step_transition_penalty=step_transition_penalty,
     )
     validation_event_thresholds = [
         final_metrics["correct_event_threshold"],
@@ -869,6 +979,10 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
             calibrate_events=False,
             state_incorrect_threshold=validation_state_incorrect_threshold,
             calibrate_state=False,
+            step_lag_seconds=args.near_online_lag_seconds,
+            step_transition_self_bias=args.step_transition_self_bias,
+            step_transition_forbidden=step_transition_forbidden,
+            step_transition_penalty=step_transition_penalty,
         )
     export_path = (
         Path(args.export_checkpoint)
@@ -884,6 +998,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         validation_event_thresholds,
         final_metrics,
         test_metrics,
+        step_transition_prior=step_transition_prior_payload,
     )
     summary = {
         "architecture": "StateGraph-PSR Lite Stage 1",
@@ -907,6 +1022,8 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         "initialization_checkpoint": args.init_checkpoint,
         "event_initialization_checkpoint": args.event_init_checkpoint,
         "freeze_action_backbone": args.freeze_action_backbone,
+        "freeze_shared_backbone": args.freeze_shared_backbone,
+        "step_trainable_parameter_names": list(step_trainable_names),
         "peak_training_vram_gib": peak_training_vram_gib,
         "maximum_allowed_vram_gib": args.max_vram_gib,
         "train_windows": len(train_dataset),
@@ -929,6 +1046,23 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         "overfit_recording_ids": overfit_recordings,
         "completion_pos_weight_cap": args.completion_pos_weight_cap,
         "step_class_weight_power": args.step_class_weight_power,
+        "psr_step_class_weighting": args.psr_step_class_weighting,
+        "psr_step_class_weight_cap": args.psr_step_class_weight_cap,
+        "psr_step_effective_beta": args.psr_step_effective_beta,
+        "psr_step_class_weights": (
+            psr_step_weight_values.tolist()
+            if psr_step_weight_values is not None
+            else None
+        ),
+        "step_transition_prior_mode": args.step_transition_prior,
+        "step_transition_prior": step_transition_prior_payload,
+        "step_latency": {
+            "requested_seconds": lookahead_budget.requested_seconds,
+            "effective_seconds": lookahead_budget.effective_seconds,
+            "total_steps": lookahead_budget.total_steps,
+            "neural_steps": lookahead_budget.neural_steps,
+            "decoder_steps": lookahead_budget.decoder_steps,
+        },
         "state_class_weight_power": args.state_class_weight_power,
         "state_class_weight_cap": args.state_class_weight_cap,
         "action_factorization": factorization,
@@ -965,6 +1099,8 @@ def evaluate(
     stateverify_component_names: Sequence[str] | None = None,
     step_lag_seconds: float = 1.5,
     step_transition_self_bias: float = 6.0,
+    step_transition_forbidden: np.ndarray | None = None,
+    step_transition_penalty: np.ndarray | None = None,
     step_dump_dir: Path | str | None = None,
 ) -> dict[str, float]:
     import torch
@@ -997,20 +1133,35 @@ def evaluate(
     from aiops.recognition import step_level_report as _step_level_report
 
     _eval_core = getattr(model, "_orig_mod", getattr(model, "module", model))
-    _num_step_classes = int(getattr(_eval_core.config, "num_completion_components", 0)) + 1
+    _eval_config = getattr(
+        _eval_core, "config", getattr(_eval_core, "action_config", None)
+    )
+    _num_step_classes = int(
+        getattr(_eval_config, "num_completion_components", 0)
+    ) + 1
     _identity_lut = list(range(_num_step_classes))
     if seconds_per_step <= 0:
         raise ValueError("seconds_per_step must be positive")
     if step_lag_seconds < 0:
         raise ValueError("step_lag_seconds must be non-negative")
-    # Near-online decode: commit each frame with the requested trailing lookahead.
-    _step_lag = max(0, int(round(step_lag_seconds / seconds_per_step)))
-    _step_lag_seconds = _step_lag * seconds_per_step
+    # The request is a total contract: neural right context consumes decoder
+    # lookahead rather than being added on top.
+    _neural_right_context = int(
+        getattr(_eval_config, "psr_step_refinement_right_context", 0)
+    )
+    _lookahead = quantize_lookahead(
+        step_lag_seconds,
+        seconds_per_step,
+        neural_steps=_neural_right_context,
+    )
+    _step_lag = _lookahead.decoder_steps
+    _step_lag_seconds = _lookahead.effective_seconds
     _dump_dir_raw = step_dump_dir or os.environ.get("STEP_DUMP_DIR")
     _step_dump_dir = Path(_dump_dir_raw) if _dump_dir_raw else None
     if _step_dump_dir is not None:
         _step_dump_dir.mkdir(parents=True, exist_ok=True)
     _step_reports: list[dict[str, dict[str, float]]] = []
+    _step_raw_reports: list[dict[str, dict[str, float]]] = []
     with torch.inference_mode():
         for batch in loader:
             batch = _move_batch(batch, device)
@@ -1136,6 +1287,19 @@ def evaluate(
                     chunk["psr_step_target"] = _densify_steps(
                         batch["completion"][sample_index, :length].detach().cpu().numpy()
                     )
+                    _psr_raw_logits = outputs.get("psr_step_raw_logits")
+                    if _psr_raw_logits is not None:
+                        _psr_raw_logits = _psr_raw_logits[sample_index, :length]
+                        chunk["psr_step_raw_prediction"] = (
+                            _psr_raw_logits.argmax(dim=-1).detach().cpu().numpy()
+                        )
+                        chunk["psr_step_raw_posteriors"] = (
+                            torch.softmax(_psr_raw_logits, dim=-1)
+                            .detach()
+                            .float()
+                            .cpu()
+                            .numpy()
+                        )
                 any_mistake_logits = outputs.get("any_mistake_onset_logits")
                 component_probabilities = outputs.get(
                     "incorrect_component_probabilities"
@@ -1196,10 +1360,28 @@ def evaluate(
                     _identity_lut, _num_step_classes,
                     fine_posteriors=recording.get("psr_step_posteriors"),
                     self_bias=step_transition_self_bias,
+                    forbidden=step_transition_forbidden,
+                    transition_penalty=step_transition_penalty,
                     lag=_step_lag,
-                    include_causal=True,
+                    include_causal=_neural_right_context == 0,
                 )
             )
+            if "psr_step_raw_prediction" in recording:
+                _step_raw_reports.append(
+                    _step_level_report(
+                        recording["psr_step_raw_prediction"].tolist(),
+                        recording["psr_step_target"].tolist(),
+                        _identity_lut,
+                        _num_step_classes,
+                        fine_posteriors=recording.get(
+                            "psr_step_raw_posteriors"
+                        ),
+                        self_bias=step_transition_self_bias,
+                        forbidden=step_transition_forbidden,
+                        transition_penalty=step_transition_penalty,
+                        include_causal=True,
+                    )
+                )
             if _step_dump_dir is not None and "psr_step_posteriors" in recording:
                 safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", recording_id).strip("._")
                 if not safe_name:
@@ -1378,6 +1560,22 @@ def evaluate(
             "step_viterbi_edit": _vit["edit"],
             "step_viterbi_f1@50": _vit["f1@50"],
         }
+        if _step_raw_reports:
+            _raw = _mean_scores([r["agg"] for r in _step_raw_reports])
+            _step_summary.update(
+                {
+                    "step_raw_frame_accuracy": _raw["frame_acc"],
+                    "step_raw_edit": _raw["edit"],
+                    "step_raw_f1@10": _raw["f1@10"],
+                    "step_raw_f1@25": _raw["f1@25"],
+                    "step_raw_f1@50": _raw["f1@50"],
+                    "step_refined_frame_accuracy": _agg["frame_acc"],
+                    "step_refined_edit": _agg["edit"],
+                    "step_refined_f1@10": _agg["f1@10"],
+                    "step_refined_f1@25": _agg["f1@25"],
+                    "step_refined_f1@50": _agg["f1@50"],
+                }
+            )
         if "online" in _step_reports[0]:
             _onl = _mean_scores([r["online"] for r in _step_reports])
             _step_summary.update({
@@ -1386,18 +1584,41 @@ def evaluate(
                 "step_online_f1@10": _onl["f1@10"],
                 "step_online_f1@25": _onl["f1@25"],
                 "step_online_f1@50": _onl["f1@50"],
-                "step_online_lag_steps": float(_step_lag),
+                "step_online_lag_steps": float(_lookahead.total_steps),
                 "step_online_lag_seconds": float(_step_lag_seconds),
+                "step_online_requested_lag_seconds": float(
+                    _lookahead.requested_seconds
+                ),
+                "step_online_effective_lag_seconds": float(
+                    _lookahead.effective_seconds
+                ),
+                "step_neural_right_context_steps": float(
+                    _lookahead.neural_steps
+                ),
+                "step_decoder_lag_steps": float(_lookahead.decoder_steps),
+                "step_decoder_lag_seconds": float(_lookahead.decoder_seconds),
                 "step_transition_self_bias": float(step_transition_self_bias),
+                "step_transition_prior_enabled": float(
+                    step_transition_forbidden is not None
+                    or step_transition_penalty is not None
+                ),
             })
-        if "causal" in _step_reports[0]:
-            _causal = _mean_scores([r["causal"] for r in _step_reports])
+        _causal_reports = (
+            _step_reports
+            if _neural_right_context == 0
+            else _step_raw_reports
+        )
+        if _causal_reports and "causal" in _causal_reports[0]:
+            _causal = _mean_scores([r["causal"] for r in _causal_reports])
             _step_summary.update({
                 "step_causal_frame_accuracy": _causal["frame_acc"],
                 "step_causal_edit": _causal["edit"],
                 "step_causal_f1@10": _causal["f1@10"],
                 "step_causal_f1@25": _causal["f1@25"],
                 "step_causal_f1@50": _causal["f1@50"],
+                "step_causal_uses_raw_head": float(
+                    _neural_right_context > 0
+                ),
             })
     return {
         "frame_accuracy": 100.0 * frame_correct / max(frame_total, 1),
@@ -2026,6 +2247,8 @@ def _model_configs_compatible(stored: Any, current: dict[str, Any]) -> bool:
     normalized.setdefault("roi_global_dim", 3)
     normalized.setdefault("roi_change_lag", 4)
     normalized.setdefault("hybrid_roi_residual", False)
+    normalized.setdefault("num_psr_step_refinement_blocks", 0)
+    normalized.setdefault("psr_step_refinement_right_context", 0)
     normalized_current.setdefault("factorized_mistake_detection", False)
     normalized_current.setdefault("component_evidence", False)
     normalized_current.setdefault("event_only_motion_aux", False)
@@ -2036,7 +2259,35 @@ def _model_configs_compatible(stored: Any, current: dict[str, Any]) -> bool:
     normalized_current.setdefault("roi_global_dim", 3)
     normalized_current.setdefault("roi_change_lag", 4)
     normalized_current.setdefault("hybrid_roi_residual", False)
+    normalized_current.setdefault("num_psr_step_refinement_blocks", 0)
+    normalized_current.setdefault("psr_step_refinement_right_context", 0)
     return normalized == normalized_current
+
+
+def _initialization_model_configs_compatible(
+    stored: Any, current: dict[str, Any]
+) -> bool:
+    """Allow adding only the zero-initialized STEP adapter to a legacy model."""
+
+    if _model_configs_compatible(stored, current):
+        return True
+    if not isinstance(stored, dict):
+        return False
+    extension_defaults = {
+        "num_psr_step_refinement_blocks": 0,
+        "psr_step_refinement_right_context": 0,
+    }
+    if any(
+        stored.get(field, default) != default
+        for field, default in extension_defaults.items()
+    ):
+        return False
+    stored_base = dict(stored)
+    current_base = dict(current)
+    for field in extension_defaults:
+        stored_base.pop(field, None)
+        current_base.pop(field, None)
+    return _model_configs_compatible(stored_base, current_base)
 
 
 def _event_branch_parameter_prefixes() -> tuple[str, ...]:
@@ -2167,6 +2418,73 @@ def _class_weights(
         counts += np.bincount(labels, minlength=classes)
     weights = (counts.sum() / (classes * counts)) ** power
     return np.clip(weights, 0.25, 12.0).astype(np.float32)
+
+
+def _normalize_capped_weights(raw: np.ndarray, cap: float) -> np.ndarray:
+    """Scale positive weights to mean one while enforcing symmetric bounds."""
+
+    raw = np.asarray(raw, dtype=np.float64)
+    if raw.ndim != 1 or not len(raw):
+        raise ValueError("raw weights must be a non-empty vector")
+    if not np.isfinite(raw).all() or (raw <= 0).any():
+        raise ValueError("raw weights must be finite and positive")
+    if not np.isfinite(cap) or cap < 1.0:
+        raise ValueError("cap must be finite and at least one")
+    lower = 1.0 / cap
+    lo, hi = 0.0, cap / float(raw.min())
+    for _ in range(80):
+        scale = 0.5 * (lo + hi)
+        mean = float(np.clip(raw * scale, lower, cap).mean())
+        if mean < 1.0:
+            lo = scale
+        else:
+            hi = scale
+    return np.clip(raw * (0.5 * (lo + hi)), lower, cap)
+
+
+def _psr_step_class_weights(
+    records: list[StateGraphCacheRecord],
+    classes: int,
+    *,
+    method: str = "none",
+    cap: float = 12.0,
+    effective_beta: float = 0.9999,
+) -> np.ndarray | None:
+    """Class balance from train-only run-up STEP targets."""
+
+    if method == "none":
+        return None
+    if method not in {"inverse_sqrt", "effective_number"}:
+        raise ValueError(f"unsupported STEP weighting method: {method}")
+    if classes <= 0:
+        raise ValueError("classes must be positive")
+    if not 0.0 < effective_beta < 1.0:
+        raise ValueError("effective_beta must be in (0, 1)")
+
+    counts = np.zeros(classes, dtype=np.int64)
+    for record in records:
+        if record.split.lower() != "train":
+            continue
+        with np.load(record.path, allow_pickle=False) as arrays:
+            completion = np.asarray(arrays["completion"])
+        labels = densify_completion_to_steps(completion)
+        if labels.size and (labels.min() < 0 or labels.max() >= classes):
+            raise ValueError(
+                f"{record.recording_id} has a run-up STEP target outside "
+                f"[0, {classes})"
+            )
+        counts += np.bincount(labels, minlength=classes)
+    if not counts.sum():
+        raise ValueError("STEP class weights require non-empty training targets")
+
+    safe_counts = np.maximum(counts, 1).astype(np.float64)
+    if method == "inverse_sqrt":
+        raw = 1.0 / np.sqrt(safe_counts)
+    else:
+        raw = (1.0 - effective_beta) / (
+            1.0 - np.power(effective_beta, safe_counts)
+        )
+    return _normalize_capped_weights(raw, cap).astype(np.float32)
 
 
 def _action_factorization(
@@ -2455,6 +2773,7 @@ def _save_checkpoint(
     metrics: dict[str, Any],
     training_state: dict[str, Any] | None = None,
     rng_state: dict[str, Any] | None = None,
+    step_transition_prior: dict[str, Any] | None = None,
 ) -> None:
     import torch
 
@@ -2470,6 +2789,7 @@ def _save_checkpoint(
             "transition_matrix": transition_matrix,
             "epoch": epoch,
             "metrics": metrics,
+            "step_transition_prior": step_transition_prior,
             "training_state": training_state,
             "rng_state": rng_state,
         },
@@ -2486,6 +2806,7 @@ def _save_inference_checkpoint(
     event_thresholds: list[float],
     validation_metrics: dict[str, float],
     test_metrics: dict[str, float] | None,
+    step_transition_prior: dict[str, Any] | None = None,
 ) -> None:
     """Export compact optimizer-free BF16 weights for reproducible inference."""
 
@@ -2511,6 +2832,7 @@ def _save_inference_checkpoint(
             "event_thresholds": event_thresholds,
             "validation_metrics": validation_metrics,
             "test_metrics": test_metrics,
+            "step_transition_prior": step_transition_prior,
         },
         path,
     )
@@ -2587,6 +2909,14 @@ def main() -> None:
         action="store_true",
         help="Train only event/state modules after checkpoint initialization.",
     )
+    parser.add_argument(
+        "--freeze-shared-backbone",
+        action="store_true",
+        help=(
+            "Train only psr_step_head and the optional STEP refinement adapter "
+            "after checkpoint initialization."
+        ),
+    )
     parser.add_argument("--device", default=None)
     parser.add_argument("--max-vram-gib", type=float, default=23.0)
     parser.add_argument("--precision", choices=["fp32", "bf16", "fp16"], default="bf16")
@@ -2603,6 +2933,18 @@ def main() -> None:
     parser.add_argument("--num-action-refinement-stages", type=int, default=0)
     parser.add_argument("--num-refinement-blocks", type=int, default=4)
     parser.add_argument("--num-event-blocks", type=int, default=0)
+    parser.add_argument(
+        "--num-psr-step-refinement-blocks",
+        type=int,
+        default=0,
+        help="Lightweight temporal blocks on the coarse STEP head; zero preserves legacy behavior.",
+    )
+    parser.add_argument(
+        "--psr-step-refinement-right-context",
+        type=int,
+        default=0,
+        help="Bounded future cache rows consumed by the STEP adapter; deducted from decoder lookahead.",
+    )
     parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument(
         "--max-sequence-length",
@@ -2668,6 +3010,30 @@ def main() -> None:
     parser.add_argument("--max-grad-norm", type=float, default=2.0)
     parser.add_argument("--transition-smoothing", type=float, default=0.02)
     parser.add_argument(
+        "--near-online-lag-seconds",
+        type=float,
+        default=1.5,
+        help="Total STEP lookahead contract shared by neural refinement and decoder.",
+    )
+    parser.add_argument(
+        "--step-transition-self-bias",
+        type=float,
+        default=6.0,
+        help="STEP Viterbi self-transition log-score bonus.",
+    )
+    parser.add_argument(
+        "--step-transition-prior",
+        choices=("none", "soft", "hard"),
+        default="none",
+        help="Optional transition legality learned exclusively from run-up train targets.",
+    )
+    parser.add_argument(
+        "--step-transition-soft-penalty",
+        type=float,
+        default=-6.0,
+        help="Finite log penalty for train-unobserved STEP edges in soft mode.",
+    )
+    parser.add_argument(
         "--rare-window-boost",
         type=float,
         default=4.0,
@@ -2715,11 +3081,30 @@ def main() -> None:
         help="Train and validate on this train-split recording for an intentional wiring test; repeat for 2-4 IDs.",
     )
     parser.add_argument("--step-weight", type=float, default=1.0)
+    parser.add_argument("--psr-step-weight", type=float, default=1.0)
     parser.add_argument(
         "--step-class-weight-power",
         type=float,
         default=1.0,
         help="Exponent on inverse-frequency action weights; 0.5 is a softer square-root balance.",
+    )
+    parser.add_argument(
+        "--psr-step-class-weighting",
+        choices=("none", "inverse_sqrt", "effective_number"),
+        default="none",
+        help="Train-only balancing for run-up STEP targets; none preserves the baseline.",
+    )
+    parser.add_argument(
+        "--psr-step-class-weight-cap",
+        type=float,
+        default=12.0,
+        help="Symmetric maximum/minimum bound around normalized STEP class weight one.",
+    )
+    parser.add_argument(
+        "--psr-step-effective-beta",
+        type=float,
+        default=0.9999,
+        help="Effective-number beta used when that STEP weighting mode is enabled.",
     )
     parser.add_argument("--completion-weight", type=float, default=0.45)
     parser.add_argument("--component-outcome-weight", type=float, default=0.7)
@@ -2871,6 +3256,16 @@ def main() -> None:
         parser.error("selection-min-normality-ap must be in [0, 100]")
     if args.state_class_weight_cap < 1.0:
         parser.error("state-class-weight-cap must be at least 1")
+    if args.psr_step_class_weight_cap < 1.0:
+        parser.error("psr-step-class-weight-cap must be at least 1")
+    if not 0.0 < args.psr_step_effective_beta < 1.0:
+        parser.error("psr-step-effective-beta must be in (0, 1)")
+    if args.psr_step_weight < 0:
+        parser.error("psr-step-weight cannot be negative")
+    if args.near_online_lag_seconds < 0:
+        parser.error("near-online-lag-seconds cannot be negative")
+    if args.step_transition_soft_penalty > 0:
+        parser.error("step-transition-soft-penalty must be non-positive")
     if args.max_vram_gib <= 0:
         parser.error("max-vram-gib must be positive")
     if not 0.0 <= args.step_class_weight_power <= 1.0:
@@ -2891,8 +3286,22 @@ def main() -> None:
         args.num_action_refinement_stages,
         args.num_refinement_blocks,
         args.num_event_blocks,
+        args.num_psr_step_refinement_blocks,
+        args.psr_step_refinement_right_context,
     ) < 0:
         parser.error("refinement stage/block counts cannot be negative")
+    if (
+        args.num_psr_step_refinement_blocks
+        and not 2 <= args.num_psr_step_refinement_blocks <= 4
+    ):
+        parser.error("num-psr-step-refinement-blocks must be 0 or between 2 and 4")
+    if (
+        args.psr_step_refinement_right_context > 0
+        and args.num_psr_step_refinement_blocks == 0
+    ):
+        parser.error(
+            "psr-step-refinement-right-context requires STEP refinement blocks"
+        )
     print(json.dumps(train(args), indent=2))
 
 
