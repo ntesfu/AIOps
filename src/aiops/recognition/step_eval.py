@@ -168,11 +168,14 @@ def step_level_report(
     lag: int | None = None,
     include_causal: bool = False,
     include_segmental: bool = False,
-    segment_duration_sigma: float = 0.7,
-    segment_duration_weight: float = 1.0,
+    # Defaults are the IndustReal-SSv2 val-tuned decode config (see decode sweep):
+    # wider length prior + stronger duration weight + stronger onset gate lift the
+    # near-online / causal Edit and near-online F1@50 with offline held ~flat.
+    segment_duration_sigma: float = 0.9,
+    segment_duration_weight: float = 3.0,
     segment_max_frac: float = 0.6,
     boundary_signal: np.ndarray | None = None,
-    segment_boundary_weight: float = 3.0,
+    segment_boundary_weight: float = 10.0,
     overlaps: Sequence[float] = DEFAULT_OVERLAPS,
     ignore_index: int = DEFAULT_IGNORE_INDEX,
 ) -> dict[str, dict[str, float]]:

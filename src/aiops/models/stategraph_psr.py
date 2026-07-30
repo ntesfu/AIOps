@@ -102,6 +102,12 @@ class StateGraphPSRConfig:
 class StateGraphLossConfig:
     step_weight: float = 1.0
     completion_weight: float = 0.45
+    # Occupancy head is opt-in (default 0): a 0.3-weight retrain on IndustReal SSv2
+    # doubled the onset-head event F1 and lifted frame-acc/offline F1 but REGRESSED
+    # the causal/near-online step Edit/F1 (it competes with the step head for the
+    # shared features). Kept as dormant infrastructure for Track B's state channel;
+    # enable with occupancy_weight > 0 there, not for Track A step recognition.
+    occupancy_weight: float = 0.0
     component_outcome_weight: float = 0.7
     incorrect_onset_weight: float = 0.7
     state_weight: float = 0.8
@@ -628,6 +634,11 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                 self.component_evidence_onset_head = nn.Linear(config.hidden_dim, 1)
                 self.component_evidence_normality_head = nn.Linear(config.hidden_dim, 1)
             self.completion_head = nn.Linear(config.hidden_dim, config.num_completion_components)
+            # Occupancy head (Lever 2 "state"): dense monotone per-component
+            # "has this component completed by now" -- the running integral of the
+            # sparse completion onsets. A dense, well-balanced state target that
+            # regularizes the shared features and gives Track B a real state channel.
+            self.occupancy_head = nn.Linear(config.hidden_dim, config.num_completion_components)
             self.component_outcome_head = nn.Linear(
                 config.hidden_dim, config.num_completion_components * config.num_event_outcomes
             )
@@ -1215,6 +1226,7 @@ def build_stategraph_psr(config: StateGraphPSRConfig, transition_matrix: Any | N
                     else None
                 ),
                 "completion_logits": self.completion_head(event_features),
+                "occupancy_logits": self.occupancy_head(event_features),
                 "component_outcome_logits": component_outcome_logits,
                 "incorrect_onset_logits": incorrect_onset_logits,
                 "fused_incorrect_logits": fused_incorrect_logits,
@@ -1515,6 +1527,21 @@ def build_stategraph_loss(config: StateGraphLossConfig):
                 clip=config.asl_clip,
                 pos_weight=completion_pos_weights,
             )
+            # Occupancy (dense monotone state): "has component c completed by now" =
+            # cumulative max of the sparse completion events. Dense, well-balanced
+            # supervision that regularizes the shared features (and gives Track B a
+            # real per-component state channel).
+            occupancy_target = torch.cummax(
+                (targets["completion"] > 0.5).float(), dim=1
+            ).values
+            _occupancy_valid = valid_mask.bool()
+            if _occupancy_valid.any():
+                losses["occupancy"] = functional.binary_cross_entropy_with_logits(
+                    outputs["occupancy_logits"][_occupancy_valid],
+                    occupancy_target[_occupancy_valid],
+                )
+            else:
+                losses["occupancy"] = outputs["occupancy_logits"].sum() * 0.0
             losses["component_outcome"] = self._focal_ce(
                 outputs["component_outcome_logits"],
                 outcome_targets,
@@ -1771,6 +1798,7 @@ def build_stategraph_loss(config: StateGraphLossConfig):
             total = (
                 config.step_weight * losses["step"]
                 + config.completion_weight * losses["completion"]
+                + config.occupancy_weight * losses["occupancy"]
                 + config.component_outcome_weight * losses["component_outcome"]
                 + config.incorrect_onset_weight * losses["incorrect_onset"]
                 + config.state_weight * losses["state"]

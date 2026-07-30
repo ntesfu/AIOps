@@ -1418,6 +1418,10 @@ def evaluate(
                     _step_dump_dir / f"{safe_name}.npz",
                     posteriors=recording["psr_step_posteriors"],
                     target=recording["psr_step_target"],
+                    onset=recording.get(
+                        "psr_step_onset_boundary",
+                        np.zeros(len(recording["psr_step_target"]), dtype=np.float32),
+                    ),
                 )
 
         state_valid = recording["state_mask"].astype(bool)
