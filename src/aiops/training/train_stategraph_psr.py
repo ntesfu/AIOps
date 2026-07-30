@@ -1377,6 +1377,7 @@ def evaluate(
                     transition_penalty=step_transition_penalty,
                     lag=_step_lag,
                     include_causal=_neural_right_context == 0,
+                    include_segmental=True,
                 )
             )
             if "psr_step_raw_prediction" in recording:
@@ -1633,6 +1634,22 @@ def evaluate(
                     _neural_right_context > 0
                 ),
             })
+        # Segmental (duration-aware semi-Markov) decode — the boundary/Edit lever,
+        # reported alongside the frame-Markov Viterbi rows for a direct A/B.
+        for _key, _prefix in (
+            ("segmental", "step_segmental"),
+            ("segmental_online", "step_segmental_online"),
+            ("segmental_causal", "step_segmental_causal"),
+        ):
+            if _step_reports and _key in _step_reports[0]:
+                _seg = _mean_scores([r[_key] for r in _step_reports])
+                _step_summary.update({
+                    f"{_prefix}_frame_accuracy": _seg["frame_acc"],
+                    f"{_prefix}_edit": _seg["edit"],
+                    f"{_prefix}_f1@10": _seg["f1@10"],
+                    f"{_prefix}_f1@25": _seg["f1@25"],
+                    f"{_prefix}_f1@50": _seg["f1@50"],
+                })
     return {
         "frame_accuracy": 100.0 * frame_correct / max(frame_total, 1),
         "raw_frame_accuracy": 100.0 * raw_frame_correct / max(frame_total, 1),

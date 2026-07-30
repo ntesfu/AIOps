@@ -22,12 +22,32 @@ from aiops.recognition.step_taxonomy import (
     DEFAULT_IGNORE_INDEX,
 )
 from aiops.recognition.viterbi import (
+    build_duration_logpmf,
     build_transition_matrix,
+    semi_markov_decode,
+    semi_markov_decode_fixed_lag,
     viterbi_decode,
     viterbi_decode_fixed_lag,
 )
 
 DEFAULT_OVERLAPS = (0.10, 0.25, 0.50)
+
+
+def _estimate_mean_segment_length(
+    step_path: np.ndarray, ignore_index: int, background_step: int
+) -> float:
+    """Robust typical step-segment length from a decoded path (no labels used).
+
+    Uses the count of *distinct* non-background steps as a proxy for the number of
+    real segments — steadier than the raw run-length count, which is inflated by the
+    very fragmentation the duration prior is meant to suppress.
+    """
+    valid = step_path[step_path != ignore_index]
+    if valid.size == 0:
+        return 1.0
+    distinct = {int(s) for s in valid.tolist()} - {int(background_step)}
+    denom = max(1, len(distinct) + 1)  # +1 for background occupancy
+    return max(1.0, float(valid.size) / denom)
 
 
 def map_via_lut(
@@ -147,22 +167,31 @@ def step_level_report(
     forward_only: bool = False,
     lag: int | None = None,
     include_causal: bool = False,
+    include_segmental: bool = False,
+    segment_duration_sigma: float = 0.7,
+    segment_duration_weight: float = 1.0,
+    segment_max_frac: float = 0.6,
     overlaps: Sequence[float] = DEFAULT_OVERLAPS,
     ignore_index: int = DEFAULT_IGNORE_INDEX,
 ) -> dict[str, dict[str, float]]:
-    """One recording's step-level scores under up to four decoders.
+    """One recording's step-level scores under up to seven decoders.
 
-    Returns ``{"agg": {...}, "viterbi": {...}[, "causal": {...}, "online": {...}]}``:
+    Returns ``{"agg", "viterbi"[, "causal", "online",
+    "segmental", "segmental_online", "segmental_causal"]}``:
     - **agg** — the free day-one baseline: argmax fine predictions collapsed to steps.
-    - **viterbi** — MAP-decoded (full/offline) with a legal-transition prior. Uses the
-      marginalized step posteriors when ``fine_posteriors`` is given; otherwise a
-      one-hot emission built from the argmax steps. ``forbidden``/``forward_only``
-      inject the task graph's legal transitions.
+    - **viterbi** — frame-Markov MAP decode (full/offline) with a legal-transition
+      prior + self-transition stickiness. Uses the marginalized step posteriors when
+      ``fine_posteriors`` is given; otherwise a one-hot emission from the argmax steps.
+      ``forbidden``/``forward_only``/``transition_penalty`` inject the task graph.
     - **causal** — present when ``include_causal`` is true: strict zero-lookahead
-      decoding, reported separately from the primary near-online regime.
-    - **online** — present only when ``lag`` is given: the same decode but fixed-lag
-      (near-online), committing each frame using only a ``lag``-frame trailing
-      lookahead.
+      frame-Markov decode, reported separately from the near-online regime.
+    - **online** — present only when ``lag`` is given: fixed-lag frame-Markov decode,
+      committing each frame with only a ``lag``-frame trailing lookahead.
+    - **segmental**/**_online**/**_causal** — present when ``include_segmental`` is
+      true: the duration-aware **semi-Markov** decode (offline / fixed-lag / strict
+      causal). It prices whole-segment lengths against a per-step duration prior
+      instead of a per-frame stickiness bias, so boundaries land where the length
+      model and emissions agree — the Edit / F1@50 lever.
     """
     pred_steps = map_via_lut(fine_prediction, step_lut, ignore_index)
     target_steps = map_via_lut(fine_target, step_lut, ignore_index)
@@ -193,4 +222,42 @@ def step_level_report(
     if lag is not None:
         online = viterbi_decode_fixed_lag(log_emissions, log_transition, lag)
         report["online"] = step_scores(online, target_steps, overlaps, ignore_index)
+
+    if include_segmental and len(pred_steps) > 0:
+        # Segmental decode: legality prior (incl. any learned transition_penalty)
+        # WITHOUT the self-transition bias — the duration model now supplies temporal
+        # stickiness at segment granularity.
+        seg_transition = build_transition_matrix(
+            num_steps,
+            self_bias=0.0,
+            forbidden=forbidden,
+            transition_penalty=transition_penalty,
+            forward_only=forward_only,
+        )
+        max_segment = max(1, int(round(len(pred_steps) * segment_max_frac)))
+        mean_len = _estimate_mean_segment_length(pred_steps, ignore_index, BACKGROUND_STEP)
+        duration_logpmf = build_duration_logpmf(
+            num_steps,
+            max_segment,
+            mean_length=mean_len,
+            sigma=segment_duration_sigma,
+            weight=segment_duration_weight,
+        )
+        seg = semi_markov_decode(
+            log_emissions, seg_transition, duration_logpmf, max_segment=max_segment
+        )
+        report["segmental"] = step_scores(seg, target_steps, overlaps, ignore_index)
+        seg_causal = semi_markov_decode_fixed_lag(
+            log_emissions, seg_transition, duration_logpmf, 0, max_segment=max_segment
+        )
+        report["segmental_causal"] = step_scores(
+            seg_causal, target_steps, overlaps, ignore_index
+        )
+        if lag is not None:
+            seg_online = semi_markov_decode_fixed_lag(
+                log_emissions, seg_transition, duration_logpmf, lag, max_segment=max_segment
+            )
+            report["segmental_online"] = step_scores(
+                seg_online, target_steps, overlaps, ignore_index
+            )
     return report

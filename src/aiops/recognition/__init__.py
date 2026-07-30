@@ -36,7 +36,10 @@ from aiops.recognition.step_prior import (
     build_step_transition_prior,
 )
 from aiops.recognition.viterbi import (
+    build_duration_logpmf,
     build_transition_matrix,
+    semi_markov_decode,
+    semi_markov_decode_fixed_lag,
     viterbi_decode,
     viterbi_decode_fixed_lag,
 )
@@ -55,8 +58,11 @@ __all__ = [
     "step_level_report",
     "mean_scores",
     "build_transition_matrix",
+    "build_duration_logpmf",
     "viterbi_decode",
     "viterbi_decode_fixed_lag",
+    "semi_markov_decode",
+    "semi_markov_decode_fixed_lag",
     "LookaheadBudget",
     "quantize_lookahead",
     "StepTransitionPrior",

@@ -14,17 +14,21 @@ import pytest
 from aiops.recognition import (
     StepTaxonomy,
     aggregate_and_score,
+    build_duration_logpmf,
     build_transition_matrix,
     densify_completion_to_steps,
     frame_accuracy,
     map_via_lut,
     marginalize_to_steps,
+    semi_markov_decode,
+    semi_markov_decode_fixed_lag,
     step_level_report,
     step_lut_from_component_indices,
     step_scores,
     viterbi_decode,
     viterbi_decode_fixed_lag,
 )
+from aiops.evaluation.temporal_metrics import segmental_f1
 from aiops.evaluation.temporal_metrics import edit_score
 
 SCHEMA_PATH = (
@@ -212,6 +216,98 @@ def test_fixed_lag_zero_is_causal_forward():
     # a few frames of lookahead should be at least as good as no lookahead (Edit)
     online3 = viterbi_decode_fixed_lag(log_e, log_t, lag=3)
     assert edit_score(online3, true) >= edit_score(online0, true)
+
+
+def test_duration_logpmf_penalizes_short_segments():
+    # A length prior centred at 10 must make length-1 far less likely than length-10,
+    # and length 0 impossible. This is what suppresses fragmentation.
+    table = build_duration_logpmf(3, max_length=30, mean_length=10.0, sigma=0.6)
+    assert table.shape == (3, 31)
+    assert (table[:, 0] <= -1e29).all()  # length 0 impossible (finite -inf sentinel)
+    assert (table[:, 1] < table[:, 10]).all()
+    # weight scales the (normalized) prior strength.
+    weak = build_duration_logpmf(3, 30, mean_length=10.0, sigma=0.6, weight=0.5)
+    strong = build_duration_logpmf(3, 30, mean_length=10.0, sigma=0.6, weight=2.0)
+    gap_weak = weak[0, 10] - weak[0, 1]
+    gap_strong = strong[0, 10] - strong[0, 1]
+    assert gap_strong > gap_weak > 0
+
+
+def _blocky_log_emissions(true: np.ndarray, num_steps: int, peak: float = 0.9):
+    probs = np.full((len(true), num_steps), (1.0 - peak) / (num_steps - 1))
+    probs[np.arange(len(true)), true] = peak
+    probs /= probs.sum(axis=1, keepdims=True)
+    return np.log(probs)
+
+
+def test_semi_markov_recovers_clean_segments():
+    S = 3
+    true = np.array([0] * 10 + [1] * 10 + [2] * 10)
+    log_e = _blocky_log_emissions(true, S)
+    log_t = build_transition_matrix(S, self_bias=0.0)
+    dur = build_duration_logpmf(S, max_length=30, mean_length=10.0)
+    path = semi_markov_decode(log_e, log_t, dur, max_segment=30)
+    assert path.tolist() == true.tolist()
+
+
+def test_semi_markov_suppresses_single_frame_flip():
+    # One frame's argmax spuriously flips mid-segment; the duration prior should keep
+    # the segment whole where a per-frame decode would fragment it.
+    S = 3
+    true = np.array([1] * 20)
+    probs = np.full((20, S), 0.02)
+    probs[np.arange(20), true] = 0.94
+    probs[10] = [0.55, 0.43, 0.02]  # argmax here flips to 0
+    probs /= probs.sum(axis=1, keepdims=True)
+    log_e = np.log(probs)
+    log_t = build_transition_matrix(S, self_bias=0.0)
+    dur = build_duration_logpmf(S, max_length=20, mean_length=20.0, sigma=0.5, weight=1.5)
+    seg = semi_markov_decode(log_e, log_t, dur, max_segment=20)
+    raw = log_e.argmax(axis=1)
+    # raw argmax fragments into 3 runs; the segmental decode stays a single segment.
+    assert segmental_f1(seg.tolist(), true.tolist(), 0.5) >= segmental_f1(
+        raw.tolist(), true.tolist(), 0.5
+    )
+    assert len(set(np.diff(seg).nonzero()[0])) < len(set(np.diff(raw).nonzero()[0]))
+
+
+def test_semi_markov_fixed_lag_matches_offline_at_large_lag():
+    S = 4
+    true = np.array([0] * 6 + [1] * 6 + [3] * 6 + [2] * 6)
+    log_e = _blocky_log_emissions(true, S, peak=0.8)
+    log_t = build_transition_matrix(S, self_bias=0.0)
+    dur = build_duration_logpmf(S, max_length=24, mean_length=6.0)
+    offline = semi_markov_decode(log_e, log_t, dur, max_segment=24)
+    lagged = semi_markov_decode_fixed_lag(log_e, log_t, dur, lag=100, max_segment=24)
+    assert lagged.tolist() == offline.tolist()
+
+
+def test_semi_markov_fixed_lag_zero_is_causal():
+    # A frame committed at lag=0 must not depend on any strictly-future observation.
+    S = 3
+    true = np.array([0] * 8 + [1] * 8)
+    log_e = _blocky_log_emissions(true, S, peak=0.7)
+    log_t = build_transition_matrix(S, self_bias=0.0)
+    dur = build_duration_logpmf(S, max_length=16, mean_length=8.0)
+    base = semi_markov_decode_fixed_lag(log_e, log_t, dur, lag=0, max_segment=16)
+    perturbed_e = log_e.copy()
+    perturbed_e[-1] = _blocky_log_emissions(np.array([2]), S, peak=0.99)[0]
+    perturbed = semi_markov_decode_fixed_lag(perturbed_e, log_t, dur, lag=0, max_segment=16)
+    # changing only the last frame cannot change the committed label at frame 0
+    assert base[0] == perturbed[0]
+
+
+def test_step_level_report_includes_segmental():
+    lut = list(range(3))
+    target = [1] * 8 + [2] * 8
+    pred = [1] * 4 + [2] + [1] * 3 + [2] * 8
+    report = step_level_report(
+        pred, target, lut, num_steps=3, self_bias=3.0, lag=2,
+        include_causal=True, include_segmental=True,
+    )
+    assert {"segmental", "segmental_online", "segmental_causal"} <= set(report)
+    for key in ("segmental", "segmental_online", "segmental_causal"):
+        assert 0.0 <= report[key]["f1@50"] <= 100.0
 
 
 def test_step_level_report_online_present_with_lag():
