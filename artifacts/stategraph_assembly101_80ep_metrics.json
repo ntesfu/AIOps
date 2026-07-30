@@ -1,0 +1,46 @@
+{
+  "artifact": "stategraph_assembly101_80ep_bf16.pt",
+  "sha256": "d45fa88e777bd32bc03762f262cd06797beac5c5c442ce0724c7108c8b782196",
+  "format": "PyTorch compact inference checkpoint, BF16 weights",
+  "parameters": 10793341,
+  "training_epochs": 80,
+  "selected_epoch": 67,
+  "dataset": {
+    "name": "Assembly101 public fixed-view derivative plus official mistake annotations",
+    "recordings": 60,
+    "split_recordings": {"train": 40, "validation": 10, "test": 10},
+    "split_policy": "actor-disjoint",
+    "action_classes": 87,
+    "components": 55
+  },
+  "validation": {
+    "frame_accuracy_percent": 50.0587,
+    "edit_percent": 29.7218,
+    "f1_at_10_percent": 27.3226,
+    "f1_at_25_percent": 23.7719,
+    "f1_at_50_percent": 16.2786,
+    "normality_incorrect_average_precision_percent": 32.8133,
+    "state_macro_f1_percent": 43.4155
+  },
+  "test": {
+    "frame_accuracy_percent": 46.8178,
+    "seen_action_accuracy_percent": 47.8631,
+    "edit_percent": 27.2420,
+    "f1_at_10_percent": 23.8758,
+    "f1_at_25_percent": 19.0057,
+    "f1_at_50_percent": 13.9063,
+    "normality_incorrect_average_precision_percent": 20.1873,
+    "state_accuracy_percent": 96.7289,
+    "state_macro_f1_percent": 45.4259,
+    "incorrect_event_f1_percent": 0.3714,
+    "incorrect_event_recall_percent": 8.3333,
+    "incorrect_false_alerts_per_minute": 13.1156,
+    "unseen_composition_accuracy_percent": 0.0,
+    "unseen_composition_frames": 105
+  },
+  "limitations": [
+    "The visual subset is a public one-frame-per-second fixed-view derivative, not the official egocentric release.",
+    "Sparse exact-timestamp mistake-event detection is not deployment-ready.",
+    "Five test action compositions have no training examples and scored zero-shot accuracy of zero."
+  ]
+}

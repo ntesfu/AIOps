@@ -1,0 +1,44 @@
+{
+  "name": "StateGraph-PSR XL Stage 1",
+  "inherits": "configs/stategraph_psr_stage1_large.json",
+  "purpose": "Higher-throughput dual-motion candidate sized for a single 24 GB GPU",
+  "model": {
+    "hidden_dim": 512,
+    "num_temporal_blocks": 16,
+    "attention_every": 2,
+    "num_heads": 8,
+    "num_action_refinement_stages": 3,
+    "num_refinement_blocks": 5,
+    "num_event_blocks": 6,
+    "dropout": 0.15,
+    "causal": true,
+    "cross_modal_disagreement": true
+  },
+  "training": {
+    "precision": "bf16",
+    "batch_size": 4,
+    "accumulation_steps": 2,
+    "sequence_length": 384,
+    "sequence_stride": 288,
+    "learning_rate": 0.0002,
+    "weight_decay": 0.002,
+    "rare_windows_per_batch": 2,
+    "event_label_horizon": 2,
+    "epochs": 80,
+    "patience": 15
+  },
+  "pilot_command_overrides": [
+    "--hidden-dim 512",
+    "--num-temporal-blocks 16",
+    "--attention-every 2",
+    "--num-heads 8",
+    "--num-action-refinement-stages 3",
+    "--num-refinement-blocks 5",
+    "--num-event-blocks 6",
+    "--dropout 0.15",
+    "--sequence-length 384",
+    "--sequence-stride 288",
+    "--learning-rate 0.0002",
+    "--event-label-horizon 2"
+  ]
+}

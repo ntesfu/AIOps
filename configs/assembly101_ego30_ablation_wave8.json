@@ -1,0 +1,40 @@
+{
+  "protocol": {
+    "source_commit": "the commit containing this protocol",
+    "cache": "data/processed/assembly101_ego30_expanded/index.json",
+    "train_recordings": 133,
+    "validation_recordings": 15,
+    "test_recordings": 10,
+    "validation_and_test_unchanged": true,
+    "epochs": 32,
+    "seed": 7,
+    "selection_strategy": "operational_harmonic",
+    "selection_constraint": "strict incorrect-event recall > 0, normality AP >= validation prevalence, false alerts <= 2/min",
+    "purpose": "isolate factorized mistake timing/localization with and without event-centered crops",
+    "held_out_test_evaluation": false
+  },
+  "comparisons": {
+    "H0_vs_E0": "factorized mistake detector only",
+    "H1_vs_G1": "factorized mistake detector at fixed two-crop sampling",
+    "H1_vs_H0": "event-centered crop effect with factorization enabled"
+  },
+  "experiments": [
+    {
+      "id": "H0",
+      "run": "abl_h0_expanded_factorized_s7_32e_20260722",
+      "seed": 7,
+      "factorized_mistake_detection": true,
+      "event_centered_crops_per_event": 0,
+      "procedural_event_context": false
+    },
+    {
+      "id": "H1",
+      "run": "abl_h1_expanded_factorized_crops_s7_32e_20260722",
+      "seed": 7,
+      "factorized_mistake_detection": true,
+      "event_centered_crops_per_event": 2,
+      "event_centered_crop_radius": 128,
+      "procedural_event_context": false
+    }
+  ]
+}

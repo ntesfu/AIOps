@@ -1,0 +1,41 @@
+{
+  "protocol": {
+    "source_commit": "497e3eb",
+    "selection_split": "actor-disjoint validation only",
+    "test_split_policy": "sealed until final selection",
+    "seed": 7,
+    "screening_epochs": 12,
+    "purpose": "isolate hard-negative ratio and test whether it stabilizes learned fusion"
+  },
+  "experiments": [
+    {
+      "id": "C0",
+      "run": "abl_c0_hardneg10_s7_12e_20260722",
+      "factor": "10 hard negatives per incorrect positive",
+      "incorrect_hard_negative_ratio": 10,
+      "learned_event_fusion": false
+    },
+    {
+      "id": "C1",
+      "run": "abl_c1_hardneg20_s7_12e_20260722",
+      "factor": "20 hard negatives per incorrect positive",
+      "incorrect_hard_negative_ratio": 20,
+      "learned_event_fusion": false
+    },
+    {
+      "id": "C2",
+      "run": "abl_c2_hardneg50_s7_12e_20260722",
+      "factor": "50 hard negatives per incorrect positive",
+      "incorrect_hard_negative_ratio": 50,
+      "learned_event_fusion": false
+    },
+    {
+      "id": "C3",
+      "run": "abl_c3_hardneg20_fusion_s7_12e_20260722",
+      "factor": "hard-negative objective plus learned evidence fusion",
+      "compare_to": "C1",
+      "incorrect_hard_negative_ratio": 20,
+      "learned_event_fusion": true
+    }
+  ]
+}

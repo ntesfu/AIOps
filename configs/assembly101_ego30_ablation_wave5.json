@@ -1,0 +1,49 @@
+{
+  "protocol": {
+    "source_commit": "ee98b6c",
+    "cache": "data/processed/assembly101_ego30_expanded/index.json",
+    "train_recordings": 133,
+    "train_actors": 16,
+    "validation_recordings": 15,
+    "test_recordings": 10,
+    "validation_and_test_unchanged": true,
+    "epochs": 32,
+    "calibration_constraint": "incorrect false alerts <= 2/min",
+    "purpose": "measure expanded-data contribution and procedural-candidate stability"
+  },
+  "experiments": [
+    {
+      "id": "E0",
+      "run": "abl_e0_expanded_base_s7_32e_20260722",
+      "factor": "expanded training actors only",
+      "seed": 7,
+      "event_centered_crops_per_event": 0,
+      "procedural_event_context": false
+    },
+    {
+      "id": "E1",
+      "run": "abl_e1_expanded_procedure_s7_32e_20260722",
+      "factor": "expanded data plus procedural/event-centered training, seed 7",
+      "compare_to": "E0",
+      "seed": 7,
+      "event_centered_crops_per_event": 2,
+      "procedural_event_context": true
+    },
+    {
+      "id": "E2",
+      "run": "abl_e2_expanded_procedure_s17_32e_20260722",
+      "factor": "expanded procedural candidate, seed 17",
+      "seed": 17,
+      "event_centered_crops_per_event": 2,
+      "procedural_event_context": true
+    },
+    {
+      "id": "E3",
+      "run": "abl_e3_expanded_procedure_s27_32e_20260722",
+      "factor": "expanded procedural candidate, seed 27",
+      "seed": 27,
+      "event_centered_crops_per_event": 2,
+      "procedural_event_context": true
+    }
+  ]
+}

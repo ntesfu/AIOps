@@ -1,0 +1,50 @@
+{
+  "experiment": "StateVerify gaze-free component observer on IndustReal",
+  "input_contract": {
+    "global_video": "Swin3D motion + ConvNeXt appearance",
+    "roi_order": [
+      "left_hand",
+      "right_hand",
+      "active_object",
+      "interaction_context"
+    ],
+    "sensors": [
+      "hands",
+      "headset_pose"
+    ],
+    "optional_future_sensor": "depth",
+    "gaze_excluded": true
+  },
+  "model": {
+    "hidden_dim": 256,
+    "temporal_blocks": 6,
+    "num_heads": 4,
+    "effect_lag": 4,
+    "dropout": 0.15,
+    "state_order": [
+      "not_completed",
+      "installed_correct",
+      "installed_incorrect"
+    ],
+    "effect_order": [
+      "no_change",
+      "complete_correct",
+      "complete_incorrect",
+      "remove"
+    ]
+  },
+  "training": {
+    "epochs": 20,
+    "batch_size": 4,
+    "sequence_length": 192,
+    "sequence_stride": 128,
+    "learning_rate": 0.0003,
+    "weight_decay": 0.001,
+    "rare_window_boost": 6.0,
+    "rare_windows_per_batch": 1,
+    "event_centered_crops_per_event": 2,
+    "effect_no_change_ratio": 4.0,
+    "effect_min_no_change": 64,
+    "selection_score": "state macro recall + effect macro recall + incorrect-effect recall"
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "protocol": {
+    "source_commit": "d5f865e",
+    "selection_split": "actor-disjoint validation only",
+    "test_split_policy": "sealed until the combined architecture is selected",
+    "seed": 7,
+    "screening_epochs": 12,
+    "common": {
+      "variant": "event_heavy",
+      "step_class_weight_power": 0.5,
+      "focal_gamma": 1.0,
+      "state_class_weight_power": 0.5,
+      "asl_negative_gamma": 0.0,
+      "asl_clip": 0.0,
+      "maximum_vram_gib": 23.0
+    },
+    "promotion_gates": {
+      "incorrect_event_recall_must_be_positive": true,
+      "maximum_false_alerts_per_minute": 2.0,
+      "maximum_relative_frame_accuracy_regression": 0.1,
+      "maximum_relative_f1_at_50_regression": 0.1
+    }
+  },
+  "experiments": [
+    {
+      "id": "A0",
+      "run": "abl_a0_evalbase_s7_12e_20260722",
+      "factor": "recording-level corrected evaluation baseline",
+      "event_centered_crops_per_event": 0,
+      "procedural_event_context": false,
+      "learned_event_fusion": false
+    },
+    {
+      "id": "A1",
+      "run": "abl_a1_center_s7_12e_20260722",
+      "factor": "event-centered mistake exposure",
+      "compare_to": "A0",
+      "event_centered_crops_per_event": 2,
+      "event_centered_crop_radius": 128,
+      "procedural_event_context": false,
+      "learned_event_fusion": false
+    },
+    {
+      "id": "A2",
+      "run": "abl_a2_procedure_s7_12e_20260722",
+      "factor": "causal graph and learned-next-action context",
+      "compare_to": "A1",
+      "event_centered_crops_per_event": 2,
+      "event_centered_crop_radius": 128,
+      "procedural_event_context": true,
+      "learned_event_fusion": false
+    },
+    {
+      "id": "A3",
+      "run": "abl_a3_fusion_s7_12e_20260722",
+      "factor": "learned event evidence fusion",
+      "compare_to": "A1",
+      "event_centered_crops_per_event": 2,
+      "event_centered_crop_radius": 128,
+      "procedural_event_context": false,
+      "learned_event_fusion": true
+    }
+  ]
+}

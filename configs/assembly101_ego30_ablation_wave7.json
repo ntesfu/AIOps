@@ -1,0 +1,40 @@
+{
+  "protocol": {
+    "source_commit": "61a1f8d plus the commit containing this protocol",
+    "cache": "data/processed/assembly101_ego30_expanded/index.json",
+    "train_recordings": 133,
+    "validation_recordings": 15,
+    "test_recordings": 10,
+    "validation_and_test_unchanged": true,
+    "epochs": 32,
+    "seed": 7,
+    "calibration_constraint": "incorrect false alerts <= 2/min",
+    "purpose": "complete the expanded-data 2x2 attribution of procedural context and event-centered crops",
+    "held_out_test_evaluation": false
+  },
+  "factorial": {
+    "E0": {"procedural_event_context": false, "event_centered_crops_per_event": 0},
+    "G0": {"procedural_event_context": true, "event_centered_crops_per_event": 0},
+    "G1": {"procedural_event_context": false, "event_centered_crops_per_event": 2},
+    "E1": {"procedural_event_context": true, "event_centered_crops_per_event": 2}
+  },
+  "experiments": [
+    {
+      "id": "G0",
+      "run": "abl_g0_expanded_procedure_nocrop_s7_32e_20260722",
+      "factor": "procedural event context only",
+      "seed": 7,
+      "event_centered_crops_per_event": 0,
+      "procedural_event_context": true
+    },
+    {
+      "id": "G1",
+      "run": "abl_g1_expanded_crops_only_s7_32e_20260722",
+      "factor": "two event-centered crops per incorrect event only",
+      "seed": 7,
+      "event_centered_crops_per_event": 2,
+      "event_centered_crop_radius": 128,
+      "procedural_event_context": false
+    }
+  ]
+}

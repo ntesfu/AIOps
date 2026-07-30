@@ -1,0 +1,55 @@
+{
+  "cache": "data/processed/assembly101_ego30_stategraph/index.json",
+  "sampling": {
+    "decoded_fps": 30,
+    "clip_frames": 32,
+    "stride_frames": 8,
+    "observations_per_second": 3.75
+  },
+  "constraints": {
+    "maximum_process_vram_gib": 23,
+    "pilot_epochs": 16,
+    "final_epochs": 80,
+    "selection_split": "actor-disjoint validation",
+    "test_policy": "held out until final selected configuration"
+  },
+  "variants": {
+    "base": {
+      "hidden_dim": 256,
+      "temporal_blocks": 8,
+      "attention_every": 2,
+      "heads": 8,
+      "sequence_length": 512,
+      "batch_size": 4,
+      "accumulation_steps": 2,
+      "learning_rate": 0.0002,
+      "dropout": 0.2
+    },
+    "large": {
+      "hidden_dim": 384,
+      "temporal_blocks": 12,
+      "attention_every": 2,
+      "heads": 8,
+      "sequence_length": 512,
+      "batch_size": 3,
+      "accumulation_steps": 3,
+      "learning_rate": 0.00015,
+      "dropout": 0.15
+    },
+    "event_heavy": {
+      "hidden_dim": 384,
+      "temporal_blocks": 10,
+      "attention_every": 2,
+      "heads": 8,
+      "sequence_length": 512,
+      "batch_size": 3,
+      "accumulation_steps": 3,
+      "learning_rate": 0.0002,
+      "dropout": 0.15,
+      "event_blocks": 6,
+      "incorrect_onset_weight": 1.2,
+      "state_weight": 1.0,
+      "normality_weight": 0.5
+    }
+  }
+}

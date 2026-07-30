@@ -1,0 +1,484 @@
+{"kind":"deck","id":"pr/nmzvuc","name":"Deck"}
+{"kind":"layout","layoutId":"/ppt/slideMasters/slideMaster1.xml","name":"","type":"master","placeholders":[{"name":"title","type":"title","textPreview":"Title Text"},{"name":"body","type":"body","textPreview":"Body Level One | Body Level Two | Body Level Three | Body Level Four | Body Level Five"},{"name":"slideNumber","type":"slideNumber","textPreview":"‹#›"}]}
+{"kind":"layout","layoutId":"/ppt/slideLayouts/slideLayout1.xml","name":"DEFAULT","placeholders":[{"name":"slideNumber","type":"slideNumber","textPreview":"‹#›"}]}
+{"kind":"layout","layoutId":"/ppt/slideLayouts/slideLayout2.xml","name":"Title Slide","type":"title"}
+{"kind":"slide","id":"sl/y90nupkv","slide":1,"title":"AIOps Build and Assembly Project","textShapes":2}
+{"kind":"textbox","id":"sh/432dwn6l","slide":1,"name":"Text 9","text":"AIOps Build and Assembly Project ","textPreview":"AIOps Build and Assembly Project","textChars":33,"textLines":1,"bbox":[132.79,180.04,968.15,67.53]}
+{"kind":"textbox","id":"sh/wzy1szid","slide":1,"name":"Text 12","text":"Lead:    Sana Hafez\n\nInterns:    Nahom Tesfu\n    Dhyey Vank\n    Ketan More\n\nMentors:  Njock II, Jean-Pierre\n     Modjeski, Andrew T","textPreview":"Lead:    Sana Hafez |  | Interns:    Nahom Tesfu |     Dhyey Vank |     Ketan More |  | Mentors:  Njock II, Jean-Pierre |      Modjeski, ...","textChars":131,"textLines":8,"bbox":[95.28,390.53,720,258.5]}
+{"kind":"notes","id":"nt/y90nupkv","slide":1,"text":"Title. The system does two things: temporal step segmentation and per-step compliance verification on egocentric assembly video. v2 is the current best offline configuration."}
+{"kind":"slide","id":"sl/hwbqtkby","slide":2,"title":"Build and Assembly Introduction","textShapes":2}
+{"kind":"shape","id":"sh/r65knqtk","slide":2,"name":"Rectangle 7","bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/ove9o7yd","slide":2,"name":"Freeform: Shape 9","bbox":[-39.49,-26.63,191.88,144.57]}
+{"kind":"shape","id":"sh/mtwrmxg7","slide":2,"name":"Rectangle 11","bbox":[93.61,44.32,67.76,67.76]}
+{"kind":"shape","id":"sh/wjy9sry9","slide":2,"name":"Rectangle 13","bbox":[1054.43,68.78,72.18,72.18]}
+{"kind":"shape","id":"sh/ahwrqhgj","slide":2,"name":"Freeform: Shape 15","bbox":[982.32,0,297.68,155.47]}
+{"kind":"shape","id":"sh/cnupgny5","slide":2,"name":"Isosceles Triangle 17","bbox":[837.41,642.05,156.9,77.95]}
+{"kind":"shape","id":"sh/t8byxkn2","slide":2,"name":"Isosceles Triangle 19","bbox":[798.33,677.5,85.55,42.5]}
+{"kind":"textbox","id":"sh/x4r21kru","slide":2,"name":"TextBox 5","text":"Build and Assembly Introduction","textPreview":"Build and Assembly Introduction","textChars":31,"textLines":1,"bbox":[333.88,54.31,594.29,48.47]}
+{"kind":"textbox","id":"sh/w3i1sfa9","slide":2,"name":"TextBox 6","text":"Scope: Research and develop an AI based system capable of detecting errors & deviations in various stages of assembly processes from first person view videos resulting in improved efficiency, higher throughput, and faster production times.\n\nValue: Benefits the company wide effort by significantly reducing the time required of quality checks, allowing for faster production cycle and shorter lead times\n\nBusiness Area: Aero\n\nViewpoint: Egocentric\n\n","textPreview":"Scope: Research and develop an AI based system capable of detecting errors & deviations in various stages of assembly processes from firs...","textChars":449,"textLines":9,"bbox":[127.71,180.2,966.86,462.07]}
+{"kind":"notes","id":"nt/hwbqtkby","slide":2,"text":""}
+{"kind":"slide","id":"sl/ofy9wn61","slide":3,"title":"Data collection Setup prototypes","textShapes":1}
+{"kind":"shape","id":"sh/pcjqtg36","slide":3,"name":"Rectangle 6","bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/n6ls3alk","slide":3,"name":"Freeform: Shape 8","bbox":[-39.49,-26.63,191.88,144.57]}
+{"kind":"shape","id":"sh/m1c3mlsn","slide":3,"name":"Rectangle 10","bbox":[93.61,44.32,67.76,67.76]}
+{"kind":"shape","id":"sh/83ulovat","slide":3,"name":"Rectangle 12","bbox":[1054.43,68.78,72.18,72.18]}
+{"kind":"shape","id":"sh/a5c3ql8z","slide":3,"name":"Freeform: Shape 14","bbox":[982.32,0,297.68,155.47]}
+{"kind":"shape","id":"sh/w7ulsvqp","slide":3,"name":"Isosceles Triangle 16","bbox":[837.41,642.05,156.9,77.95]}
+{"kind":"shape","id":"sh/i9w3u58v","slide":3,"name":"Isosceles Triangle 18","bbox":[798.33,677.5,85.55,42.5]}
+{"kind":"textbox","id":"sh/d0jax03i","slide":3,"name":"TextBox 2","text":"Data collection Setup prototypes","textPreview":"Data collection Setup prototypes","textChars":32,"textLines":1,"bbox":[214.12,32.66,704.08,48.47]}
+{"kind":"image","id":"im/p4bu58jm","slide":3,"name":"Picture 1","bbox":[150.55,67.56,978.89,584.89]}
+{"kind":"notes","id":"nt/ofy9wn61","slide":3,"text":""}
+{"kind":"slide","id":"sl/jyx0ra1s","slide":4,"title":"Slide 4","textShapes":0}
+{"kind":"shape","id":"sh/i94r6xgz","slide":4,"name":"Rectangle 11","bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/w72947yt","slide":4,"name":"Rectangle 13","bbox":[279.96,-279.91,720,1279.92]}
+{"kind":"shape","id":"sh/a5kr2xg3","slide":4,"name":"Rectangle 15","bbox":[-0.24,0,952.32,719.96]}
+{"kind":"shape","id":"sh/g36tgryd","slide":4,"name":"Rectangle 17","bbox":[383.15,-176.99,513.86,1280.16]}
+{"kind":"image","id":"im/q5onm50v","slide":4,"name":"Picture 1","bbox":[48,48,1184,624]}
+{"kind":"notes","id":"nt/jyx0ra1s","slide":4,"text":""}
+{"kind":"slide","id":"sl/i107q5of","slide":5,"title":"Slide 5","textShapes":0}
+{"kind":"shape","id":"sh/m5kbi1oj","slide":5,"name":"Rectangle 8","bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/x4vedgvm","slide":5,"name":"Rectangle 10","bbox":[50.08,50.4,1179.84,619.2]}
+{"kind":"image","id":"im/tcve903i","slide":5,"name":"Picture 3","bbox":[67.56,67.56,564,584.89]}
+{"kind":"image","id":"im/srmx0vmd","slide":5,"name":"Picture 2","bbox":[648.44,67.56,564,584.89]}
+{"kind":"notes","id":"nt/i107q5of","slide":5,"text":""}
+{"kind":"slide","id":"sl/x8f69ofe","slide":6,"title":"Final Selected Assembly Platform","textShapes":1}
+{"kind":"textbox","id":"sh/hcrqlcj6","slide":6,"name":"Text 0","text":"Final Selected Assembly Platform","textPreview":"Final Selected Assembly Platform","textChars":32,"textLines":1,"bbox":[276.8,43.39,612.72,43.62]}
+{"kind":"image","id":"im/ji9of2ps","slide":6,"name":"Picture 2","bbox":[690.5,406.6,399.9,235.94]}
+{"kind":"image","id":"im/4fm5krqh","slide":6,"name":"Picture 3","bbox":[640.1,110.52,501.14,259.71]}
+{"kind":"image","id":"im/pgv6tw72","slide":6,"name":"Picture 4","bbox":[80.85,146.26,478.29,466.75]}
+{"kind":"notes","id":"nt/x8f69ofe","slide":6,"text":"Frame the problem. Emphasize the small-data reality (36 recordings) up front — it explains the accuracy ceiling later."}
+{"kind":"slide","id":"sl/gnmp4jqx","slide":7,"title":"Why this platform","textShapes":2}
+{"kind":"shape","id":"sh/eh0ba1sr","slide":7,"name":"Rectangle 7","bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/baxkjqlk","slide":7,"name":"Freeform: Shape 9","bbox":[-39.49,-26.63,191.88,144.57]}
+{"kind":"shape","id":"sh/xcz2l03q","slide":7,"name":"Rectangle 11","bbox":[93.61,44.32,67.76,67.76]}
+{"kind":"shape","id":"sh/n6x0fqlo","slide":7,"name":"Rectangle 13","bbox":[1054.43,68.78,72.18,72.18]}
+{"kind":"shape","id":"sh/p8fih03e","slide":7,"name":"Freeform: Shape 15","bbox":[982.32,0,297.68,155.47]}
+{"kind":"shape","id":"sh/f2d0b6lc","slide":7,"name":"Isosceles Triangle 17","bbox":[837.41,642.05,156.9,77.95]}
+{"kind":"shape","id":"sh/id4ju1oz","slide":7,"name":"Isosceles Triangle 19","bbox":[798.33,677.5,85.55,42.5]}
+{"kind":"textbox","id":"sh/kzmdova1","slide":7,"name":"TextBox 5","text":"Why this platform\n","textPreview":"Why this platform |","textChars":18,"textLines":2,"bbox":[795.59,220.4,288,100.17]}
+{"kind":"textbox","id":"sh/l0vuh0rm","slide":7,"name":"TextBox 6","text":"Recognizable aerospace form\nVisible internal mechanics\n Powered motion\nModular interfaces\nRepeatable assembly\n","textPreview":"Recognizable aerospace form | Visible internal mechanics |  Powered motion | Modular interfaces | Repeatable assembly |","textChars":110,"textLines":6,"bbox":[799.71,308.2,422.1,184.18]}
+{"kind":"image","id":"im/gb25wj6t","slide":7,"name":"Picture 2","bbox":[35.53,226.79,648.18,363.94]}
+{"kind":"notes","id":"nt/gnmp4jqx","slide":7,"text":""}
+{"kind":"slide","id":"sl/fu1gfa1s","slide":8,"title":"The model creates strong visual evidence for a VLM","textShapes":11}
+{"kind":"textbox","id":"sh/1k7edwv2","slide":8,"name":"Rectangle 14","text":"The model creates strong visual evidence for a VLM","textPreview":"The model creates strong visual evidence for a VLM","textChars":50,"textLines":1,"bbox":[48,38,1160,58]}
+{"kind":"textbox","id":"sh/18byd4zy","slide":8,"name":"Rectangle 1","text":"The chosen actions combine mechanical alignment, tool use, connectivity and functional motion.","textPreview":"The chosen actions combine mechanical alignment, tool use, connectivity and functional motion.","textChars":94,"textLines":1,"bbox":[48,104,1070,32]}
+{"kind":"shape","id":"sh/g72x4zyd","slide":8,"name":"reason-1","bbox":[48,164,352,468]}
+{"kind":"shape","id":"sh/ri9g7uhw","slide":8,"name":"reason-2","bbox":[449,164,352,468]}
+{"kind":"shape","id":"sh/6h0fypgb","slide":8,"name":"reason-3","bbox":[850,164,352,468]}
+{"kind":"textbox","id":"sh/tkby9kzm","slide":8,"name":"Rectangle 5","text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[72,188,45,30]}
+{"kind":"textbox","id":"sh/sjix0zy1","slide":8,"name":"Rectangle 6","text":"Observable mechanics","textPreview":"Observable mechanics","textChars":20,"textLines":1,"bbox":[72,410,300,54]}
+{"kind":"textbox","id":"sh/je9g3ahk","slide":8,"name":"Rectangle 7","text":"Propeller, gears, compressor, turbine and casing create large, distinct visual state changes.","textPreview":"Propeller, gears, compressor, turbine and casing create large, distinct visual state changes.","textChars":93,"textLines":1,"bbox":[72,474,300,118]}
+{"kind":"textbox","id":"sh/id0fu50z","slide":8,"name":"Rectangle 8","text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[473,188,45,30]}
+{"kind":"textbox","id":"sh/o7ydoret","slide":8,"name":"Rectangle 9","text":"Egocentric compatibility","textPreview":"Egocentric compatibility","textChars":24,"textLines":1,"bbox":[473,410,300,54]}
+{"kind":"textbox","id":"sh/98rehwve","slide":8,"name":"Rectangle 10","text":"Most actions happen directly in front of the operator and remain visible to a HoloLens camera.","textPreview":"Most actions happen directly in front of the operator and remain visible to a HoloLens camera.","textChars":94,"textLines":1,"bbox":[473,474,300,118]}
+{"kind":"textbox","id":"sh/m5gvmhwn","slide":8,"name":"Rectangle 11","text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[874,188,45,30]}
+{"kind":"textbox","id":"sh/n6pwfmd8","slide":8,"name":"Rectangle 12","text":"Rich error vocabulary","textPreview":"Rich error vocabulary","textChars":21,"textLines":1,"bbox":[874,410,300,54]}
+{"kind":"textbox","id":"sh/0jydkreh","slide":8,"name":"Rectangle 13","text":"Wrong orientation, partial seating, missing fasteners, bad routing and skipped order are easy to stage.","textPreview":"Wrong orientation, partial seating, missing fasteners, bad routing and skipped order are easy to stage.","textChars":103,"textLines":1,"bbox":[874,474,300,118]}
+{"kind":"shape","id":"sh/budwj61c","slide":8,"name":"Straight Arrow Connector 34","bbox":[48,672,1184,0.1]}
+{"kind":"image","id":"im/r6xobep4","slide":8,"name":"Picture 37","bbox":[72,226,304,171]}
+{"kind":"image","id":"im/qloni9oj","slide":8,"name":"Picture 38","bbox":[473,226,304,171]}
+{"kind":"image","id":"im/d8f6d47a","slide":8,"name":"Picture 39","bbox":[874,226,304,171]}
+{"kind":"notes","id":"nt/fu1gfa1s","slide":8,"text":""}
+{"kind":"slide","id":"sl/udsvah03","slide":9,"title":"Twenty observable actions fit a 4-5 minute run","textShapes":11}
+{"kind":"textbox","id":"sh/87a18zqt","slide":9,"name":"Rectangle 20","text":"Twenty observable actions fit a 4-5 minute run","textPreview":"Twenty observable actions fit a 4-5 minute run","textChars":46,"textLines":1,"bbox":[48,38,1160,58]}
+{"kind":"textbox","id":"sh/1cfmhgne","slide":9,"name":"Rectangle 1","text":"Prepared subassemblies remove repetitive micro-fastening while preserving the interfaces that matter to the model.","textPreview":"Prepared subassemblies remove repetitive micro-fastening while preserving the interfaces that matter to the model.","textChars":114,"textLines":1,"bbox":[48,104,1140,34]}
+{"kind":"shape","id":"sh/0b65obm9","slide":9,"name":"phase-1","bbox":[48,172,278,425]}
+{"kind":"shape","id":"sh/nex4jq5k","slide":9,"name":"Rectangle 3","bbox":[48,172,278,10]}
+{"kind":"textbox","id":"sh/mdonql4z","slide":9,"name":"Rectangle 4","text":"PROPULSION INPUT","textPreview":"PROPULSION INPUT","textChars":16,"textLines":1,"bbox":[68,205,238,32]}
+{"kind":"textbox","id":"sh/9gzml0nq","slide":9,"name":"Rectangle 5","text":"1  Stage parts\n\n2  Assemble blades\n\n3  Close propeller hub\n\n4  Assemble planetary gears\n\n5  Close gearbox","textPreview":"1  Stage parts |  | 2  Assemble blades |  | 3  Close propeller hub |  | 4  Assemble planetary gears |  | 5  Close gearbox","textChars":105,"textLines":9,"bbox":[68,262,238,278]}
+{"kind":"shape","id":"sh/ofq5svm5","slide":9,"name":"phase-2","bbox":[350,172,278,425]}
+{"kind":"shape","id":"sh/bih4na5w","slide":9,"name":"Rectangle 7","bbox":[350,172,278,10]}
+{"kind":"textbox","id":"sh/ah8nu54b","slide":9,"name":"Rectangle 8","text":"DRIVE + CONTROL","textPreview":"DRIVE + CONTROL","textChars":15,"textLines":1,"bbox":[370,205,238,32]}
+{"kind":"textbox","id":"sh/oza1gfyh","slide":9,"name":"Rectangle 9","text":"6  Mount motor and frame\n\n7  Install drive shaft\n\n8  Mount controller board\n\n9  Terminate wiring\n\n10 Prepare compressor rotors","textPreview":"6  Mount motor and frame |  | 7  Install drive shaft |  | 8  Mount controller board |  | 9  Terminate wiring |  | 10 Prepare compressor r...","textChars":126,"textLines":9,"bbox":[370,262,238,278]}
+{"kind":"shape","id":"sh/p0ji9kf2","slide":9,"name":"phase-3","bbox":[652,172,278,425]}
+{"kind":"shape","id":"sh/2xsjepgb","slide":9,"name":"Rectangle 11","bbox":[652,172,278,10]}
+{"kind":"textbox","id":"sh/3y107axw","slide":9,"name":"Rectangle 12","text":"ENGINE CORE","textPreview":"ENGINE CORE","textChars":11,"textLines":1,"bbox":[672,205,238,32]}
+{"kind":"textbox","id":"sh/cnu1kzyd","slide":9,"name":"Rectangle 13","text":"11 Stack compressor pack\n\n12 Install compressor\n\n13 Install aft support\n\n14 Fit aft housing\n\n15 Secure turbine module","textPreview":"11 Stack compressor pack |  | 12 Install compressor |  | 13 Install aft support |  | 14 Fit aft housing |  | 15 Secure turbine module","textChars":117,"textLines":9,"bbox":[672,262,238,278]}
+{"kind":"shape","id":"sh/do3id4fy","slide":9,"name":"phase-4","bbox":[954,172,278,425]}
+{"kind":"shape","id":"sh/qlcjipgn","slide":9,"name":"Rectangle 15","bbox":[954,172,278,10]}
+{"kind":"textbox","id":"sh/bml0buxs","slide":9,"name":"Rectangle 16","text":"INTEGRATION + TEST","textPreview":"INTEGRATION + TEST","textChars":18,"textLines":1,"bbox":[974,205,238,32]}
+{"kind":"textbox","id":"sh/0ru1ozyp","slide":9,"name":"Rectangle 17","text":"16 Install turbine rotor\n\n17 Connect main harness\n\n18 Complete internal frame\n\n19 Fit nacelle panels\n\n20 Perform powered test","textPreview":"16 Install turbine rotor |  | 17 Connect main harness |  | 18 Complete internal frame |  | 19 Fit nacelle panels |  | 20 Perform powered ...","textChars":125,"textLines":9,"bbox":[974,262,238,278]}
+{"kind":"shape","id":"sh/lsn2h4fa","slide":9,"name":"timing-band","bbox":[48,618,1184,36]}
+{"kind":"textbox","id":"sh/98ji147e","slide":9,"name":"Rectangle 19","text":"Target: <=15 seconds per action     |     One visible completion cue per step     |     Correct, error and recovery runs","textPreview":"Target: <=15 seconds per action     |     One visible completion cue per step     |     Correct, error and recovery runs","textChars":120,"textLines":1,"bbox":[72,627,1136,22]}
+{"kind":"shape","id":"sh/wvm10f2t","slide":9,"name":"Straight Arrow Connector 43","bbox":[48,672,1184,0.1]}
+{"kind":"notes","id":"nt/udsvah03","slide":9,"text":""}
+{"kind":"slide","id":"sl/m90b6t0r","slide":10,"title":"Each label is grounded by a visible before-and-after state","textShapes":14}
+{"kind":"textbox","id":"sh/p0ru503u","slide":10,"name":"Rectangle 18","text":"Each label is grounded by a visible before-and-after state","textPreview":"Each label is grounded by a visible before-and-after state","textChars":58,"textLines":1,"bbox":[48,38,1170,58]}
+{"kind":"textbox","id":"sh/xc3mho32","slide":10,"name":"Rectangle 1","text":"Store the action interval, contact frame and completion frame; use the completion cue for online feedback.","textPreview":"Store the action interval, contact frame and completion frame; use the completion cue for online feedback.","textChars":106,"textLines":1,"bbox":[48,104,1120,34]}
+{"kind":"shape","id":"sh/cbu58j2h","slide":10,"name":"evidence-1","bbox":[48,160,578,220]}
+{"kind":"textbox","id":"sh/zelojyl8","slide":10,"name":"Rectangle 3","text":"STEP 04  Planetary gears","textPreview":"STEP 04  Planetary gears","textChars":24,"textLines":1,"bbox":[66,176,400,25]}
+{"kind":"textbox","id":"sh/ydcnatkn","slide":10,"name":"Rectangle 4","text":"BEGIN","textPreview":"BEGIN","textChars":5,"textLines":1,"bbox":[66,212,82,20]}
+{"kind":"textbox","id":"sh/l036l83y","slide":10,"name":"Rectangle 5","text":"END","textPreview":"END","textChars":3,"textLines":1,"bbox":[345,212,70,20]}
+{"kind":"shape","id":"sh/kzu5c32t","slide":10,"name":"evidence-2","bbox":[654,160,578,220]}
+{"kind":"textbox","id":"sh/725onyl4","slide":10,"name":"Rectangle 7","text":"STEP 09  Controller wiring","textPreview":"STEP 09  Controller wiring","textChars":26,"textLines":1,"bbox":[672,176,400,25]}
+{"kind":"textbox","id":"sh/m1cnetkj","slide":10,"name":"Rectangle 8","text":"BEGIN","textPreview":"BEGIN","textChars":5,"textLines":1,"bbox":[672,212,82,20]}
+{"kind":"textbox","id":"sh/s7yt4b21","slide":10,"name":"Rectangle 9","text":"END","textPreview":"END","textChars":3,"textLines":1,"bbox":[951,212,70,20]}
+{"kind":"shape","id":"sh/d87uxg3m","slide":10,"name":"evidence-3","bbox":[48,416,578,220]}
+{"kind":"textbox","id":"sh/q5gb21kb","slide":10,"name":"Rectangle 11","text":"STEP 11  Compressor pack","textPreview":"STEP 11  Compressor pack","textChars":24,"textLines":1,"bbox":[66,432,400,25]}
+{"kind":"textbox","id":"sh/r6pcv6lw","slide":10,"name":"Rectangle 12","text":"BEGIN","textPreview":"BEGIN","textChars":5,"textLines":1,"bbox":[66,468,82,20]}
+{"kind":"textbox","id":"sh/0bit8b2d","slide":10,"name":"Rectangle 13","text":"END","textPreview":"END","textChars":3,"textLines":1,"bbox":[345,468,70,20]}
+{"kind":"shape","id":"sh/1cru1g3y","slide":10,"name":"evidence-4","bbox":[654,416,578,220]}
+{"kind":"textbox","id":"sh/e9gb61k7","slide":10,"name":"Rectangle 15","text":"STEP 19  Nacelle panels","textPreview":"STEP 19  Nacelle panels","textChars":23,"textLines":1,"bbox":[672,432,400,25]}
+{"kind":"textbox","id":"sh/fapcz6ls","slide":10,"name":"Rectangle 16","text":"BEGIN","textPreview":"BEGIN","textChars":5,"textLines":1,"bbox":[672,468,82,20]}
+{"kind":"textbox","id":"sh/ozitcv29","slide":10,"name":"Rectangle 17","text":"END","textPreview":"END","textChars":3,"textLines":1,"bbox":[951,468,70,20]}
+{"kind":"shape","id":"sh/fid8ji5o","slide":10,"name":"Straight Arrow Connector 47","bbox":[48,672,1184,0.1]}
+{"kind":"image","id":"im/vqtwja58","slide":10,"name":"Picture 50","bbox":[66,238,262,138]}
+{"kind":"image","id":"im/upkfa54n","slide":10,"name":"Picture 51","bbox":[345,238,262,138]}
+{"kind":"image","id":"im/1ofyx4ni","slide":10,"name":"Picture 52","bbox":[672,238,262,138]}
+{"kind":"image","id":"im/0n6xozmx","slide":10,"name":"Picture 53","bbox":[951,238,262,138]}
+{"kind":"image","id":"im/cja1g365","slide":10,"name":"Picture 54","bbox":[66,494,262,138]}
+{"kind":"image","id":"im/xkjip87q","slide":10,"name":"Picture 55","bbox":[345,494,262,138]}
+{"kind":"image","id":"im/ah8jetoz","slide":10,"name":"Picture 56","bbox":[672,494,262,138]}
+{"kind":"image","id":"im/bi10nypk","slide":10,"name":"Picture 57","bbox":[951,494,262,138]}
+{"kind":"notes","id":"nt/m90b6t0r","slide":10,"text":""}
+{"kind":"slide","id":"sl/jetc3ut0","slide":11,"title":"Video","textShapes":8}
+{"kind":"shape","id":"sh/tsnip0ny","slide":11,"name":"Shape 0","bbox":[931.2,163.2,278.4,86.4]}
+{"kind":"textbox","id":"sh/87ehgv6d","slide":11,"name":"Text 1","text":"Video","textPreview":"Video","textChars":5,"textLines":1,"bbox":[936,191.81,268.8,29.19]}
+{"kind":"shape","id":"sh/7650nq5s","slide":11,"name":"Shape 2","bbox":[1070.4,249.6,0,24]}
+{"kind":"shape","id":"sh/65wzelo7","slide":11,"name":"Shape 3","bbox":[931.2,273.6,278.4,86.4]}
+{"kind":"textbox","id":"sh/l43ilgn2","slide":11,"name":"Text 4","text":"Segment","textPreview":"Segment","textChars":7,"textLines":1,"bbox":[936,302.21,268.8,29.19]}
+{"kind":"shape","id":"sh/k3uhcb6h","slide":11,"name":"Shape 5","bbox":[1070.4,360,0,24]}
+{"kind":"shape","id":"sh/j2lgjq5w","slide":11,"name":"Shape 6","bbox":[931.2,384,278.4,86.4]}
+{"kind":"textbox","id":"sh/y1czalob","slide":11,"name":"Text 7","text":"Verify","textPreview":"Verify","textChars":6,"textLines":1,"bbox":[936,412.61,268.8,29.19]}
+{"kind":"textbox","id":"sh/p07ixkn6","slide":11,"name":"Text 8","text":"IndustReal","textPreview":"IndustReal","textChars":10,"textLines":1,"bbox":[67.2,160.27,825.6,34.67]}
+{"kind":"textbox","id":"sh/4zyhofml","slide":11,"name":"Text 9","text":"Procedure Step Recognition","textPreview":"Procedure Step Recognition","textChars":26,"textLines":1,"bbox":[67.2,234.13,825.6,69.33]}
+{"kind":"textbox","id":"sh/m58fih43","slide":11,"name":"Text 10","text":"Egocentric assembly video → step segmentation + compliance verification","textPreview":"Egocentric assembly video → step segmentation + compliance verification","textChars":71,"textLines":1,"bbox":[69.12,350.21,816,19.59]}
+{"kind":"textbox","id":"sh/n61wbmlo","slide":11,"name":"Text 11","text":"Architecture v2  · VideoMAEv2-giant, SSv2-pretrained (frozen) → ASFormer / DiffAct++ → Viterbi","textPreview":"Architecture v2  · VideoMAEv2-giant, SSv2-pretrained (frozen) → ASFormer / DiffAct++ → Viterbi","textChars":94,"textLines":1,"bbox":[69.12,418.97,825.6,16.47]}
+{"kind":"textbox","id":"sh/o7axk7m9","slide":11,"name":"Text 12","text":"Sana Hafez (lead) . Nahom . Dhyey Vank . Ketan More","textPreview":"Sana Hafez (lead) . Nahom . Dhyey Vank . Ketan More","textChars":51,"textLines":1,"bbox":[69.12,632.57,768,16.47]}
+{"kind":"notes","id":"nt/jetc3ut0","slide":11,"text":"Title. The system does two things: temporal step segmentation and per-step compliance verification on egocentric assembly video. v2 is the current best offline configuration."}
+{"kind":"slide","id":"sl/8f2psfyx","slide":12,"title":"The task","textShapes":17}
+{"kind":"textbox","id":"sh/ojutgjah","slide":12,"name":"Text 0","text":"The task","textPreview":"The task","textChars":8,"textLines":1,"bbox":[52.8,45.39,1171.2,42.67]}
+{"kind":"textbox","id":"sh/9k3apob2","slide":12,"name":"Text 1","text":"Turn a long egocentric assembly video into an ordered, verified step sequence","textPreview":"Turn a long egocentric assembly video into an ordered, verified step sequence","textChars":77,"textLines":1,"bbox":[54.72,105.97,1171.2,17.51]}
+{"kind":"shape","id":"sh/6dgbqdsv","slide":12,"name":"Shape 2","bbox":[52.8,153.6,379.2,316.8]}
+{"kind":"shape","id":"sh/7epczitg","slide":12,"name":"Shape 3","bbox":[79.68,182.4,86.4,48]}
+{"kind":"textbox","id":"sh/r6l8vaxw","slide":12,"name":"Text 4","text":"1","textPreview":"1","textChars":1,"textLines":1,"bbox":[84.48,187.6,76.8,37.6]}
+{"kind":"textbox","id":"sh/q5c7m5wb","slide":12,"name":"Text 5","text":"Input","textPreview":"Input","textChars":5,"textLines":1,"bbox":[79.68,250.67,326.4,26.67]}
+{"kind":"textbox","id":"sh/d8nqxkf2","slide":12,"name":"Text 6","text":"One egocentric video of a person performing an assembly, several steps in sequence.","textPreview":"One egocentric video of a person performing an assembly, several steps in sequence.","textChars":83,"textLines":1,"bbox":[79.68,292.8,326.4,36.8]}
+{"kind":"textbox","id":"sh/s7epofeh","slide":12,"name":"Text 7","text":"mp4 · 30 fps · 1280×720","textPreview":"mp4 · 30 fps · 1280×720","textChars":23,"textLines":1,"bbox":[79.68,429.75,326.4,14.1]}
+{"kind":"shape","id":"sh/j2lorqxk","slide":12,"name":"Shape 8","bbox":[465.6,153.6,379.2,316.8]}
+{"kind":"shape","id":"sh/i1c7i5wf","slide":12,"name":"Shape 9","bbox":[492.48,182.4,86.4,48]}
+{"kind":"textbox","id":"sh/5436t0fq","slide":12,"name":"Text 10","text":"2","textPreview":"2","textChars":1,"textLines":1,"bbox":[497.28,187.6,76.8,37.6]}
+{"kind":"textbox","id":"sh/43upkve5","slide":12,"name":"Text 11","text":"What we output","textPreview":"What we output","textChars":14,"textLines":1,"bbox":[492.48,250.67,326.4,26.67]}
+{"kind":"textbox","id":"sh/nyp83ud4","slide":12,"name":"Text 12","text":"Per-frame step labels collapsed into an ordered timeline, plus a correct / incorrect / missing judgment per step.","textPreview":"Per-frame step labels collapsed into an ordered timeline, plus a correct / incorrect / missing judgment per step.","textChars":113,"textLines":1,"bbox":[492.48,292.8,326.4,57.13]}
+{"kind":"textbox","id":"sh/2xw7upwj","slide":12,"name":"Text 13","text":"step timeline + outcome + verdict","textPreview":"step timeline + outcome + verdict","textChars":33,"textLines":1,"bbox":[492.48,429.75,326.4,14.1]}
+{"kind":"shape","id":"sh/kjq5oru1","slide":12,"name":"Shape 14","bbox":[878.4,153.6,379.2,316.8]}
+{"kind":"shape","id":"sh/lkzmhwvm","slide":12,"name":"Shape 15","bbox":[905.28,182.4,86.4,48]}
+{"kind":"textbox","id":"sh/yh8nmhcv","slide":12,"name":"Text 16","text":"3","textPreview":"3","textChars":1,"textLines":1,"bbox":[910.08,187.6,76.8,37.6]}
+{"kind":"textbox","id":"sh/zih4fmdg","slide":12,"name":"Text 17","text":"Why it is hard","textPreview":"Why it is hard","textChars":14,"textLines":1,"bbox":[905.28,250.67,326.4,26.67]}
+{"kind":"textbox","id":"sh/87q5srux","slide":12,"name":"Text 18","text":"Fine-grained steps, egocentric motion and hand occlusion, and only a small annotated training set.","textPreview":"Fine-grained steps, egocentric motion and hand occlusion, and only a small annotated training set.","textChars":98,"textLines":1,"bbox":[905.28,292.8,326.4,36.8]}
+{"kind":"textbox","id":"sh/98jmlwvi","slide":12,"name":"Text 19","text":"36 train recordings","textPreview":"36 train recordings","textChars":19,"textLines":1,"bbox":[905.28,429.75,326.4,14.1]}
+{"kind":"textbox","id":"sh/ml8nq1c7","slide":12,"name":"Text 20","text":"The compliance angle is what makes this more than plain action segmentation: the system must catch a wrong or skipped step, not just name the current one.","textPreview":"The compliance angle is what makes this more than plain action segmentation: the system must catch a wrong or skipped step, not just name...","textChars":154,"textLines":1,"bbox":[52.8,538.97,1171.2,16.47]}
+{"kind":"textbox","id":"sh/7mh4j6dc","slide":12,"name":"Text 21","text":"IndustReal — Procedure Step Recognition","textPreview":"IndustReal — Procedure Step Recognition","textChars":39,"textLines":1,"bbox":[52.8,683.27,758.4,21.62]}
+{"kind":"textbox","id":"sh/wba5wbu9","slide":12,"name":"Text 22","text":"2","textPreview":"2","textChars":1,"textLines":1,"bbox":[1195.2,683.27,28.8,21.62]}
+{"kind":"notes","id":"nt/8f2psfyx","slide":12,"text":"Frame the problem. Emphasize the small-data reality (36 recordings) up front — it explains the accuracy ceiling later."}
+{"kind":"slide","id":"sl/hgzapcr6","slide":13,"title":"The current architecture is solving the wrong abstraction","textShapes":16}
+{"kind":"textbox","id":"sh/za90r298","slide":13,"name":"Text 0","text":"The current architecture is solving the wrong abstraction","textPreview":"The current architecture is solving the wrong abstraction","textChars":57,"textLines":1,"bbox":[52.8,45.39,1171.2,43.2]}
+{"kind":"textbox","id":"sh/0b2hk7qt","slide":13,"name":"Text 1","text":"The largest gain will come from physical state and procedure belief—not a second giant encoder","textPreview":"The largest gain will come from physical state and procedure belief—not a second giant encoder","textChars":94,"textLines":1,"bbox":[54.72,105.97,1171.2,20.8]}
+{"kind":"shape","id":"sh/lcbitsry","slide":13,"name":"Shape 2","bbox":[52.8,153.6,561.6,417.6]}
+{"kind":"textbox","id":"sh/mdkzmx8j","slide":13,"name":"Text 3","text":"Root cause","textPreview":"Root cause","textChars":10,"textLines":1,"bbox":[81.6,179.33,508.8,25.6]}
+{"kind":"textbox","id":"sh/net0v294","slide":13,"name":"Text 4","text":"A frozen 1B motion encoder + clip classifier + Viterbi can segment familiar motion, but it cannot represent what part, tool or connection changed—or which branches are valid next.","textPreview":"A frozen 1B motion encoder + clip classifier + Viterbi can segment familiar motion, but it cannot represent what part, tool or connection...","textChars":179,"textLines":1,"bbox":[81.6,220.8,508.8,132.61]}
+{"kind":"textbox","id":"sh/8f21o7qp","slide":13,"name":"Text 5","text":"Why this matters: the current v2 result is strong offline, yet the causal model drops sharply and incorrect-install recall is approximately zero.","textPreview":"Why this matters: the current v2 result is strong offline, yet the causal model drops sharply and incorrect-install recall is approximate...","textChars":145,"textLines":1,"bbox":[81.6,446.4,508.8,50.17]}
+{"kind":"textbox","id":"sh/9gbixcra","slide":13,"name":"Text 6","text":"Four architectural gaps","textPreview":"Four architectural gaps","textChars":23,"textLines":1,"bbox":[643.2,161.47,580.8,24]}
+{"kind":"shape","id":"sh/a1kjqh8v","slide":13,"name":"Shape 7","bbox":[643.2,201.6,580.8,88.32]}
+{"kind":"shape","id":"sh/v2t0zm9g","slide":13,"name":"Shape 8","bbox":[664.32,224.64,42.24,42.24]}
+{"kind":"textbox","id":"sh/76dgnm58","slide":13,"name":"Text 9","text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[669.12,229.63,32.64,57.6]}
+{"kind":"textbox","id":"sh/654zeho3","slide":13,"name":"Text 10","text":"Motion is not state\nThe same hand motion can seat the correct part, the wrong part or nothing at all.","textPreview":"Motion is not state | The same hand motion can seat the correct part, the wrong part or nothing at all.","textChars":101,"textLines":2,"bbox":[724.8,228.05,480,56]}
+{"kind":"shape","id":"sh/t8vipwne","slide":13,"name":"Shape 11","bbox":[643.2,303.36,580.8,88.32]}
+{"kind":"shape","id":"sh/s7mhgr6t","slide":13,"name":"Shape 12","bbox":[664.32,326.4,42.24,42.24]}
+{"kind":"textbox","id":"sh/jidgj25c","slide":13,"name":"Text 13","text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[669.12,331.39,32.64,57.6]}
+{"kind":"textbox","id":"sh/ihkzahor","slide":13,"name":"Text 14","text":"Linear order is too rigid\nAerospace procedures contain optional, parallel and recovery branches.","textPreview":"Linear order is too rigid | Aerospace procedures contain optional, parallel and recovery branches.","textChars":96,"textLines":2,"bbox":[724.8,329.81,480,38.4]}
+{"kind":"shape","id":"sh/54vylcni","slide":13,"name":"Shape 15","bbox":[643.2,405.12,580.8,88.32]}
+{"kind":"shape","id":"sh/k3mhc76x","slide":13,"name":"Shape 16","bbox":[664.32,428.16,42.24,42.24]}
+{"kind":"textbox","id":"sh/vetgf25g","slide":13,"name":"Text 17","text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[669.12,433.15,32.64,57.6]}
+{"kind":"textbox","id":"sh/adkz6xov","slide":13,"name":"Text 18","text":"Closed-set outcomes miss unseen faults\nA safe system must preserve an UNKNOWN / escalate decision.","textPreview":"Closed-set outcomes miss unseen faults | A safe system must preserve an UNKNOWN / escalate decision.","textChars":98,"textLines":2,"bbox":[724.8,431.57,480,38.4]}
+{"kind":"shape","id":"sh/07y50zih","slide":13,"name":"Shape 19","bbox":[643.2,506.88,580.8,88.32]}
+{"kind":"shape","id":"sh/187mt4z2","slide":13,"name":"Shape 20","bbox":[664.32,529.92,42.24,42.24]}
+{"kind":"textbox","id":"sh/e5wny90b","slide":13,"name":"Text 21","text":"04","textPreview":"04","textChars":2,"textLines":1,"bbox":[669.12,534.91,32.64,57.6]}
+{"kind":"textbox","id":"sh/z6p4ruhw","slide":13,"name":"Text 22","text":"No future or recovery model\nDetection alone cannot return the assembly to a verified state.","textPreview":"No future or recovery model | Detection alone cannot return the assembly to a verified state.","textChars":91,"textLines":2,"bbox":[724.8,533.33,480,38.4]}
+{"kind":"textbox","id":"sh/oby54jid","slide":13,"name":"Text 23","text":"IndustReal — Procedure Intelligence Architecture","textPreview":"IndustReal — Procedure Intelligence Architecture","textChars":48,"textLines":1,"bbox":[52.8,683.27,758.4,24]}
+{"kind":"textbox","id":"sh/9c76xozy","slide":13,"name":"Text 24","text":"13","textPreview":"13","textChars":2,"textLines":1,"bbox":[1195.2,683.27,28.8,24]}
+{"kind":"notes","id":"nt/hgzapcr6","slide":13,"text":"This is the honest 'why accuracy is limited' slide. The single most important line is incorrect-install recall ~0% — it is an assembly-state problem, not a segmentation problem, and it motivates both the data-collection effort and the next-step encoder."}
+{"kind":"slide","id":"sl/6lsnupw7","slide":14,"title":"Slide 14","textShapes":0}
+{"kind":"shape","id":"sh/a1wze9g7","slide":14,"name":"Rectangle 11","bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/kre1k3y9","slide":14,"name":"Rectangle 13","bbox":[279.96,-279.91,720,1279.92]}
+{"kind":"shape","id":"sh/y5wjitgj","slide":14,"name":"Rectangle 15","bbox":[-0.24,0,952.32,719.96]}
+{"kind":"shape","id":"sh/0buh8zy5","slide":14,"name":"Rectangle 17","bbox":[383.15,-176.99,513.86,1280.16]}
+{"kind":"image","id":"im/alcvepkf","slide":14,"name":"Picture 1","alt":"candidate-a-stategraph.svg","bbox":[48,48,1184,624]}
+{"kind":"image","id":"im/mhgf6t4n","slide":14,"name":"","alt":"candidate-a-stategraph.svg","bbox":[48,48,1184,624]}
+{"kind":"notes","id":"nt/6lsnupw7","slide":14,"text":""}
+{"kind":"slide","id":"sl/vaxsvy10","slide":15,"title":"Candidate A fits one 24 GB GPU","textShapes":8}
+{"kind":"textbox","id":"sh/ru50j6xg","slide":15,"name":"Text 0","text":"Candidate A fits one 24 GB GPU","textPreview":"Candidate A fits one 24 GB GPU","textChars":30,"textLines":1,"bbox":[52.8,45.39,1171.2,43.2]}
+{"kind":"textbox","id":"sh/qtcjq1gv","slide":15,"name":"Text 1","text":"Freeze/cache perception first; train compact state, temporal and graph modules","textPreview":"Freeze/cache perception first; train compact state, temporal and graph modules","textChars":78,"textLines":1,"bbox":[54.72,105.97,1171.2,20.8]}
+{"kind":"shape","id":"sh/4ru1oryp","slide":15,"name":"Shape 2","bbox":[582.06,144,637.14,113.28]}
+{"kind":"shape","id":"sh/3ql0fmx4","slide":15,"name":"Shape 3","bbox":[603.18,167.04,32.64,67.2]}
+{"kind":"textbox","id":"sh/ipcjm1gj","slide":15,"name":"Text 4","text":"Adaptable video backbone\nVideoMAEv2-B/L or V-JEPA 2.1; freeze, then tune late blocks with adapters/LoRA. 16 frames at 224p, ~0.5 s stride.","textPreview":"Adaptable video backbone | VideoMAEv2-B/L or V-JEPA 2.1; freeze, then tune late blocks with adapters/LoRA. 16 frames at 224p, ~0.5 s stride.","textChars":138,"textLines":2,"bbox":[651.18,160.39,545.94,80.51]}
+{"kind":"shape","id":"sh/ho3idwfy","slide":15,"name":"Shape 5","bbox":[582.06,272.64,637.14,113.28]}
+{"kind":"shape","id":"sh/wnu1kryt","slide":15,"name":"Shape 6","bbox":[603.18,295.68,32.64,67.2]}
+{"kind":"textbox","id":"sh/mt8fuxwb","slide":15,"name":"Text 7","text":"State branch\nDetect hands, tools, parts and targets; form a dynamic relation graph; bootstrap with CAD synthetic views and real ROIs.","textPreview":"State branch | Detect hands, tools, parts and targets; form a dynamic relation graph; bootstrap with CAD synthetic views and real ROIs.","textChars":133,"textLines":2,"bbox":[651.18,289.03,545.94,80.51]}
+{"kind":"shape","id":"sh/7uhgnidw","slide":15,"name":"Shape 8","bbox":[582.06,401.28,637.14,113.28]}
+{"kind":"shape","id":"sh/8vaxwneh","slide":15,"name":"Shape 9","bbox":[603.18,424.32,32.64,67.2]}
+{"kind":"textbox","id":"sh/9wjypsv2","slide":15,"name":"Text 10","text":"Streaming core\nCausal FACT-lite + branching task-graph belief + state-delta tokens. Cached features keep the trainable path compact.","textPreview":"Streaming core | Causal FACT-lite + branching task-graph belief + state-delta tokens. Cached features keep the trainable path compact.","textChars":132,"textLines":2,"bbox":[651.18,426.47,545.94,68.54]}
+{"kind":"shape","id":"sh/yp8fqdwf","slide":15,"name":"Shape 11","bbox":[582.06,529.92,637.14,113.28]}
+{"kind":"shape","id":"sh/zqhgjid0","slide":15,"name":"Shape 12","bbox":[603.18,552.96,32.64,67.2]}
+{"kind":"textbox","id":"sh/krqxsnel","slide":15,"name":"Text 13","text":"Live outputs\nStep, completion, state delta, mistake type / UNKNOWN, PNR, evidence region, uncertainty and approved recovery.","textPreview":"Live outputs | Step, completion, state delta, mistake type / UNKNOWN, PNR, evidence region, uncertainty and approved recovery.","textChars":124,"textLines":2,"bbox":[651.18,555.11,545.94,68.54]}
+{"kind":"textbox","id":"sh/lszylsvq","slide":15,"name":"Text 14","text":"IndustReal — Procedure Intelligence Architecture","textPreview":"IndustReal — Procedure Intelligence Architecture","textChars":48,"textLines":1,"bbox":[52.8,683.27,758.4,24]}
+{"kind":"textbox","id":"sh/a1ofmdw3","slide":15,"name":"Text 15","text":"15","textPreview":"15","textChars":2,"textLines":1,"bbox":[1195.2,683.27,28.8,24]}
+{"kind":"image","id":"im/sfipsr2h","slide":15,"name":"Image 0","alt":"Architecture1.png","bbox":[67.2,129.6,462.06,532.8]}
+{"kind":"notes","id":"nt/vaxsvy10","slide":15,"text":"Walk the uploaded v2 diagram left to right. Key point: only the head (orange) is trained — the 1B backbone stays frozen, which is why the whole thing fine-tunes on a single 24 GB card. Viterbi is procedure-aware decoding; verification fuses the step and type heads."}
+{"kind":"slide","id":"sl/gny5sjyp","slide":16,"title":"Slide 16","textShapes":0}
+{"kind":"shape","id":"sh/1ojy10ne","slide":16,"name":"Rectangle 11","bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/nqlg3a5k","slide":16,"name":"Rectangle 13","bbox":[279.96,-279.91,720,1279.92]}
+{"kind":"shape","id":"sh/ps3y5knq","slide":16,"name":"Rectangle 15","bbox":[-0.24,0,952.32,719.96]}
+{"kind":"shape","id":"sh/bulg7u5g","slide":16,"name":"Rectangle 17","bbox":[383.15,-176.99,513.86,1280.16]}
+{"kind":"image","id":"im/pgval4ru","slide":16,"name":"Picture 1","alt":"candidate-b-pjepa.svg","bbox":[48,48,1184,624]}
+{"kind":"image","id":"im/dcrap4jy","slide":16,"name":"","alt":"candidate-b-pjepa.svg","bbox":[48,48,1184,624]}
+{"kind":"notes","id":"nt/gny5sjyp","slide":16,"text":""}
+{"kind":"slide","id":"sl/14bup87q","slide":17,"title":"Candidate B learns procedure context from unlabeled runs","textShapes":7}
+{"kind":"textbox","id":"sh/qxw7y9wj","slide":17,"name":"Text 0","text":"Candidate B learns procedure context from unlabeled runs","textPreview":"Candidate B learns procedure context from unlabeled runs","textChars":56,"textLines":1,"bbox":[52.8,45.39,1171.2,43.2]}
+{"kind":"textbox","id":"sh/2xsnuxcz","slide":17,"name":"Text 1","text":"P-JEPA is a stronger next step than concatenating two frozen giant encoders","textPreview":"P-JEPA is a stronger next step than concatenating two frozen giant encoders","textChars":75,"textLines":1,"bbox":[54.72,105.97,1171.2,20.8]}
+{"kind":"shape","id":"sh/ny1o32dk","slide":17,"name":"Shape 2","bbox":[648.59,159.77,436.8,340.8]}
+{"kind":"textbox","id":"sh/oza5w7u5","slide":17,"name":"Text 3","text":"Why it helps","textPreview":"Why it helps","textChars":12,"textLines":1,"bbox":[675.47,181.55,383.04,24]}
+{"kind":"textbox","id":"sh/p0j65cvq","slide":17,"name":"Text 4","text":"Long-horizon context.\nMask and predict latent segments across complete procedures.\n\nLabel efficiency.\nPretrain on normal, partial and multi-view recordings before task supervision.\n\nState remains explicit.\nKeep the relation graph and task graph; P-JEPA supplies progress-aware context.","textPreview":"Long-horizon context. | Mask and predict latent segments across complete procedures. |  | Label efficiency. | Pretrain on normal, partial...","textChars":285,"textLines":8,"bbox":[675.47,217.37,383.04,206.91]}
+{"kind":"shape","id":"sh/e98nqxc3","slide":17,"name":"Shape 5","bbox":[52.8,572.95,1171.2,100.8]}
+{"kind":"textbox","id":"sh/fa1oz2do","slide":17,"name":"Text 6","text":"24 GB: cache backbone features and train the contextualizer + heads. Multi-GPU: jointly adapt late video blocks and pretrain across views. Keep the dual-backbone concatenation only as an ablation—it adds semantics but does not solve physical state or procedure structure.","textPreview":"24 GB: cache backbone features and train the contextualizer + heads. Multi-GPU: jointly adapt late video blocks and pretrain across views...","textChars":271,"textLines":1,"bbox":[76.8,604.86,1123.2,39.55]}
+{"kind":"textbox","id":"sh/0va5s7u9","slide":17,"name":"Text 7","text":"IndustReal — Procedure Intelligence Architecture","textPreview":"IndustReal — Procedure Intelligence Architecture","textChars":48,"textLines":1,"bbox":[52.8,683.27,758.4,24]}
+{"kind":"textbox","id":"sh/1wj61svu","slide":17,"name":"Text 8","text":"17","textPreview":"17","textChars":2,"textLines":1,"bbox":[1195.2,683.27,28.8,24]}
+{"kind":"image","id":"im/zqx0julg","slide":17,"name":"industreal_psr_v3_dual_backbone_concat.png","alt":"Architecture2.png","bbox":[158.19,136.63,403.56,426.79]}
+{"kind":"image","id":"im/ypozqp4v","slide":17,"name":"","alt":"Architecture2.png","bbox":[158.19,136.63,403.56,426.79]}
+{"kind":"notes","id":"nt/14bup87q","slide":17,"text":"Position the second encoder as the concrete next accuracy lever. Be precise that it is InternVideo2 (video encoder for features), not InternVL (chat VLM). Honest framing: complementary features, a modest gain, and it does not replace fixing the dataset."}
+{"kind":"slide","id":"sl/y5wne50z","slide":18,"title":"Three candidates create a deliberate accuracy–risk ladder","textShapes":11}
+{"kind":"textbox","id":"sh/6lg3e18f","slide":18,"name":"Rectangle 14","text":"Three candidates create a deliberate accuracy–risk ladder","textPreview":"Three candidates create a deliberate accuracy–risk ladder","textChars":57,"textLines":1,"bbox":[48,38,1160,58]}
+{"kind":"textbox","id":"sh/wrelszu9","slide":18,"name":"Rectangle 1","text":"Build a deterministic specialist core first, add procedural pretraining second, and collaborate with a VLM only on sparse evidence packets.","textPreview":"Build a deterministic specialist core first, add procedural pretraining second, and collaborate with a VLM only on sparse evidence packets.","textChars":139,"textLines":1,"bbox":[48,104,1070,32]}
+{"kind":"shape","id":"sh/hsn2l4bu","slide":18,"name":"reason-1","bbox":[48,164,352,468]}
+{"kind":"shape","id":"sh/itw3upcf","slide":18,"name":"reason-2","bbox":[449,164,352,468]}
+{"kind":"shape","id":"sh/je5knut0","slide":18,"name":"reason-3","bbox":[850,164,352,468]}
+{"kind":"textbox","id":"sh/4felwzu5","slide":18,"name":"Rectangle 5","text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[72,188,45,30]}
+{"kind":"textbox","id":"sh/5gnmp4bq","slide":18,"name":"Rectangle 6","text":"StateGraph-PSR","textPreview":"StateGraph-PSR","textChars":14,"textLines":1,"bbox":[72,410,300,54]}
+{"kind":"textbox","id":"sh/6hw3y9sb","slide":18,"name":"Rectangle 7","text":"RECOMMENDED FIRST BUILD\nStrong live state tracking, branching procedure belief, explicit errors and auditable recovery.","textPreview":"RECOMMENDED FIRST BUILD | Strong live state tracking, branching procedure belief, explicit errors and auditable recovery.","textChars":119,"textLines":2,"bbox":[72,474,300,118]}
+{"kind":"textbox","id":"sh/rip4retw","slide":18,"name":"Rectangle 8","text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[473,188,45,30]}
+{"kind":"textbox","id":"sh/fapkr6pw","slide":18,"name":"Rectangle 9","text":"P-JEPA context","textPreview":"P-JEPA context","textChars":14,"textLines":1,"bbox":[473,410,300,54]}
+{"kind":"textbox","id":"sh/upg3i18r","slide":18,"name":"Rectangle 10","text":"BEST RESEARCH PATH\nUse unlabeled full procedures to learn progress and long-horizon context; cached-feature route fits 24 GB.","textPreview":"BEST RESEARCH PATH | Use unlabeled full procedures to learn progress and long-horizon context; cached-feature route fits 24 GB.","textChars":125,"textLines":2,"bbox":[473,474,300,118]}
+{"kind":"textbox","id":"sh/1cr2tg72","slide":18,"name":"Rectangle 11","text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[874,188,45,30]}
+{"kind":"textbox","id":"sh/gbylkbqh","slide":18,"name":"Rectangle 12","text":"Triggered VLM","textPreview":"Triggered VLM","textChars":13,"textLines":1,"bbox":[874,410,300,54]}
+{"kind":"textbox","id":"sh/7mpknmp0","slide":18,"name":"Rectangle 13","text":"SEMANTIC ADD-ON\nAdjudicate uncertain or high-impact events and explain evidence; never be the sole continuous alert detector.","textPreview":"SEMANTIC ADD-ON | Adjudicate uncertain or high-impact events and explain evidence; never be the sole continuous alert detector.","textChars":125,"textLines":2,"bbox":[874,474,300,118]}
+{"kind":"shape","id":"sh/srad07yh","slide":18,"name":"Straight Arrow Connector 34","bbox":[48,672,1184,0.1]}
+{"kind":"image","id":"im/kvu547q5","slide":18,"name":"Picture 37","alt":"mini-specialist-core.svg","bbox":[72,226,304,171]}
+{"kind":"image","id":"im/lw36xcrq","slide":18,"name":"Picture 38","alt":"mini-pjepa.svg","bbox":[473,226,304,171]}
+{"kind":"image","id":"im/ytcn2x8f","slide":18,"name":"Picture 39","alt":"mini-vlm.svg","bbox":[874,226,304,171]}
+{"kind":"notes","id":"nt/y5wne50z","slide":18,"text":""}
+{"kind":"slide","id":"sl/nid43ytk","slide":19,"title":"Four label layers turn video into procedure intelligence","textShapes":11}
+{"kind":"textbox","id":"sh/wfy1s7ix","slide":19,"name":"Rectangle 20","text":"Four label layers turn video into procedure intelligence","textPreview":"Four label layers turn video into procedure intelligence","textChars":56,"textLines":1,"bbox":[48,38,1160,58]}
+{"kind":"textbox","id":"sh/9gb6xgbi","slide":19,"name":"Rectangle 1","text":"Every sample links what moved, what changed, what was allowed and what violated the plan.","textPreview":"Every sample links what moved, what changed, what was allowed and what violated the plan.","textChars":89,"textLines":1,"bbox":[48,104,1140,34]}
+{"kind":"shape","id":"sh/8v2pobax","slide":19,"name":"phase-1","bbox":[48,172,278,425]}
+{"kind":"shape","id":"sh/vitozqt8","slide":19,"name":"Rectangle 3","bbox":[48,172,278,10]}
+{"kind":"textbox","id":"sh/ahk7qls3","slide":19,"name":"Rectangle 4","text":"1  ACTION","textPreview":"1  ACTION","textChars":9,"textLines":1,"bbox":[68,205,238,32]}
+{"kind":"textbox","id":"sh/xkbq10be","slide":19,"name":"Rectangle 5","text":"Verb + object + target\nTemporal interval\nHand / tool / part ROIs\nOperator and viewpoint","textPreview":"Verb + object + target | Temporal interval | Hand / tool / part ROIs | Operator and viewpoint","textChars":87,"textLines":4,"bbox":[68,262,238,278]}
+{"kind":"shape","id":"sh/wj2psvat","slide":19,"name":"phase-2","bbox":[350,172,278,425]}
+{"kind":"shape","id":"sh/jmd83atk","slide":19,"name":"Rectangle 7","bbox":[350,172,278,10]}
+{"kind":"textbox","id":"sh/il47u5sz","slide":19,"name":"Rectangle 8","text":"2  PHASE + EVIDENCE","textPreview":"2  PHASE + EVIDENCE","textChars":19,"textLines":1,"bbox":[370,205,238,32]}
+{"kind":"textbox","id":"sh/cri1gnql","slide":19,"name":"Rectangle 9","text":"Before / approach\nContact / manipulation\nPNR / completion\nEffect verification","textPreview":"Before / approach | Contact / manipulation | PNR / completion | Effect verification","textChars":77,"textLines":4,"bbox":[370,262,238,278]}
+{"kind":"shape","id":"sh/dsri9sr6","slide":19,"name":"phase-3","bbox":[652,172,278,425]}
+{"kind":"shape","id":"sh/qpgjex8f","slide":19,"name":"Rectangle 11","bbox":[652,172,278,10]}
+{"kind":"textbox","id":"sh/rqp07290","slide":19,"name":"Rectangle 12","text":"3  PHYSICAL STATE","textPreview":"3  PHYSICAL STATE","textChars":17,"textLines":1,"bbox":[672,205,238,32]}
+{"kind":"textbox","id":"sh/0vi1k7qx","slide":19,"name":"Rectangle 13","text":"Part present / selected\nPose / alignment\nConnection graph\nTorque / count / damage","textPreview":"Part present / selected | Pose / alignment | Connection graph | Torque / count / damage","textChars":81,"textLines":4,"bbox":[672,262,238,278]}
+{"kind":"shape","id":"sh/1gridcr2","slide":19,"name":"phase-4","bbox":[954,172,278,425]}
+{"kind":"shape","id":"sh/et0jix8r","slide":19,"name":"Rectangle 15","bbox":[954,172,278,10]}
+{"kind":"textbox","id":"sh/zu90b29c","slide":19,"name":"Rectangle 16","text":"4  PROCEDURE + ERROR","textPreview":"4  PROCEDURE + ERROR","textChars":20,"textLines":1,"bbox":[974,205,238,32]}
+{"kind":"textbox","id":"sh/oj21o7qt","slide":19,"name":"Rectangle 17","text":"Valid predecessors / next\nOptional + parallel branches\nMistake type / role\nRecovery edge + approval","textPreview":"Valid predecessors / next | Optional + parallel branches | Mistake type / role | Recovery edge + approval","textChars":99,"textLines":4,"bbox":[974,262,238,278]}
+{"kind":"shape","id":"sh/9kb2hcre","slide":19,"name":"timing-band","bbox":[48,618,1184,36]}
+{"kind":"textbox","id":"sh/x07i1cji","slide":19,"name":"Rectangle 19","text":"Store evidence around before, first contact, point of no return and observed effect—not just a single step label.","textPreview":"Store evidence around before, first contact, point of no return and observed effect—not just a single step label.","textChars":113,"textLines":1,"bbox":[72,627,1136,22]}
+{"kind":"shape","id":"sh/kna1knux","slide":19,"name":"Straight Arrow Connector 43","bbox":[48,672,1184,0.1]}
+{"kind":"notes","id":"nt/nid43ytk","slide":19,"text":""}
+{"kind":"slide","id":"sl/zyxsni5k","slide":20,"title":"A hierarchical taxonomy turns ‘incorrect’ into an actionable diagnosis","textShapes":11}
+{"kind":"textbox","id":"sh/tcz6dk7m","slide":20,"name":"Rectangle 20","text":"A hierarchical taxonomy turns ‘incorrect’ into an actionable diagnosis","textPreview":"A hierarchical taxonomy turns ‘incorrect’ into an actionable diagnosis","textChars":70,"textLines":1,"bbox":[48,38,1160,58]}
+{"kind":"textbox","id":"sh/qpwjmh8n","slide":20,"name":"Rectangle 1","text":"Predict parent type, subtype, violated semantic role, PNR, evidence region and calibrated uncertainty.","textPreview":"Predict parent type, subtype, violated semantic role, PNR, evidence region and calibrated uncertainty.","textChars":102,"textLines":1,"bbox":[48,104,1140,34]}
+{"kind":"shape","id":"sh/rq50vmp8","slide":20,"name":"phase-1","bbox":[48,172,278,425]}
+{"kind":"shape","id":"sh/4nu1krqh","slide":20,"name":"Rectangle 3","bbox":[48,172,278,10]}
+{"kind":"textbox","id":"sh/po3itc72","slide":20,"name":"Rectangle 4","text":"PROCEDURE","textPreview":"PROCEDURE","textChars":9,"textLines":1,"bbox":[68,205,238,32]}
+{"kind":"textbox","id":"sh/2lczih8r","slide":20,"name":"Rectangle 5","text":"Omitted / skipped\nWrong order\nRepeated / extra\nPremature / late\nForbidden branch","textPreview":"Omitted / skipped | Wrong order | Repeated / extra | Premature / late | Forbidden branch","textChars":80,"textLines":5,"bbox":[68,262,238,278]}
+{"kind":"shape","id":"sh/3ml0rmpw","slide":20,"name":"phase-2","bbox":[350,172,278,425]}
+{"kind":"shape","id":"sh/gjuhg7ql","slide":20,"name":"Rectangle 7","bbox":[350,172,278,10]}
+{"kind":"textbox","id":"sh/hk3ipcr6","slide":20,"name":"Rectangle 8","text":"SELECTION","textPreview":"SELECTION","textChars":9,"textLines":1,"bbox":[370,205,238,32]}
+{"kind":"textbox","id":"sh/dkfmp4zy","slide":20,"name":"Rectangle 9","text":"Wrong part\nWrong tool\nWrong fastener\nWrong quantity\nWrong variant","textPreview":"Wrong part | Wrong tool | Wrong fastener | Wrong quantity | Wrong variant","textChars":65,"textLines":5,"bbox":[370,262,238,278]}
+{"kind":"shape","id":"sh/cj65wzyd","slide":20,"name":"phase-3","bbox":[652,172,278,425]}
+{"kind":"shape","id":"sh/rid4nuhs","slide":20,"name":"Rectangle 11","bbox":[652,172,278,10]}
+{"kind":"textbox","id":"sh/qh4nupg7","slide":20,"name":"Rectangle 12","text":"SPATIAL","textPreview":"SPATIAL","textChars":7,"textLines":1,"bbox":[672,205,238,32]}
+{"kind":"textbox","id":"sh/pwvmlkzm","slide":20,"name":"Rectangle 13","text":"Wrong target\nWrong orientation\nMisalignment\nWrong connection\nWrong routing","textPreview":"Wrong target | Wrong orientation | Misalignment | Wrong connection | Wrong routing","textChars":74,"textLines":5,"bbox":[672,262,238,278]}
+{"kind":"shape","id":"sh/4vm5sfy1","slide":20,"name":"phase-4","bbox":[954,172,278,425]}
+{"kind":"shape","id":"sh/3ud4juhg","slide":20,"name":"Rectangle 15","bbox":[954,172,278,10]}
+{"kind":"textbox","id":"sh/2t4nqpgb","slide":20,"name":"Rectangle 16","text":"EXECUTION + EFFECT","textPreview":"EXECUTION + EFFECT","textChars":18,"textLines":1,"bbox":[974,205,238,32]}
+{"kind":"textbox","id":"sh/hsvmhkzq","slide":20,"name":"Rectangle 17","text":"Partial insertion\nUnder / over torque\nDropped / damaged\nNo expected state change\nUNKNOWN anomaly","textPreview":"Partial insertion | Under / over torque | Dropped / damaged | No expected state change | UNKNOWN anomaly","textChars":96,"textLines":5,"bbox":[974,262,238,278]}
+{"kind":"shape","id":"sh/grm5ofy5","slide":20,"name":"timing-band","bbox":[48,618,1184,36]}
+{"kind":"textbox","id":"sh/8b654f61","slide":20,"name":"Rectangle 19","text":"Fuse a known-type classifier with normal-only prototype distance. UNKNOWN is a valid safe output, not a failure.","textPreview":"Fuse a known-type classifier with normal-only prototype distance. UNKNOWN is a valid safe output, not a failure.","textChars":112,"textLines":1,"bbox":[72,627,1136,22]}
+{"kind":"shape","id":"sh/50ne1ozi","slide":20,"name":"Straight Arrow Connector 43","bbox":[48,672,1184,0.1]}
+{"kind":"notes","id":"nt/zyxsni5k","slide":20,"text":""}
+{"kind":"slide","id":"sl/m1wvqtk3","slide":21,"title":"A live alert is grounded in before, contact and effect evidence","textShapes":37}
+{"kind":"textbox","id":"sh/1sf25wz6","slide":21,"name":"Text 0","text":"A live alert is grounded in before, contact and effect evidence","textPreview":"A live alert is grounded in before, contact and effect evidence","textChars":63,"textLines":1,"bbox":[52.8,45.39,1171.2,43.2]}
+{"kind":"textbox","id":"sh/0r61wril","slide":21,"name":"Text 1","text":"Example: connector A is inserted where connector B is required","textPreview":"Example: connector A is inserted where connector B is required","textChars":62,"textLines":1,"bbox":[54.72,105.97,1171.2,20.8]}
+{"kind":"shape","id":"sh/nuxk76hc","slide":21,"name":"Shape 2","bbox":[52.8,148.8,432,432]}
+{"kind":"textbox","id":"sh/mtojy10r","slide":21,"name":"Text 3","text":"INPUT","textPreview":"INPUT","textChars":5,"textLines":1,"bbox":[81.6,179.6,374.4,20]}
+{"kind":"shape","id":"sh/9gz29wz2","slide":21,"name":"Shape 4","bbox":[81.6,220.8,88.32,86.4]}
+{"kind":"textbox","id":"sh/ofq10rix","slide":21,"name":"Text 5","text":"▶","textPreview":"▶","textChars":1,"textLines":1,"bbox":[86.4,238.56,78.72,33.6]}
+{"kind":"textbox","id":"sh/3ydkv2hs","slide":21,"name":"Text 6","text":"BEFORE\nselect B","textPreview":"BEFORE | select B","textChars":15,"textLines":2,"bbox":[76.8,288.05,97.92,22.4]}
+{"kind":"shape","id":"sh/2x4jmx0n","slide":21,"name":"Shape 7","bbox":[178.56,220.8,88.32,86.4]}
+{"kind":"textbox","id":"sh/s3ihw3y5","slide":21,"name":"Text 8","text":"▶","textPreview":"▶","textChars":1,"textLines":1,"bbox":[183.36,238.56,78.72,33.6]}
+{"kind":"textbox","id":"sh/t4by58fq","slide":21,"name":"Text 9","text":"REACH\nsocket C","textPreview":"REACH | socket C","textChars":14,"textLines":2,"bbox":[173.76,288.05,97.92,22.4]}
+{"kind":"shape","id":"sh/610zutgf","slide":21,"name":"Shape 10","bbox":[275.52,220.8,88.32,86.4]}
+{"kind":"textbox","id":"sh/729g3yxk","slide":21,"name":"Text 11","text":"▶","textPreview":"▶","textChars":1,"textLines":1,"bbox":[280.32,238.56,78.72,33.6]}
+{"kind":"textbox","id":"sh/kzihsjy9","slide":21,"name":"Text 12","text":"CONTACT\ninsert A","textPreview":"CONTACT | insert A","textChars":16,"textLines":2,"bbox":[270.72,288.05,97.92,22.4]}
+{"kind":"shape","id":"sh/50ry1ofu","slide":21,"name":"Shape 13","bbox":[372.48,220.8,88.32,86.4]}
+{"kind":"textbox","id":"sh/ix0zqtg3","slide":21,"name":"Text 14","text":"▶","textPreview":"▶","textChars":1,"textLines":1,"bbox":[377.28,238.56,78.72,33.6]}
+{"kind":"textbox","id":"sh/jy9gzyxo","slide":21,"name":"Text 15","text":"EFFECT\nA seated","textPreview":"EFFECT | A seated","textChars":15,"textLines":2,"bbox":[367.68,288.05,97.92,22.4]}
+{"kind":"textbox","id":"sh/4vmh4nyd","slide":21,"name":"Text 16","text":"Egocentric RGB-D + optional wrist/tool telemetry","textPreview":"Egocentric RGB-D + optional wrist/tool telemetry","textChars":48,"textLines":1,"bbox":[81.6,338.15,374.4,34.1]}
+{"kind":"textbox","id":"sh/pwvidsfy","slide":21,"name":"Text 17","text":"Object relation tokens: hand, connector A/B, socket C","textPreview":"Object relation tokens: hand, connector A/B, socket C","textChars":53,"textLines":1,"bbox":[81.6,414.54,374.4,34.92]}
+{"kind":"textbox","id":"sh/uh4redk3","slide":21,"name":"Text 18","text":"Task graph expects: insert connector B into socket C","textPreview":"Task graph expects: insert connector B into socket C","textChars":52,"textLines":1,"bbox":[81.6,484.8,374.4,32.13]}
+{"kind":"shape","id":"sh/vixsny1o","slide":21,"name":"Shape 19","bbox":[490.56,364.8,48,0]}
+{"kind":"shape","id":"sh/wj69g329","slide":21,"name":"Shape 20","bbox":[552,148.8,705.6,432]}
+{"kind":"textbox","id":"sh/hkfap8je","slide":21,"name":"Text 21","text":"OUTPUT","textPreview":"OUTPUT","textChars":6,"textLines":1,"bbox":[580.8,179.6,648,20]}
+{"kind":"shape","id":"sh/md4ratkr","slide":21,"name":"Shape 22","bbox":[585.6,225.6,106.61,48]}
+{"kind":"shape","id":"sh/7ed8jy1c","slide":21,"name":"Shape 23","bbox":[694.13,225.6,100.22,48]}
+{"kind":"shape","id":"sh/8fm9c32x","slide":21,"name":"Shape 24","bbox":[796.27,225.6,138.53,48]}
+{"kind":"shape","id":"sh/9gvql8ji","slide":21,"name":"Shape 25","bbox":[936.72,225.6,112.99,48]}
+{"kind":"shape","id":"sh/ypkr6tkv","slide":21,"name":"Shape 26","bbox":[1051.63,225.6,93.84,48]}
+{"kind":"shape","id":"sh/zad8fe1g","slide":21,"name":"Shape 27","bbox":[1147.39,225.6,74.69,48]}
+{"kind":"textbox","id":"sh/14julw3y","slide":21,"name":"Text 28","text":"LIVE EVENT TIMELINE","textPreview":"LIVE EVENT TIMELINE","textChars":19,"textLines":1,"bbox":[585.6,281.81,638.4,14.4]}
+{"kind":"shape","id":"sh/03atcrmd","slide":21,"name":"Shape 29","bbox":[580.8,313.92,648,34.56]}
+{"kind":"textbox","id":"sh/f21cjmls","slide":21,"name":"Text 30","text":"00:78–79","textPreview":"00:78–79","textChars":8,"textLines":1,"bbox":[585.6,323.87,153.6,16]}
+{"kind":"textbox","id":"sh/e1sbah47","slide":21,"name":"Text 31","text":"step","textPreview":"step","textChars":4,"textLines":1,"bbox":[744,324.15,297.6,17.6]}
+{"kind":"textbox","id":"sh/d0zuhc3m","slide":21,"name":"Text 32","text":"select_connector_B  ✓ expected","textPreview":"select_connector_B  ✓ expected","textChars":30,"textLines":1,"bbox":[1046.4,322.25,182.4,35.2]}
+{"kind":"textbox","id":"sh/sfqt87mh","slide":21,"name":"Text 33","text":"00:79–80","textPreview":"00:79–80","textChars":8,"textLines":1,"bbox":[585.6,358.43,153.6,16]}
+{"kind":"textbox","id":"sh/rehcf2lw","slide":21,"name":"Text 34","text":"contact","textPreview":"contact","textChars":7,"textLines":1,"bbox":[744,358.71,297.6,17.6]}
+{"kind":"textbox","id":"sh/6d8b6x4b","slide":21,"name":"Text 35","text":"connector_A → socket_C  ✕ wrong part","textPreview":"connector_A → socket_C  ✕ wrong part","textChars":36,"textLines":1,"bbox":[1046.4,356.81,182.4,35.2]}
+{"kind":"shape","id":"sh/5czudc3q","slide":21,"name":"Shape 36","bbox":[580.8,383.04,648,34.56]}
+{"kind":"textbox","id":"sh/4bqt47m5","slide":21,"name":"Text 37","text":"00:80–81","textPreview":"00:80–81","textChars":8,"textLines":1,"bbox":[585.6,392.99,153.6,16]}
+{"kind":"textbox","id":"sh/wrulgryd","slide":21,"name":"Text 38","text":"effect","textPreview":"effect","textChars":6,"textLines":1,"bbox":[744,393.27,297.6,17.6]}
+{"kind":"textbox","id":"sh/hsnm9wfy","slide":21,"name":"Text 39","text":"A inserted_into C  ✕ wrong connection","textPreview":"A inserted_into C  ✕ wrong connection","textChars":37,"textLines":1,"bbox":[1046.4,391.37,182.4,35.2]}
+{"kind":"textbox","id":"sh/u5c3e1g7","slide":21,"name":"Text 40","text":"00:81.4","textPreview":"00:81.4","textChars":7,"textLines":1,"bbox":[585.6,427.55,153.6,16]}
+{"kind":"textbox","id":"sh/v6lk76xs","slide":21,"name":"Text 41","text":"PNR","textPreview":"PNR","textChars":3,"textLines":1,"bbox":[744,427.83,297.6,17.6]}
+{"kind":"textbox","id":"sh/83ulcry1","slide":21,"name":"Text 42","text":"mismatch becomes irreversible  ⚠ alert","textPreview":"mismatch becomes irreversible  ⚠ alert","textChars":38,"textLines":1,"bbox":[1046.4,425.93,182.4,35.2]}
+{"kind":"shape","id":"sh/94325wzm","slide":21,"name":"Shape 43","bbox":[580.8,452.16,648,34.56]}
+{"kind":"textbox","id":"sh/m1c3ahgb","slide":21,"name":"Text 44","text":"00:82–84","textPreview":"00:82–84","textChars":8,"textLines":1,"bbox":[585.6,462.11,153.6,16]}
+{"kind":"textbox","id":"sh/72lk3mhg","slide":21,"name":"Text 45","text":"recovery","textPreview":"recovery","textChars":8,"textLines":1,"bbox":[744,462.39,297.6,17.6]}
+{"kind":"textbox","id":"sh/szylobyl","slide":21,"name":"Text 46","text":"disconnect A  ✓ approved operation","textPreview":"disconnect A  ✓ approved operation","textChars":34,"textLines":1,"bbox":[1046.4,461.57,182.4,35.2]}
+{"kind":"textbox","id":"sh/d07mhgfq","slide":21,"name":"Text 47","text":"00:84–86","textPreview":"00:84–86","textChars":8,"textLines":1,"bbox":[585.6,496.67,153.6,16]}
+{"kind":"textbox","id":"sh/nu9onuh8","slide":21,"name":"Text 48","text":"verify","textPreview":"verify","textChars":6,"textLines":1,"bbox":[744,496.95,297.6,17.6]}
+{"kind":"textbox","id":"sh/2t0nep0n","slide":21,"name":"Text 49","text":"B connected_to C  ✓ back on track","textPreview":"B connected_to C  ✓ back on track","textChars":33,"textLines":1,"bbox":[1046.4,495.05,182.4,35.2]}
+{"kind":"shape","id":"sh/pgr69kzy","slide":21,"name":"Shape 50","bbox":[580.8,528.96,648,48]}
+{"kind":"textbox","id":"sh/ovipgfit","slide":21,"name":"Text 51","text":"IMMEDIATE ALERT: wrong connection at 81.4 s — disconnect A, inspect C, then insert B","textPreview":"IMMEDIATE ALERT: wrong connection at 81.4 s — disconnect A, inspect C, then insert B","textChars":84,"textLines":1,"bbox":[595.2,545.91,628.8,18]}
+{"kind":"textbox","id":"sh/bitobuh4","slide":21,"name":"Text 52","text":"IndustReal — Procedure Intelligence Architecture","textPreview":"IndustReal — Procedure Intelligence Architecture","textChars":48,"textLines":1,"bbox":[52.8,683.27,758.4,24]}
+{"kind":"textbox","id":"sh/ah07ip0j","slide":21,"name":"Text 53","text":"21","textPreview":"21","textChars":2,"textLines":1,"bbox":[1195.2,683.27,28.8,24]}
+{"kind":"notes","id":"nt/m1wvqtk3","slide":21,"text":"Concrete I/O. The timeline is the step head; the ✓/✗ column is the type head; the verdict fuses them. Note the example deliberately shows a caught 'incorrect' — that's the compliance value proposition, and also the exact thing that is weakest today (next slides)."}
+{"kind":"slide","id":"sl/5onypobq","slide":22,"title":"Slide 22","textShapes":0}
+{"kind":"shape","id":"sh/3ixor29c","slide":22,"name":"Rectangle 11","bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/hgf6pcr6","slide":22,"name":"Rectangle 13","bbox":[279.96,-279.91,720,1279.92]}
+{"kind":"shape","id":"sh/fexon290","slide":22,"name":"Rectangle 15","bbox":[-0.24,0,952.32,719.96]}
+{"kind":"shape","id":"sh/1cj61w7q","slide":22,"name":"Rectangle 17","bbox":[383.15,-176.99,513.86,1280.16]}
+{"kind":"image","id":"im/napkzil8","slide":22,"name":"Picture 1","alt":"mistake-attribution.svg","bbox":[48,48,1184,624]}
+{"kind":"image","id":"im/relg7e10","slide":22,"name":"","alt":"mistake-attribution.svg","bbox":[48,48,1184,624]}
+{"kind":"notes","id":"nt/5onypobq","slide":22,"text":""}
+{"kind":"slide","id":"sl/c7uhcr6t","slide":23,"title":"Mistakes are detected by three independent residuals","textShapes":7}
+{"kind":"textbox","id":"sh/m5gbm9wn","slide":23,"name":"Text 0","text":"Mistakes are detected by three independent residuals","textPreview":"Mistakes are detected by three independent residuals","textChars":52,"textLines":1,"bbox":[52.8,45.39,1171.2,43.2]}
+{"kind":"textbox","id":"sh/udwfads7","slide":23,"name":"Text 1","text":"Procedure mismatch + normal-prototype distance + action-effect contradiction","textPreview":"Procedure mismatch + normal-prototype distance + action-effect contradiction","textChars":76,"textLines":1,"bbox":[54.72,105.97,1171.2,20.8]}
+{"kind":"shape","id":"sh/ve5gjitc","slide":23,"name":"Shape 2","bbox":[648.59,159.77,436.8,340.8]}
+{"kind":"textbox","id":"sh/wfexc3ax","slide":23,"name":"Text 3","text":"Why it works","textPreview":"Why it works","textChars":12,"textLines":1,"bbox":[675.47,181.55,383.04,24]}
+{"kind":"textbox","id":"sh/hgnyl8bi","slide":23,"name":"Text 4","text":"Procedure residual.\nCompare the observed action with every valid next action in the current task-graph belief.\n\nExecution residual.\nCompare the live segment with multiple history-conditioned normal prototypes.\n\nEffect residual.\nContrast predicted state delta with the observed relation graph after contact.","textPreview":"Procedure residual. | Compare the observed action with every valid next action in the current task-graph belief. |  | Execution residual....","textChars":306,"textLines":8,"bbox":[675.47,217.37,383.04,206.91]}
+{"kind":"shape","id":"sh/ihgfeds3","slide":23,"name":"Shape 5","bbox":[52.8,572.95,1171.2,100.8]}
+{"kind":"textbox","id":"sh/jipgnito","slide":23,"name":"Text 6","text":"Fuse the three residuals into known type / UNKNOWN, violated semantic role, PNR, evidence ROI and confidence. Package four key moments—before, contact, PNR, effect—for human review or event-triggered VLM adjudication. This follows the structure exposed by AMNAR, EgoPED, AXG-Reasoner, MATT and action-effect modeling.","textPreview":"Fuse the three residuals into known type / UNKNOWN, violated semantic role, PNR, evidence ROI and confidence. Package four key moments—be...","textChars":317,"textLines":1,"bbox":[76.8,604.86,1123.2,39.55]}
+{"kind":"textbox","id":"sh/4jyxgna9","slide":23,"name":"Text 7","text":"IndustReal — Procedure Intelligence Architecture","textPreview":"IndustReal — Procedure Intelligence Architecture","textChars":48,"textLines":1,"bbox":[52.8,683.27,758.4,24]}
+{"kind":"textbox","id":"sh/5k7ypsbu","slide":23,"name":"Text 8","text":"23","textPreview":"23","textChars":2,"textLines":1,"bbox":[1195.2,683.27,28.8,24]}
+{"kind":"image","id":"im/7etw3qhk","slide":23,"name":"industreal_psr_v3_dual_backbone_concat.png","alt":"attribution-evidence.svg","bbox":[158.19,136.63,403.56,426.79]}
+{"kind":"image","id":"im/6dkful0z","slide":23,"name":"","alt":"attribution-evidence.svg","bbox":[158.19,136.63,403.56,426.79]}
+{"kind":"notes","id":"nt/c7uhcr6t","slide":23,"text":"Position the second encoder as the concrete next accuracy lever. Be precise that it is InternVideo2 (video encoder for features), not InternVL (chat VLM). Honest framing: complementary features, a modest gain, and it does not replace fixing the dataset."}
+{"kind":"slide","id":"sl/7qto7e10","slide":24,"title":"Slide 24","textShapes":0}
+{"kind":"shape","id":"sh/mtwz6h0f","slide":24,"name":"Rectangle 11","bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/wzyhcrih","slide":24,"name":"Rectangle 13","bbox":[279.96,-279.91,720,1279.92]}
+{"kind":"shape","id":"sh/axgza10b","slide":24,"name":"Rectangle 15","bbox":[-0.24,0,952.32,719.96]}
+{"kind":"shape","id":"sh/c3uh07id","slide":24,"name":"Rectangle 17","bbox":[383.15,-176.99,513.86,1280.16]}
+{"kind":"image","id":"im/mh0ri507","slide":24,"name":"Picture 1","alt":"future-recovery.svg","bbox":[48,48,1184,624]}
+{"kind":"image","id":"im/ip436tob","slide":24,"name":"","alt":"future-recovery.svg","bbox":[48,48,1184,624]}
+{"kind":"notes","id":"nt/7qto7e10","slide":24,"text":""}
+{"kind":"slide","id":"sl/69wfm9o7","slide":25,"title":"Recovery is constrained graph search, not free-form generation","textShapes":7}
+{"kind":"textbox","id":"sh/mh8361gb","slide":25,"name":"Text 0","text":"Recovery is constrained graph search, not free-form generation","textPreview":"Recovery is constrained graph search, not free-form generation","textChars":62,"textLines":1,"bbox":[52.8,45.39,1171.2,43.2]}
+{"kind":"textbox","id":"sh/it4ryt03","slide":25,"name":"Text 1","text":"Predict future state in latent predicates; select only approved repair operations","textPreview":"Predict future state in latent predicates; select only approved repair operations","textChars":81,"textLines":1,"bbox":[54.72,105.97,1171.2,20.8]}
+{"kind":"shape","id":"sh/judsry1o","slide":25,"name":"Shape 2","bbox":[648.59,159.77,436.8,340.8]}
+{"kind":"textbox","id":"sh/kvm903i9","slide":25,"name":"Text 3","text":"Guardrails","textPreview":"Guardrails","textChars":10,"textLines":1,"bbox":[675.47,181.55,383.04,24]}
+{"kind":"textbox","id":"sh/5gvat8ju","slide":25,"name":"Text 4","text":"Anticipate.\nPredict valid next actions at horizons 1 / 3 / 5 and the resulting part-relation graph.\n\nScore risk.\nEstimate failure probability, uncertainty and irreversible state transitions.\n\nRepair safely.\nSearch a versioned recovery graph for the shortest verified route to a valid state; escalation is always allowed.","textPreview":"Anticipate. | Predict valid next actions at horizons 1 / 3 / 5 and the resulting part-relation graph. |  | Score risk. | Estimate failure...","textChars":320,"textLines":8,"bbox":[675.47,217.37,383.04,206.91]}
+{"kind":"shape","id":"sh/ap4ru907","slide":25,"name":"Shape 5","bbox":[52.8,572.95,1171.2,100.8]}
+{"kind":"textbox","id":"sh/vqdsne1s","slide":25,"name":"Text 6","text":"A VLM may phrase the approved plan, explain evidence and retrieve an expert clip. It cannot invent a repair operation. Re-run state verification after every correction and stop when evidence is uncertain, the operation is unapproved or damage is possible.","textPreview":"A VLM may phrase the approved plan, explain evidence and retrieve an expert clip. It cannot invent a repair operation. Re-run state verif...","textChars":255,"textLines":1,"bbox":[76.8,604.86,1123.2,39.55]}
+{"kind":"textbox","id":"sh/wrm9wjix","slide":25,"name":"Text 7","text":"IndustReal — Procedure Intelligence Architecture","textPreview":"IndustReal — Procedure Intelligence Architecture","textChars":48,"textLines":1,"bbox":[52.8,683.27,758.4,24]}
+{"kind":"textbox","id":"sh/xsvapoji","slide":25,"name":"Text 8","text":"25","textPreview":"25","textChars":2,"textLines":1,"bbox":[1195.2,683.27,28.8,24]}
+{"kind":"image","id":"im/ne1kn61k","slide":25,"name":"industreal_psr_v3_dual_backbone_concat.png","alt":"recovery-guardrails.svg","bbox":[158.19,136.63,403.56,426.79]}
+{"kind":"image","id":"im/mds3e10z","slide":25,"name":"","alt":"recovery-guardrails.svg","bbox":[158.19,136.63,403.56,426.79]}
+{"kind":"notes","id":"nt/69wfm9o7","slide":25,"text":"Position the second encoder as the concrete next accuracy lever. Be precise that it is InternVideo2 (video encoder for features), not InternVL (chat VLM). Honest framing: complementary features, a modest gain, and it does not replace fixing the dataset."}
+{"kind":"slide","id":"sl/l0bepsfm","slide":26,"title":"Candidate A is the only complete first build","textShapes":6}
+{"kind":"textbox","id":"sh/tc7qpg32","slide":26,"name":"Text 0","text":"Candidate A is the only complete first build","textPreview":"Candidate A is the only complete first build","textChars":44,"textLines":1,"bbox":[52.8,45.39,1171.2,43.2]}
+{"kind":"textbox","id":"sh/pgzmh8je","slide":26,"name":"Text 1","text":"Model choice is based on live operation, physical state, open-set errors and 24 GB feasibility","textPreview":"Model choice is based on live operation, physical state, open-set errors and 24 GB feasibility","textChars":94,"textLines":1,"bbox":[54.72,105.97,1171.2,20.8]}
+{"kind":"shape","id":"sh/3eh4fy18","slide":26,"name":"Shape 2","bbox":[52.8,494.4,571.2,148.8]}
+{"kind":"textbox","id":"sh/2d8n6t0n","slide":26,"name":"Text 3","text":"Recommendation\n\nBuild Candidate A first. It is the only design that closes the loop from action → state → mistake → future → approved recovery while remaining trainable on one 24 GB GPU.","textPreview":"Recommendation |  | Build Candidate A first. It is the only design that closes the loop from action → state → mistake → future → approved...","textChars":186,"textLines":3,"bbox":[76.8,513.6,528,82.4]}
+{"kind":"shape","id":"sh/dkj6l8ja","slide":26,"name":"Shape 4","bbox":[652.8,494.4,571.2,148.8]}
+{"kind":"textbox","id":"sh/cja5cnip","slide":26,"name":"Text 5","text":"VLM role\n\nUse Qwen3-VL-4B/8B in 4-bit or ProVideLLM only for event-triggered adjudication, explanation and evidence retrieval—not as the sole safety detector.","textPreview":"VLM role |  | Use Qwen3-VL-4B/8B in 4-bit or ProVideLLM only for event-triggered adjudication, explanation and evidence retrieval—not as ...","textChars":158,"textLines":3,"bbox":[676.8,513.6,528,82.4]}
+{"kind":"textbox","id":"sh/bihoji14","slide":26,"name":"Text 6","text":"IndustReal — Procedure Intelligence Architecture","textPreview":"IndustReal — Procedure Intelligence Architecture","textChars":48,"textLines":1,"bbox":[52.8,683.27,758.4,24]}
+{"kind":"textbox","id":"sh/qh8nad0z","slide":26,"name":"Text 7","text":"26","textPreview":"26","textChars":2,"textLines":1,"bbox":[1195.2,683.27,28.8,24]}
+{"kind":"table","id":"tb/gzmpwry1","slide":26,"name":"Table 0","rows":6,"cols":7,"preview":"Candidate | 24 GB | Live | State | Unseen | Future | Decision","bbox":[52.8,148.8,1171.2,283.2]}
+{"kind":"notes","id":"nt/l0bepsfm","slide":26,"text":"Numbers are the measured test-split results. Lead with DiffAct++ as best offline. Note the real-time row honestly — the streaming gap is real and is a separate work item."}
+{"kind":"slide","id":"sl/4vyxknqp","slide":27,"title":"The experiment sequence isolates one architectural question at a time","textShapes":6}
+{"kind":"textbox","id":"sh/z6xonqlw","slide":27,"name":"Text 0","text":"The experiment sequence isolates one architectural question at a time","textPreview":"The experiment sequence isolates one architectural question at a time","textChars":69,"textLines":1,"bbox":[52.8,45.39,1171.2,43.2]}
+{"kind":"textbox","id":"sh/jydkjipc","slide":27,"name":"Text 1","text":"Advance only when step accuracy, false-alert rate and calibration improve together","textPreview":"Advance only when step accuracy, false-alert rate and calibration improve together","textChars":82,"textLines":1,"bbox":[54.72,105.97,1171.2,20.8]}
+{"kind":"shape","id":"sh/50v2ls72","slide":27,"name":"Shape 2","bbox":[52.8,494.4,571.2,148.8]}
+{"kind":"textbox","id":"sh/kzmlcn6x","slide":27,"name":"Text 3","text":"Release metrics\n\nOnline F1@50 + edit; state-delta macro-F1; per-type recall; unseen-error AUROC; false alerts/hour; PNR delay; ECE / risk-coverage.","textPreview":"Release metrics |  | Online F1@50 + edit; state-delta macro-F1; per-type recall; unseen-error AUROC; false alerts/hour; PNR delay; ECE / ...","textChars":147,"textLines":3,"bbox":[76.8,513.6,528,82.4]}
+{"kind":"shape","id":"sh/vutkfip0","slide":27,"name":"Shape 4","bbox":[652.8,494.4,571.2,148.8]}
+{"kind":"textbox","id":"sh/a9kj6dof","slide":27,"name":"Text 5","text":"Pilot blockers\n\nHigh-impact false negatives, nuisance false alerts, uncalibrated UNKNOWN decisions, unsafe repair suggestions or p95 alert delay above the operational limit.","textPreview":"Pilot blockers |  | High-impact false negatives, nuisance false alerts, uncalibrated UNKNOWN decisions, unsafe repair suggestions or p95 ...","textChars":173,"textLines":3,"bbox":[676.8,513.6,528,82.4]}
+{"kind":"textbox","id":"sh/xwv2h876","slide":27,"name":"Text 6","text":"IndustReal — Procedure Intelligence Architecture","textPreview":"IndustReal — Procedure Intelligence Architecture","textChars":48,"textLines":1,"bbox":[52.8,683.27,758.4,24]}
+{"kind":"textbox","id":"sh/wvm18n6l","slide":27,"name":"Text 7","text":"27","textPreview":"27","textChars":2,"textLines":1,"bbox":[1195.2,683.27,28.8,24]}
+{"kind":"table","id":"tb/mhsrq9of","slide":27,"name":"Table 0","rows":6,"cols":7,"preview":"Gate | Change | Step | State | Mistake | Latency | Advance if","bbox":[52.8,148.8,1171.2,283.2]}
+{"kind":"notes","id":"nt/4vyxknqp","slide":27,"text":"Numbers are the measured test-split results. Lead with DiffAct++ as best offline. Note the real-time row honestly — the streaming gap is real and is a separate work item."}
+{"kind":"slide","id":"sl/3mdove10","slide":28,"title":"Slide 28","textShapes":0}
+{"kind":"shape","id":"sh/je1o7ax0","slide":28,"name":"Rectangle 11","bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/tk36dkf2","slide":28,"name":"Rectangle 13","bbox":[279.96,-279.91,720,1279.92]}
+{"kind":"shape","id":"sh/7ilobaxw","slide":28,"name":"Rectangle 15","bbox":[-0.24,0,952.32,719.96]}
+{"kind":"shape","id":"sh/9ojm1gfi","slide":28,"name":"Rectangle 17","bbox":[383.15,-176.99,513.86,1280.16]}
+{"kind":"image","id":"im/nq98ry50","slide":28,"name":"Picture 1","alt":"deployment-topology.svg","bbox":[48,48,1184,624]}
+{"kind":"image","id":"im/ru54zuls","slide":28,"name":"","alt":"deployment-topology.svg","bbox":[48,48,1184,624]}
+{"kind":"notes","id":"nt/3mdove10","slide":28,"text":""}
+{"kind":"slide","id":"sl/i5o3q10v","slide":29,"title":"A twelve-week plan reaches a pilot-ready architecture decision","textShapes":9}
+{"kind":"textbox","id":"sh/r2lcjidc","slide":29,"name":"Text 0","text":"A twelve-week plan reaches a pilot-ready architecture decision","textPreview":"A twelve-week plan reaches a pilot-ready architecture decision","textChars":62,"textLines":1,"bbox":[57.6,59.6,1152,44.8]}
+{"kind":"shape","id":"sh/q1cbqdcr","slide":29,"name":"Shape 1","bbox":[86.4,163.2,1104,105.6]}
+{"kind":"shape","id":"sh/1snupcve","slide":29,"name":"Shape 2","bbox":[110.4,184.32,240,63.36]}
+{"kind":"textbox","id":"sh/0retw7ut","slide":29,"name":"Text 3","text":"Weeks 1–2","textPreview":"Weeks 1–2","textChars":9,"textLines":1,"bbox":[115.2,201.26,230.4,32]}
+{"kind":"textbox","id":"sh/f65cn2d8","slide":29,"name":"Text 4","text":"Reproduce v2; define task graph, state predicates, error ontology and leakage-safe splits. Exit: baseline within ±1 point.","textPreview":"Reproduce v2; define task graph, state predicates, error ontology and leakage-safe splits. Exit: baseline within ±1 point.","textChars":122,"textLines":1,"bbox":[374.4,207.25,787.2,42.43]}
+{"kind":"shape","id":"sh/e5cbuxcn","slide":29,"name":"Shape 5","bbox":[86.4,286.08,1104,105.6]}
+{"kind":"shape","id":"sh/hwjad8va","slide":29,"name":"Shape 6","bbox":[110.4,307.2,240,63.36]}
+{"kind":"textbox","id":"sh/gvatk3up","slide":29,"name":"Text 7","text":"Weeks 3–6","textPreview":"Weeks 3–6","textChars":9,"textLines":1,"bbox":[115.2,324.14,230.4,32]}
+{"kind":"textbox","id":"sh/d4vupkju","slide":29,"name":"Text 8","text":"Build causal FACT-lite + hand/tool/part relation graph + state-delta heads. Exit: step and state metrics improve together.","textPreview":"Build causal FACT-lite + hand/tool/part relation graph + state-delta heads. Exit: step and state metrics improve together.","textChars":122,"textLines":1,"bbox":[374.4,330.13,787.2,42.43]}
+{"kind":"shape","id":"sh/c3mtwfi9","slide":29,"name":"Shape 9","bbox":[86.4,408.96,1104,105.6]}
+{"kind":"shape","id":"sh/b2dsna14","slide":29,"name":"Shape 10","bbox":[110.4,430.08,240,63.36]}
+{"kind":"textbox","id":"sh/qhkbu5kj","slide":29,"name":"Text 11","text":"Weeks 7–9","textPreview":"Weeks 7–9","textChars":9,"textLines":1,"bbox":[115.2,447.02,230.4,32]}
+{"kind":"textbox","id":"sh/l8vutkj6","slide":29,"name":"Text 12","text":"Add procedure / execution / effect residuals, PNR localization, known + open-set error heads. Exit: unseen-error and false-alert gates pass.","textPreview":"Add procedure / execution / effect residuals, PNR localization, known + open-set error heads. Exit: unseen-error and false-alert gates pass.","textChars":140,"textLines":1,"bbox":[374.4,453.01,787.2,42.43]}
+{"kind":"shape","id":"sh/07mt0zil","slide":29,"name":"Shape 13","bbox":[86.4,531.84,1104,105.6]}
+{"kind":"shape","id":"sh/z6dcru10","slide":29,"name":"Shape 14","bbox":[110.4,552.96,240,63.36]}
+{"kind":"textbox","id":"sh/y54byp0f","slide":29,"name":"Text 15","text":"Weeks 10–12","textPreview":"Weeks 10–12","textChars":11,"textLines":1,"bbox":[115.2,569.9,230.4,32]}
+{"kind":"textbox","id":"sh/1cbah0jm","slide":29,"name":"Text 16","text":"Add future state, approved recovery search, triggered VLM and edge profiling. Exit: safe plan + calibrated pilot candidate.","textPreview":"Add future state, approved recovery search, triggered VLM and edge profiling. Exit: safe plan + calibrated pilot candidate.","textChars":123,"textLines":1,"bbox":[374.4,575.89,787.2,42.43]}
+{"kind":"notes","id":"nt/i5o3q10v","slide":29,"text":"Close with the roadmap. Two parallel tracks: the cheap model lever (InternVideo2 concat) and the real fix (data + assembly-state perception). Reinforce the 24 GB feasibility."}
+{"kind":"slide","id":"sl/wnqh07ex","slide":30,"title":"Research foundation for the proposed architecture","textShapes":11}
+{"kind":"textbox","id":"sh/8zel8761","slide":30,"name":"Rectangle 20","text":"Research foundation for the proposed architecture","textPreview":"Research foundation for the proposed architecture","textChars":49,"textLines":1,"bbox":[48,38,1160,58]}
+{"kind":"textbox","id":"sh/po72d8nm","slide":30,"name":"Rectangle 1","text":"Primary sources span temporal segmentation, procedure graphs, mistake semantics, state change, anticipation and streaming VLMs.","textPreview":"Primary sources span temporal segmentation, procedure graphs, mistake semantics, state change, anticipation and streaming VLMs.","textChars":127,"textLines":1,"bbox":[48,104,1140,34]}
+{"kind":"shape","id":"sh/o3yl4361","slide":30,"name":"phase-1","bbox":[48,172,278,425]}
+{"kind":"shape","id":"sh/bqpkfy5s","slide":30,"name":"Rectangle 3","bbox":[48,172,278,10]}
+{"kind":"textbox","id":"sh/apg36do7","slide":30,"name":"Rectangle 4","text":"FOUNDATIONS","textPreview":"FOUNDATIONS","textChars":11,"textLines":1,"bbox":[68,205,238,32]}
+{"kind":"textbox","id":"sh/xsr2h8ni","slide":30,"name":"Rectangle 5","text":"VideoMAE V2 — CVPR 2023\nFACT — CVPR 2024\nDiffAct — ICCV 2023\nV-JEPA 2.1 — 2026\nP-JEPA — 2026","textPreview":"VideoMAE V2 — CVPR 2023 | FACT — CVPR 2024 | DiffAct — ICCV 2023 | V-JEPA 2.1 — 2026 | P-JEPA — 2026","textChars":92,"textLines":5,"bbox":[68,262,238,278]}
+{"kind":"shape","id":"sh/cril836d","slide":30,"name":"phase-2","bbox":[350,172,278,425]}
+{"kind":"shape","id":"sh/ru5k3ep8","slide":30,"name":"Rectangle 7","bbox":[350,172,278,10]}
+{"kind":"textbox","id":"sh/6twju9o3","slide":30,"name":"Rectangle 8","text":"PSR + STRUCTURE","textPreview":"PSR + STRUCTURE","textChars":15,"textLines":1,"bbox":[370,205,238,32]}
+{"kind":"textbox","id":"sh/onqx8zix","slide":30,"name":"Rectangle 9","text":"IndustReal — WACV 2024\nSTORM-PSR — 2025\nPREGO — CVPR 2024\nDifferentiable Task Graph — 2024\nAMNAR — CVPR 2025","textPreview":"IndustReal — WACV 2024 | STORM-PSR — 2025 | PREGO — CVPR 2024 | Differentiable Task Graph — 2024 | AMNAR — CVPR 2025","textChars":108,"textLines":5,"bbox":[370,262,238,278]}
+{"kind":"shape","id":"sh/p8ze14zi","slide":30,"name":"phase-3","bbox":[652,172,278,425]}
+{"kind":"shape","id":"sh/2l8f6p0r","slide":30,"name":"Rectangle 11","bbox":[652,172,278,10]}
+{"kind":"textbox","id":"sh/3mhwzu1c","slide":30,"name":"Rectangle 12","text":"MISTAKE + EFFECT","textPreview":"MISTAKE + EFFECT","textChars":16,"textLines":1,"bbox":[672,205,238,32]}
+{"kind":"textbox","id":"sh/cbaxczit","slide":30,"name":"Rectangle 13","text":"EgoPED — CVPR 2024\nGTG2Vid — ICCV 2025\nAction Effect Modeling — 2025\nAXG-Reasoner — CVPR 2026\nMATT / MisFormer — CVPR 2026","textPreview":"EgoPED — CVPR 2024 | GTG2Vid — ICCV 2025 | Action Effect Modeling — 2025 | AXG-Reasoner — CVPR 2026 | MATT / MisFormer — CVPR 2026","textChars":122,"textLines":5,"bbox":[672,262,238,278]}
+{"kind":"shape","id":"sh/dcje54ze","slide":30,"name":"phase-4","bbox":[954,172,278,425]}
+{"kind":"shape","id":"sh/q9sfap03","slide":30,"name":"Rectangle 15","bbox":[954,172,278,10]}
+{"kind":"textbox","id":"sh/ba1w3uh8","slide":30,"name":"Rectangle 16","text":"DATA + VLM","textPreview":"DATA + VLM","textChars":10,"textLines":1,"bbox":[974,205,238,32]}
+{"kind":"textbox","id":"sh/sf6d0fip","slide":30,"name":"Rectangle 17","text":"Assembly101 — CVPR 2022\nCaptainCook4D — NeurIPS 2024\nHoloAssist — ICCV 2023\nProVideLLM — ICCV 2025\nQwen3-VL — 2025","textPreview":"Assembly101 — CVPR 2022 | CaptainCook4D — NeurIPS 2024 | HoloAssist — ICCV 2023 | ProVideLLM — ICCV 2025 | Qwen3-VL — 2025","textChars":114,"textLines":5,"bbox":[974,262,238,278]}
+{"kind":"shape","id":"sh/tgfetkja","slide":30,"name":"timing-band","bbox":[48,618,1184,36]}
+{"kind":"textbox","id":"sh/907mhc7m","slide":30,"name":"Rectangle 19","text":"Full bibliography, links, implementation details and experiment matrix: docs/architecture_research_plan.md","textPreview":"Full bibliography, links, implementation details and experiment matrix: docs/architecture_research_plan.md","textChars":106,"textLines":1,"bbox":[72,627,1136,22]}
+{"kind":"shape","id":"sh/c7i5wvix","slide":30,"name":"Straight Arrow Connector 43","bbox":[48,672,1184,0.1]}
+{"kind":"notes","id":"nt/wnqh07ex","slide":30,"text":""}

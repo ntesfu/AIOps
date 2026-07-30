@@ -10,9 +10,16 @@ build/
 dist/
 *.egg-info/
 runs/
-data/raw/
+data/raw/*
+!data/raw/assembly101/
+data/raw/assembly101/*
+!data/raw/assembly101/subset_manifest.json
+!data/raw/assembly101/ego30_manifest.json
 data/processed/
+data/model_cache/
 *.mp4
 *.mov
 *.avi
 *.mkv
+# Local IndustReal download (keep datasets outside Git)
+dataset.zip
