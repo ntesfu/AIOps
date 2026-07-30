@@ -1284,6 +1284,17 @@ def evaluate(
                     chunk["psr_step_posteriors"] = (
                         torch.softmax(_psr_logits, dim=-1).detach().float().cpu().numpy()
                     )
+                    # Per-frame onset boundary evidence (Lever #2): P(any component
+                    # completes now) from the completion/onset head, used to gate the
+                    # segmental decode's segment ends toward predicted completions.
+                    chunk["psr_step_onset_boundary"] = (
+                        completion_score[sample_index, :length]
+                        .amax(dim=-1)
+                        .detach()
+                        .float()
+                        .cpu()
+                        .numpy()
+                    )
                     if "psr_step_target" in batch:
                         chunk["psr_step_target"] = (
                             batch["psr_step_target"][sample_index, :length]
@@ -1378,6 +1389,7 @@ def evaluate(
                     lag=_step_lag,
                     include_causal=_neural_right_context == 0,
                     include_segmental=True,
+                    boundary_signal=recording.get("psr_step_onset_boundary"),
                 )
             )
             if "psr_step_raw_prediction" in recording:
@@ -1640,6 +1652,9 @@ def evaluate(
             ("segmental", "step_segmental"),
             ("segmental_online", "step_segmental_online"),
             ("segmental_causal", "step_segmental_causal"),
+            ("segmental_onset", "step_segmental_onset"),
+            ("segmental_onset_online", "step_segmental_onset_online"),
+            ("segmental_onset_causal", "step_segmental_onset_causal"),
         ):
             if _step_reports and _key in _step_reports[0]:
                 _seg = _mean_scores([r[_key] for r in _step_reports])

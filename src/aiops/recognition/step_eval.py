@@ -171,6 +171,8 @@ def step_level_report(
     segment_duration_sigma: float = 0.7,
     segment_duration_weight: float = 1.0,
     segment_max_frac: float = 0.6,
+    boundary_signal: np.ndarray | None = None,
+    segment_boundary_weight: float = 3.0,
     overlaps: Sequence[float] = DEFAULT_OVERLAPS,
     ignore_index: int = DEFAULT_IGNORE_INDEX,
 ) -> dict[str, dict[str, float]]:
@@ -192,6 +194,10 @@ def step_level_report(
       causal). It prices whole-segment lengths against a per-step duration prior
       instead of a per-frame stickiness bias, so boundaries land where the length
       model and emissions agree — the Edit / F1@50 lever.
+    - **segmental_onset**/**_online**/**_causal** — present when ``boundary_signal``
+      (per-frame completion/onset probability) is given alongside ``include_segmental``:
+      the same segmental decode but with segment ends gated toward predicted onsets,
+      the causal-friendly boundary cue the duration prior alone cannot supply.
     """
     pred_steps = map_via_lut(fine_prediction, step_lut, ignore_index)
     target_steps = map_via_lut(fine_target, step_lut, ignore_index)
@@ -243,21 +249,40 @@ def step_level_report(
             sigma=segment_duration_sigma,
             weight=segment_duration_weight,
         )
-        seg = semi_markov_decode(
-            log_emissions, seg_transition, duration_logpmf, max_segment=max_segment
-        )
-        report["segmental"] = step_scores(seg, target_steps, overlaps, ignore_index)
-        seg_causal = semi_markov_decode_fixed_lag(
-            log_emissions, seg_transition, duration_logpmf, 0, max_segment=max_segment
-        )
-        report["segmental_causal"] = step_scores(
-            seg_causal, target_steps, overlaps, ignore_index
-        )
-        if lag is not None:
-            seg_online = semi_markov_decode_fixed_lag(
-                log_emissions, seg_transition, duration_logpmf, lag, max_segment=max_segment
+        def _decode_segmental(boundary_logprob):
+            rows = {
+                "": semi_markov_decode(
+                    log_emissions, seg_transition, duration_logpmf,
+                    max_segment=max_segment, boundary_logprob=boundary_logprob,
+                ),
+                "_causal": semi_markov_decode_fixed_lag(
+                    log_emissions, seg_transition, duration_logpmf, 0,
+                    max_segment=max_segment, boundary_logprob=boundary_logprob,
+                ),
+            }
+            if lag is not None:
+                rows["_online"] = semi_markov_decode_fixed_lag(
+                    log_emissions, seg_transition, duration_logpmf, lag,
+                    max_segment=max_segment, boundary_logprob=boundary_logprob,
+                )
+            return rows
+
+        for suffix, path in _decode_segmental(None).items():
+            report[f"segmental{suffix}"] = step_scores(
+                path, target_steps, overlaps, ignore_index
             )
-            report["segmental_online"] = step_scores(
-                seg_online, target_steps, overlaps, ignore_index
-            )
+
+        # Onset-gated variant (Lever #2): the completion/onset head supplies per-frame
+        # boundary evidence, so segment ends snap to predicted completion events. This
+        # is the causal-friendly boundary cue the duration prior alone cannot provide
+        # (an onset is visible the moment it happens; no lookahead needed).
+        if boundary_signal is not None and len(boundary_signal) == len(pred_steps):
+            b = np.asarray(boundary_signal, dtype=np.float64)
+            # ±1-frame tolerance: a boundary at t may be evidenced by an onset at t-1.
+            b_tol = np.maximum(b, np.concatenate([b[:1], b[:-1]]))
+            boundary_logprob = segment_boundary_weight * (b_tol - float(b_tol.mean()))
+            for suffix, path in _decode_segmental(boundary_logprob).items():
+                report[f"segmental_onset{suffix}"] = step_scores(
+                    path, target_steps, overlaps, ignore_index
+                )
     return report

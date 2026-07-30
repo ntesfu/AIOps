@@ -297,6 +297,45 @@ def test_semi_markov_fixed_lag_zero_is_causal():
     assert base[0] == perturbed[0]
 
 
+def test_semi_markov_boundary_gate_snaps_to_onset():
+    # Emissions are ambiguous about exactly where step 0 -> 1 flips over frames 8..12;
+    # an onset spike at frame 10 (the true boundary) should pull the decoded boundary
+    # there under the boundary gate.
+    S = 2
+    T = 20
+    true = np.array([0] * 10 + [1] * 10)
+    probs = np.full((T, S), 0.5)
+    probs[:8, 0] = 0.8
+    probs[12:, 1] = 0.8
+    probs[8:12] = 0.5  # ambiguous band around the boundary
+    probs /= probs.sum(axis=1, keepdims=True)
+    log_e = np.log(probs)
+    log_t = build_transition_matrix(S, self_bias=0.0)
+    dur = build_duration_logpmf(S, max_length=20, mean_length=10.0)
+    onset = np.zeros(T)
+    onset[10] = 1.0  # sharp completion event at the true boundary
+    bl = 4.0 * (onset - onset.mean())
+    gated = semi_markov_decode(log_e, log_t, dur, max_segment=20, boundary_logprob=bl)
+    # boundary (first frame of step 1) should sit at the onset frame
+    gated_boundary = int(np.argmax(gated == 1)) if (gated == 1).any() else T
+    assert gated_boundary == 10
+
+
+def test_step_level_report_includes_segmental_onset():
+    lut = list(range(3))
+    target = [1] * 8 + [2] * 8
+    pred = [1] * 4 + [2] + [1] * 3 + [2] * 8
+    boundary = np.zeros(len(target))
+    boundary[8] = 1.0
+    report = step_level_report(
+        pred, target, lut, num_steps=3, self_bias=3.0, lag=2,
+        include_causal=True, include_segmental=True, boundary_signal=boundary,
+    )
+    assert {"segmental_onset", "segmental_onset_online", "segmental_onset_causal"} <= set(report)
+    for key in ("segmental_onset", "segmental_onset_causal"):
+        assert 0.0 <= report[key]["f1@50"] <= 100.0
+
+
 def test_step_level_report_includes_segmental():
     lut = list(range(3))
     target = [1] * 8 + [2] * 8
